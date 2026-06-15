@@ -10,16 +10,7 @@
 // cleanup script can find and remove exactly the demo rows and nothing else.
 // =====================================================================
 require('dotenv').config();
-const { createClient } = require('@supabase/supabase-js');
-
-const url = process.env.SUPABASE_URL;
-const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
-if (!url || !key) {
-  console.error('Missing SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY in backend/.env');
-  process.exit(1);
-}
-
-const supabase = createClient(url, key, { auth: { persistSession: false } });
+const { supabase } = require('../../lib/supabase');
 
 // Marker stamped on every demo booking (notes column). Cleanup keys off this.
 const DEMO_TAG = '__DEMO__';

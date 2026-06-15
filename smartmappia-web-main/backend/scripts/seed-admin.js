@@ -11,21 +11,10 @@
 // (loaded from .env, same as the server).
 // ---------------------------------------------------------------------
 require('dotenv').config();
-const { createClient } = require('@supabase/supabase-js');
+const { supabase } = require('../lib/supabase');
 
-const url = process.env.SUPABASE_URL;
-const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 const email = (process.env.ADMIN_SEED_EMAIL || 'admin123@smartmappia.com').toLowerCase();
 const password = process.env.ADMIN_SEED_PASSWORD || 'admin123';
-
-if (!url || !serviceRoleKey) {
-  console.error('Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY. Fill in your .env first.');
-  process.exit(1);
-}
-
-const supabase = createClient(url, serviceRoleKey, {
-  auth: { persistSession: false, autoRefreshToken: false },
-});
 
 // Find an existing auth user by email (listUsers is paginated).
 async function findUserByEmail(targetEmail) {

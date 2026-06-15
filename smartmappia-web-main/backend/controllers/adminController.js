@@ -25,7 +25,7 @@ async function listDrivers(req, res) {
   try {
     const { data, error } = await supabase
       .from('profiles')
-      .select('id, full_name, email, whatsapp_number, mobile_number, driver_approved, created_at')
+      .select('id, full_name, email, whatsapp_number, mobile_number, national_id, vehicle_type, vehicle_plate, driver_approved, created_at')
       .eq('role', 'driver')
       .order('created_at', { ascending: false });
     if (error) return res.status(500).json({ error: error.message });

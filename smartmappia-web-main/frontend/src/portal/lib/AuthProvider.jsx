@@ -15,10 +15,14 @@ const PENDING_KEY = 'sm_pending_profile';
 export function AuthProvider({ children }) {
   const [session, setSession] = useState(null);
   const [profile, setProfile] = useState(null);
+  const [profileLoading, setProfileLoading] = useState(false);
+  const [profileError, setProfileError] = useState(null);
   const [loading, setLoading] = useState(true);
   const syncedFor = useRef(null);
 
   async function loadProfile() {
+    setProfileLoading(true);
+    setProfileError(null);
     try {
       const raw = localStorage.getItem(PENDING_KEY);
       const pending = raw ? JSON.parse(raw) : {};
@@ -26,9 +30,12 @@ export function AuthProvider({ children }) {
       localStorage.removeItem(PENDING_KEY);
       setProfile(p);
       return p;
-    } catch {
+    } catch (err) {
       setProfile(null);
+      setProfileError(err.message || 'Could not load your profile.');
       return null;
+    } finally {
+      setProfileLoading(false);
     }
   }
 
@@ -70,6 +77,8 @@ export function AuthProvider({ children }) {
     session,
     user: session?.user || null,
     profile,
+    profileLoading,
+    profileError,
     role: profile?.role || null,
     driverApproved: !!profile?.driverApproved,
     loading,

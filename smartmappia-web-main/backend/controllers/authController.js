@@ -50,11 +50,16 @@ async function syncProfile(req, res) {
           full_name: b.full_name ?? (existing ? undefined : null),
           whatsapp_number: b.whatsapp_number ?? undefined,
           mobile_number: b.mobile_number ?? undefined,
+          date_of_birth: b.date_of_birth ?? undefined,
+          gender: b.gender ?? undefined,
+          national_id: b.national_id ?? undefined,
+          vehicle_type: b.vehicle_type ?? undefined,
+          vehicle_plate: b.vehicle_plate ?? undefined,
           driver_approved: driverApproved,
         },
         { onConflict: 'id' }
       )
-      .select('id, role, full_name, whatsapp_number, mobile_number, email, driver_approved')
+      .select('id, role, full_name, whatsapp_number, mobile_number, email, driver_approved, date_of_birth, gender, national_id, vehicle_type, vehicle_plate')
       .single();
 
     if (error) {
