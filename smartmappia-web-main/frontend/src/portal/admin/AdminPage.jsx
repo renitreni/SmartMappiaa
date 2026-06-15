@@ -181,7 +181,15 @@ function DriversView() {
           <div key={d.id} className="flex items-center justify-between p-3 rounded-xl hover:bg-brand-surface">
             <div className="min-w-0">
               <div className="font-bold text-brand-dark truncate">{d.full_name || '(no name)'}</div>
-              <div className="text-xs text-brand-grey truncate">{d.email} · {d.whatsapp_number || '—'}</div>
+              <div className="text-xs text-brand-grey truncate">
+                {d.email} · {d.mobile_number || d.whatsapp_number || '—'}
+              </div>
+              {(d.vehicle_type || d.vehicle_plate) && (
+                <div className="text-xs text-brand-grey truncate mt-0.5">
+                  {[d.vehicle_type, d.vehicle_plate].filter(Boolean).join(' · ')}
+                  {d.national_id ? ` · ID ${d.national_id}` : ''}
+                </div>
+              )}
             </div>
             <div className="flex items-center gap-2 shrink-0">
               <Badge tone={d.driver_approved ? 'green' : 'amber'}>{d.driver_approved ? 'approved' : 'pending'}</Badge>

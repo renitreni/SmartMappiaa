@@ -14,8 +14,24 @@ function FullScreenSpinner() {
   );
 }
 
+function ProfileSyncError({ message, onRetry }) {
+  return (
+    <PortalShell title="Account setup">
+      <div className="max-w-md mx-auto">
+        <Card className="p-6 text-center">
+          <p className="text-brand-dark font-bold mb-1">Could not load your account</p>
+          <p className="text-sm text-brand-grey mb-4">{message}</p>
+          <button type="button" onClick={onRetry} className={btnPrimary}>
+            Try again
+          </button>
+        </Card>
+      </div>
+    </PortalShell>
+  );
+}
+
 export default function RequireAuth({ role, children }) {
-  const { loading, session, role: userRole } = useAuth();
+  const { loading, session, role: userRole, profileLoading, profileError, refreshProfile } = useAuth();
   const location = useLocation();
 
   if (loading) return <FullScreenSpinner />;
@@ -24,21 +40,32 @@ export default function RequireAuth({ role, children }) {
     return <Navigate to={`/login?next=${encodeURIComponent(location.pathname)}`} replace />;
   }
 
-  // Profile still syncing right after sign-in.
-  if (!userRole) return <FullScreenSpinner />;
+  // Role-specific routes need the synced profile; booking only needs sign-in.
+  if (role) {
+    if (profileLoading) return <FullScreenSpinner />;
 
-  if (role && userRole !== role) {
-    return (
-      <PortalShell title="Wrong account type">
-        <div className="max-w-md mx-auto">
-          <Card className="p-6 text-center">
-            <p className="text-brand-dark font-bold mb-1">This area is for {role}s.</p>
-            <p className="text-sm text-brand-grey mb-4">You are signed in as a {userRole}.</p>
-            <Link to="/" className={btnPrimary}>Go home</Link>
-          </Card>
-        </div>
-      </PortalShell>
-    );
+    if (profileError || !userRole) {
+      return (
+        <ProfileSyncError
+          message={profileError || 'Your profile is still syncing. Please try again.'}
+          onRetry={() => refreshProfile()}
+        />
+      );
+    }
+
+    if (userRole !== role) {
+      return (
+        <PortalShell title="Wrong account type">
+          <div className="max-w-md mx-auto">
+            <Card className="p-6 text-center">
+              <p className="text-brand-dark font-bold mb-1">This area is for {role}s.</p>
+              <p className="text-sm text-brand-grey mb-4">You are signed in as a {userRole}.</p>
+              <Link to="/" className={btnPrimary}>Go home</Link>
+            </Card>
+          </div>
+        </PortalShell>
+      );
+    }
   }
 
   return children;
