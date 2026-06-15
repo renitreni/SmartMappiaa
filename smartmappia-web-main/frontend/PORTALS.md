@@ -17,6 +17,7 @@ heavy lifting: routing, Supabase (auth + realtime + uploads), and free OpenStree
 | `/` | everyone | The marketing landing page. The navbar now has **Sign in** and **Book a Ride**. |
 | `/login`, `/signup` | everyone | Email + password. Signup lets you pick **Rider** or **Driver**. |
 | `/book` | signed-in users | Book a trip → pay by STC Pay (upload the screenshot) → off to tracking. Bounces you to `/login` if you're signed out. |
+| `/pay/:code` | anyone with the code | The payment screen on its own — STC Pay details, the itemized fare, and the proof upload. Deep-linkable (the `/book` flow leads here too). |
 | `/track/:code` | anyone with the code | The star of the show: a **live map** with the driver moving, an ETA ticking down, WhatsApp the driver, pickup/drop-off pins, a cancel button, and the trip timeline. |
 | `/driver` | role: driver | Go online, share GPS, watch the **nearest open requests** roll in, accept one, drive the trip, WhatsApp the rider. Locked until an admin approves you. |
 | `/admin` | role: admin | Review payment screenshots (verify/reject), **approve drivers**, and browse every booking. |
