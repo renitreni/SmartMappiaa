@@ -9,7 +9,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { Upload, CheckCircle2 } from 'lucide-react';
 import { api } from '../lib/api';
 import { uploadProofFile } from '../lib/supabaseClient';
-import { PortalShell, Card, Field, inputClass, btnPrimary, Spinner } from '../components/ui';
+import { PortalShell, Card, Field, fileInputClass, btnPrimary, Spinner } from '../components/ui';
 
 export default function PayPage() {
   const { code } = useParams();
@@ -82,7 +82,7 @@ export default function PayPage() {
                   type="file"
                   accept="image/*,application/pdf"
                   onChange={(e) => setFile(e.target.files?.[0] || null)}
-                  className={inputClass + ' cursor-pointer file:mr-3 file:rounded-lg file:border-0 file:bg-brand-orange file:text-white file:px-3 file:py-1.5 file:font-bold'}
+                  className={fileInputClass}
                 />
               </Field>
               <button onClick={submitProof} disabled={busy} className={btnPrimary + ' w-full mt-4'}>
