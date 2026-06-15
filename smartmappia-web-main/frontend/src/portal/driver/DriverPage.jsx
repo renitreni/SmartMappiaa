@@ -150,17 +150,29 @@ export default function DriverPage() {
   let line = null;
   if (activeRide) {
     markers = [
-      here && { ...here, glyph: '', color: '#2563EB', label: 'You', key: 'me' },
-      activeRide.pickupLat != null && { lat: activeRide.pickupLat, lng: activeRide.pickupLng, glyph: 'P', color: '#FF7E21', label: 'Pickup', key: 'p' },
-      activeRide.dropoffLat != null && { lat: activeRide.dropoffLat, lng: activeRide.dropoffLng, glyph: 'D', color: '#1F2937', label: 'Drop-off', key: 'd' },
+      here && { ...here, type: 'driver', label: 'You', key: 'me' },
+      activeRide.pickupLat != null && { lat: activeRide.pickupLat, lng: activeRide.pickupLng, type: 'pickup', label: 'Pickup', key: 'p' },
+      activeRide.dropoffLat != null && { lat: activeRide.dropoffLat, lng: activeRide.dropoffLng, type: 'dropoff', label: 'Drop-off', key: 'd' },
     ].filter(Boolean);
     if (here && activeRide.pickupLat != null && activeRide.driverRideStatus !== 'started') line = [here, { lat: activeRide.pickupLat, lng: activeRide.pickupLng }];
   } else {
     markers = [
-      here && { ...here, glyph: '', color: '#2563EB', label: 'You', key: 'me' },
-      ...available.filter((r) => r.pickupLat != null).map((r) => ({ lat: r.pickupLat, lng: r.pickupLng, glyph: 'P', color: '#FF7E21', label: r.pickupAddress, key: r.bookingCode })),
+      here && { ...here, type: 'driver', label: 'You', key: 'me' },
+      ...available.filter((r) => r.pickupLat != null).map((r) => ({
+        lat: r.pickupLat,
+        lng: r.pickupLng,
+        type: 'pickup',
+        label: r.pickupAddress,
+        key: r.bookingCode,
+      })),
     ].filter(Boolean);
   }
+
+  const mapLegend = [
+    here && { glyph: '●', color: '#FF7E21', label: 'You' },
+    { glyph: 'P', color: '#FF7E21', label: activeRide ? 'Pickup' : 'Requests' },
+    activeRide && { glyph: 'D', color: '#1F2937', label: 'Drop-off' },
+  ].filter(Boolean);
 
   const sortedAvailable = [...available]
     .map((r) => ({ ...r, dist: here ? haversineKm(here, { lat: r.pickupLat, lng: r.pickupLng }) : null }))
@@ -197,7 +209,9 @@ export default function DriverPage() {
       )}
 
       <div className="grid lg:grid-cols-5 gap-4">
-        <Card className="lg:col-span-3 p-2"><RideMap markers={markers} line={line} height={380} /></Card>
+        <Card className="lg:col-span-3 p-2 overflow-hidden">
+          <RideMap markers={markers} line={line} legend={mapLegend} height={380} />
+        </Card>
 
         <div className="lg:col-span-2 space-y-4">
           {activeRide ? (

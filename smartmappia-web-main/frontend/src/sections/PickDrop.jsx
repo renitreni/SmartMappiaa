@@ -1,17 +1,30 @@
-import React, { useState } from "react";
-import {motion, useTime} from "framer-motion";
+import React, { useState, useMemo } from "react";
+import { motion } from "framer-motion";
 import { Link } from "react-router-dom";
+import { Home, Plane, ArrowRight } from "lucide-react";
+import CustomDropdown from "../components/CustomDropdown";
+import { Field } from "../portal/components/ui";
+import { AIRPORTS, fareBreakdown } from "../portal/lib/constants";
+
+const FARE = fareBreakdown();
+const DISTRICTS = ["Malaz", "Sulamania", "Olaya", "Batha"];
+
+const AIRPORT_OPTIONS = AIRPORTS.map((ap) => ({ value: ap.id, label: ap.name }));
+const DISTRICT_OPTIONS = DISTRICTS.map((dist) => ({ value: dist, label: `${dist} District` }));
 
 const PickDrop = () => {
-    
-    const [serviceType, setServiceType] = useState('to-airport');
-    const [airport, setAirport] = useState('Domestic Airport');
-    const [district, setDistrict] = useState('Olaya');
+    const [serviceType, setServiceType] = useState("house_to_airport");
+    const [airportId, setAirportId] = useState(AIRPORTS[0].id);
+    const [district, setDistrict] = useState("Olaya");
 
-    const currentPrice = airport.includes('International') ? 100 : 80;
-
-    const districts = ["Malaz", "Sulamania", "Olaya", "Batha"];
-    const airports = ["Riyadh - International Airport", "Domestic Airport"];
+    const bookUrl = useMemo(() => {
+        const params = new URLSearchParams({
+            direction: serviceType,
+            airport: airportId,
+            district,
+        });
+        return `/book?${params.toString()}`;
+    }, [serviceType, airportId, district]);
 
     return (
         <section id="pick-drop" className="w-full bg-brand-muted px-8 md:px-20 py-24 border-t border-brand-border">
@@ -52,71 +65,92 @@ const PickDrop = () => {
                     whileInView={{ opacity: 1, scale: 1 }}
                     viewport={{ once: true }}
                     transition={{ duration: 0.6 }}
-                    className="bg-white border border-brand-border rounded-3xl p-8 shadow-xl relative overflow-hidden"
+                    className="bg-white border border-brand-border rounded-3xl p-8 shadow-xl relative overflow-visible"
                     >
-                    <h3 className="text-xl font-black text-brand-black mb-6 tracking-tight">Fare Estimator Simulator</h3>
+                    <h3 className="text-xl font-black text-brand-black mb-6 tracking-tight">Fare Estimator</h3>
                     
                     <div className="grid grid-cols-2 gap-2 bg-brand-surface p-1.5 rounded-xl border border-brand-border mb-6">
-                        <button 
-                        onClick={() => setServiceType('to-airport')}
-                        className={`py-2.5 rounded-lg text-xs md:text-sm font-bold transition-all cursor-pointer ${serviceType === 'to-airport' ? 'bg-brand-orange text-white shadow-md shadow-brand-orange/20' : 'text-brand-grey hover:text-brand-dark'}`}
+                        <button
+                            type="button"
+                            onClick={() => setServiceType("house_to_airport")}
+                            className={`py-2.5 rounded-lg text-xs md:text-sm font-bold transition-all cursor-pointer flex items-center justify-center gap-2 ${
+                                serviceType === "house_to_airport"
+                                    ? "bg-brand-orange text-white shadow-md shadow-brand-orange/20"
+                                    : "text-brand-grey hover:text-brand-dark"
+                            }`}
                         >
-                        House to Airport
+                            <Home size={16} />
+                            House
+                            <ArrowRight size={14} />
+                            <Plane size={16} />
+                            Airport
                         </button>
-                        <button 
-                        onClick={() => setServiceType('from-airport')}
-                        className={`py-2.5 rounded-lg text-xs md:text-sm font-bold transition-all cursor-pointer ${serviceType === 'from-airport' ? 'bg-brand-orange text-white shadow-md shadow-brand-orange/20' : 'text-brand-grey hover:text-brand-dark'}`}
+                        <button
+                            type="button"
+                            onClick={() => setServiceType("airport_to_house")}
+                            className={`py-2.5 rounded-lg text-xs md:text-sm font-bold transition-all cursor-pointer flex items-center justify-center gap-2 ${
+                                serviceType === "airport_to_house"
+                                    ? "bg-brand-orange text-white shadow-md shadow-brand-orange/20"
+                                    : "text-brand-grey hover:text-brand-dark"
+                            }`}
                         >
-                        Airport to House
+                            <Plane size={16} />
+                            Airport
+                            <ArrowRight size={14} />
+                            <Home size={16} />
+                            House
                         </button>
                     </div>
 
-                    <div className="space-y-5">
-                        <div>
-                        <label className="text-xs font-bold text-brand-grey uppercase tracking-wider block mb-2">Select Airport Terminal</label>
-                        <select 
-                            value={airport}
-                            onChange={(e) => setAirport(e.target.value)}
-                            className="w-full bg-white border border-brand-border rounded-xl px-4 py-3 text-brand-dark text-sm focus:outline-none focus:border-brand-orange transition-colors cursor-pointer"
-                        >
-                            {airports.map((ap, i) => (
-                            <option key={i} value={ap}>{ap}</option>
-                            ))}
-                        </select>
-                        </div>
+                    <div className="space-y-5 overflow-visible">
+                        <Field label="Select Airport Terminal">
+                            <CustomDropdown
+                                value={airportId}
+                                onChange={setAirportId}
+                                options={AIRPORT_OPTIONS}
+                                allowEmpty={false}
+                            />
+                        </Field>
 
-                        <div>
-                        <label className="text-xs font-bold text-brand-grey uppercase tracking-wider block mb-2">Select Your Riyadh District</label>
-                        <select 
-                            value={district}
-                            onChange={(e) => setDistrict(e.target.value)}
-                            className="w-full bg-white border border-brand-border rounded-xl px-4 py-3 text-brand-dark text-sm focus:outline-none focus:border-brand-orange transition-colors cursor-pointer"
-                        >
-                            {districts.map((dist, i) => (
-                            <option key={i} value={dist}>{dist} District</option>
-                            ))}
-                        </select>
+                        <Field label="Select Your Riyadh District">
+                            <CustomDropdown
+                                value={district}
+                                onChange={setDistrict}
+                                options={DISTRICT_OPTIONS}
+                                allowEmpty={false}
+                            />
+                        </Field>
+                    </div>
+
+                    <div className="mt-8 pt-6 border-t border-brand-border space-y-2">
+                        <div className="flex justify-between text-sm text-brand-grey">
+                            <span>Base fare</span>
+                            <span>SAR {FARE.base.toFixed(2)}</span>
+                        </div>
+                        <div className="flex justify-between text-sm text-brand-grey">
+                            <span>Service fee ({FARE.serviceFeePercent}%)</span>
+                            <span>SAR {FARE.serviceFee.toFixed(2)}</span>
+                        </div>
+                        <div className="flex items-center justify-between pt-2">
+                            <div>
+                                <span className="text-xs font-bold text-brand-grey uppercase tracking-wider block">Total</span>
+                                <span className="text-sm text-brand-grey">Per single trip</span>
+                            </div>
+                            <motion.span
+                                key={FARE.total}
+                                initial={{ opacity: 0, y: -10 }}
+                                animate={{ opacity: 1, y: 0 }}
+                                className="text-3xl font-black text-brand-orange"
+                            >
+                                SAR {FARE.total.toFixed(2)}
+                            </motion.span>
                         </div>
                     </div>
 
-                    <div className="mt-8 pt-6 border-t border-brand-border flex items-center justify-between">
-                        <div>
-                        <span className="text-xs font-bold text-brand-grey uppercase tracking-wider block">Estimated Rate</span>
-                        <span className="text-sm text-brand-grey">Per Single Trip</span>
-                        </div>
-                        <div className="text-right">
-                        <motion.span 
-                            key={currentPrice} 
-                            initial={{ opacity: 0, y: -10 }}
-                            animate={{ opacity: 1, y: 0 }}
-                            className="text-3xl font-black text-brand-orange block"
-                        >
-                            SAR {currentPrice}
-                        </motion.span>
-                        </div>
-                    </div>
-
-                    <Link to="/book" className="block w-full bg-brand-orange hover:bg-brand-orange/90 text-white font-black py-4 rounded-xl mt-6 transition-all duration-300 shadow-lg shadow-brand-orange/20 text-center text-sm cursor-pointer">
+                    <Link
+                        to={bookUrl}
+                        className="block w-full bg-brand-orange hover:bg-brand-orange/90 text-white font-black py-4 rounded-xl mt-6 transition-all duration-300 shadow-lg shadow-brand-orange/20 text-center text-sm cursor-pointer"
+                    >
                         Book Ride Now
                     </Link>
                 </motion.div>

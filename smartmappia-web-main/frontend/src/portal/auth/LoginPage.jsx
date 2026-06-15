@@ -174,7 +174,7 @@ export default function LoginPage() {
               )}
 
               <form onSubmit={submit} className="space-y-5">
-                <Field label="Email">
+                <Field label="Email Address">
                   <div className="relative">
                     <Mail className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-brand-grey pointer-events-none" />
                     <input
@@ -197,7 +197,7 @@ export default function LoginPage() {
                       className={inputWithIconClass}
                       value={password}
                       onChange={(e) => setPassword(e.target.value)}
-                      placeholder="Your password"
+                      placeholder="Enter your password"
                       required
                       autoComplete="current-password"
                     />
@@ -230,12 +230,12 @@ export default function LoginPage() {
               </div>
 
               <p className="text-sm text-brand-grey text-center">
-                New here?{' '}
+                Don't have an account?{' '}
                 <Link
                   to={`/signup?next=${encodeURIComponent(next)}`}
                   className="text-brand-orange font-bold hover:underline underline-offset-2"
                 >
-                  Create an account
+                  Sign Up
                 </Link>
               </p>
             </div>

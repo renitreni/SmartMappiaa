@@ -103,9 +103,15 @@ export default function TrackPage() {
   const dropoff = data.dropoffLat != null ? { lat: data.dropoffLat, lng: data.dropoffLng } : null;
 
   const markers = [
-    pickup && { ...pickup, glyph: 'P', color: '#FF7E21', label: 'Pickup', key: 'p' },
-    dropoff && { ...dropoff, glyph: 'D', color: '#1F2937', label: 'Drop-off', key: 'd' },
-    driverLoc && { lat: driverLoc.lat, lng: driverLoc.lng, glyph: '', color: '#2563EB', label: 'Your driver', key: 'driver' },
+    pickup && { ...pickup, type: 'pickup', label: 'Pickup', key: 'p' },
+    dropoff && { ...dropoff, type: 'dropoff', label: 'Drop-off', key: 'd' },
+    driverLoc && { lat: driverLoc.lat, lng: driverLoc.lng, type: 'driver', label: 'Your driver', key: 'driver' },
+  ].filter(Boolean);
+
+  const mapLegend = [
+    pickup && { glyph: 'P', color: '#FF7E21', label: 'Pickup' },
+    dropoff && { glyph: 'D', color: '#1F2937', label: 'Drop-off' },
+    driverLoc && { glyph: '●', color: '#FF7E21', label: 'Driver' },
   ].filter(Boolean);
 
   // Dashed guide line: driver→pickup before the trip, pickup→dropoff during.
@@ -143,7 +149,7 @@ export default function TrackPage() {
       <div className="grid lg:grid-cols-5 gap-4">
         {/* Map */}
         <Card className="lg:col-span-3 p-2 relative overflow-hidden">
-          <RideMap markers={markers} line={line} height={380} />
+          <RideMap markers={markers} line={line} legend={mapLegend} height={380} />
           {isActive && eta != null && (
             <div className="absolute top-4 left-4 z-[400] bg-white rounded-xl shadow-lg border border-brand-border px-4 py-2 flex items-center gap-2">
               <Clock className="w-4 h-4 text-brand-orange" />

@@ -3,20 +3,24 @@
 // On success -> /track/:code (the Grab-style live tracking screen).
 // ---------------------------------------------------------------------
 import { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../lib/AuthProvider';
 import { Plane, Home, Upload, CheckCircle2, Crosshair, ArrowRight, ArrowLeft } from 'lucide-react';
 import { api } from '../lib/api';
 import { uploadProofFile } from '../lib/supabaseClient';
 import { useGeolocation } from '../lib/geo';
 import { AIRPORTS, fareBreakdown } from '../lib/constants';
-import { PortalShell, Card, Field, inputClass, btnPrimary, btnGhost, Spinner } from '../components/ui';
+import { PortalShell, Card, Field, inputClass, fileInputClass, btnPrimary, btnGhost, Spinner } from '../components/ui';
+import CustomDropdown from '../../components/CustomDropdown';
+import DateTimePicker from '../../components/DateTimePicker';
 import RideMap from '../components/RideMap';
 
 const FARE = fareBreakdown();
+const AIRPORT_OPTIONS = AIRPORTS.map((a) => ({ value: a.id, label: a.name }));
 
 export default function BookPage() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const { profile } = useAuth();
   const [step, setStep] = useState('form'); // form | pay
   const [error, setError] = useState(null);
@@ -30,6 +34,21 @@ export default function BookPage() {
   const [datetime, setDatetime] = useState('');
   const [name, setName] = useState('');
   const [whatsapp, setWhatsapp] = useState('');
+
+  // Prefill from landing-page fare estimator (?direction=&airport=&district=).
+  useEffect(() => {
+    const direction = searchParams.get('direction');
+    if (direction === 'house_to_airport' || direction === 'airport_to_house') {
+      setDirection(direction);
+    }
+
+    const airportId = searchParams.get('airport');
+    const fromLanding = AIRPORTS.find((a) => a.id === airportId);
+    if (fromLanding) setAirport(fromLanding);
+
+    const district = searchParams.get('district');
+    if (district) setHomeAddress((addr) => addr || `${district} District, Riyadh`);
+  }, [searchParams]);
 
   // Prefill contact details from the signed-in profile.
   useEffect(() => {
@@ -55,8 +74,13 @@ export default function BookPage() {
 
   const homePoint = homeCoords || geo || null;
   const mapMarkers = [
-    homePoint && { lat: homePoint.lat, lng: homePoint.lng, glyph: 'H', color: '#FF7E21', label: 'Home', key: 'home' },
-    { lat: airport.lat, lng: airport.lng, glyph: 'A', color: '#1F2937', label: airport.name, key: 'airport' },
+    homePoint && { lat: homePoint.lat, lng: homePoint.lng, type: 'home', label: 'Your location', key: 'home' },
+    { lat: airport.lat, lng: airport.lng, type: 'airport', label: airport.name, key: 'airport' },
+  ].filter(Boolean);
+
+  const mapLegend = [
+    homePoint && { glyph: 'H', color: '#FF7E21', label: 'Your location' },
+    { glyph: 'A', color: '#1F2937', label: 'Airport' },
   ].filter(Boolean);
 
   async function submitBooking(e) {
@@ -135,39 +159,48 @@ export default function BookPage() {
 
       {step === 'form' && (
         <div className="grid lg:grid-cols-2 gap-6">
-          <Card className="p-6">
+          <Card className="p-6 overflow-visible">
             <form onSubmit={submitBooking} className="space-y-5">
               <div className="grid grid-cols-2 gap-2 bg-brand-surface p-1.5 rounded-xl border border-brand-border">
                 <button
                   type="button"
                   onClick={() => setDirection('house_to_airport')}
-                  className={`py-2.5 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center justify-center gap-1 ${
-                    direction === 'house_to_airport' ? 'bg-brand-orange text-white shadow' : 'text-brand-grey'
+                  className={`py-2.5 rounded-lg text-xs md:text-sm font-bold transition-all cursor-pointer flex items-center justify-center gap-2 ${
+                    direction === 'house_to_airport'
+                      ? 'bg-brand-orange text-white shadow-md shadow-brand-orange/20'
+                      : 'text-brand-grey hover:text-brand-dark'
                   }`}
                 >
-                  <Home className="w-4 h-4" /> <ArrowRight className="w-3 h-3" /> <Plane className="w-4 h-4" />
+                  <Home size={16} />
+                  House
+                  <ArrowRight size={14} />
+                  <Plane size={16} />
+                  Airport
                 </button>
                 <button
                   type="button"
                   onClick={() => setDirection('airport_to_house')}
-                  className={`py-2.5 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center justify-center gap-1 ${
-                    direction === 'airport_to_house' ? 'bg-brand-orange text-white shadow' : 'text-brand-grey'
+                  className={`py-2.5 rounded-lg text-xs md:text-sm font-bold transition-all cursor-pointer flex items-center justify-center gap-2 ${
+                    direction === 'airport_to_house'
+                      ? 'bg-brand-orange text-white shadow-md shadow-brand-orange/20'
+                      : 'text-brand-grey hover:text-brand-dark'
                   }`}
                 >
-                  <Plane className="w-4 h-4" /> <ArrowRight className="w-3 h-3" /> <Home className="w-4 h-4" />
+                  <Plane size={16} />
+                  Airport
+                  <ArrowRight size={14} />
+                  <Home size={16} />
+                  House
                 </button>
               </div>
 
               <Field label="Airport Terminal">
-                <select
+                <CustomDropdown
                   value={airport.id}
-                  onChange={(e) => setAirport(AIRPORTS.find((a) => a.id === e.target.value))}
-                  className={inputClass + ' cursor-pointer'}
-                >
-                  {AIRPORTS.map((a) => (
-                    <option key={a.id} value={a.id}>{a.name}</option>
-                  ))}
-                </select>
+                  onChange={(id) => setAirport(AIRPORTS.find((a) => a.id === id) || AIRPORTS[0])}
+                  options={AIRPORT_OPTIONS}
+                  allowEmpty={false}
+                />
               </Field>
 
               <Field label={direction === 'house_to_airport' ? 'Pickup (your address)' : 'Drop-off (your address)'}>
@@ -190,7 +223,7 @@ export default function BookPage() {
               </Field>
 
               <Field label="Pickup date & time">
-                <input type="datetime-local" className={inputClass} value={datetime} onChange={(e) => setDatetime(e.target.value)} />
+                <DateTimePicker value={datetime} onChange={setDatetime} />
               </Field>
 
               <div className="grid grid-cols-2 gap-3">
@@ -224,10 +257,10 @@ export default function BookPage() {
             </form>
           </Card>
 
-          <Card className="p-3 self-start">
-            <RideMap markers={mapMarkers} height={420} />
+          <Card className="p-3 self-start overflow-hidden">
+            <RideMap markers={mapMarkers} legend={mapLegend} height={420} />
             <p className="text-xs text-brand-grey px-3 py-2">
-              <b>H</b> your location · <b>A</b> airport terminal. Tap the crosshair to set your exact pickup so the nearest driver can find you.
+              <b className="text-brand-orange">H</b> your location · <b className="text-brand-dark">A</b> airport terminal. Tap the crosshair to set your exact pickup so the nearest driver can find you.
             </p>
           </Card>
         </div>
@@ -272,7 +305,7 @@ export default function BookPage() {
                   type="file"
                   accept="image/*,application/pdf"
                   onChange={(e) => setFile(e.target.files?.[0] || null)}
-                  className={inputClass + ' cursor-pointer file:mr-3 file:rounded-lg file:border-0 file:bg-brand-orange file:text-white file:px-3 file:py-1.5 file:font-bold'}
+                  className={fileInputClass}
                 />
               </Field>
               <button onClick={submitProof} disabled={busy} className={btnPrimary + ' w-full mt-4'}>
