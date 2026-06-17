@@ -14,6 +14,50 @@ const { config } = require('../lib/config');
 
 const SELF_ROLES = ['passenger', 'driver'];
 
+// POST /api/auth/signup  (public)
+// Creates the account server-side with its email ALREADY confirmed, so no
+// confirmation email is ever needed. The frontend signs in right after, and
+// /api/auth/sync then creates the profile with the chosen role.
+async function signup(req, res) {
+  try {
+    const b = req.body || {};
+    const email = String(b.email || '').trim().toLowerCase();
+    const password = b.password || '';
+
+    if (!email || !password) {
+      return res.status(400).json({ error: 'email and password are required' });
+    }
+    if (String(password).length < 6) {
+      return res.status(400).json({ error: 'Password must be at least 6 characters' });
+    }
+
+    const { data, error } = await supabase.auth.admin.createUser({
+      email,
+      password,
+      email_confirm: true, // <- skips the confirmation email entirely
+      user_metadata: {
+        full_name: b.full_name || null,
+        whatsapp_number: b.whatsapp_number || null,
+        mobile_number: b.mobile_number || null,
+      },
+    });
+
+    if (error) {
+      const msg = (error.message || '').toLowerCase();
+      if (msg.includes('already') || error.status === 422) {
+        return res.status(409).json({ error: 'An account with this email already exists. Please sign in.' });
+      }
+      console.error('signup error:', error);
+      return res.status(500).json({ error: error.message });
+    }
+
+    return res.status(201).json({ id: data.user.id, email: data.user.email });
+  } catch (err) {
+    console.error('signup error:', err);
+    return res.status(500).json({ error: 'Unexpected server error' });
+  }
+}
+
 async function syncProfile(req, res) {
   try {
     const { id, email } = req.authUser;
@@ -82,4 +126,4 @@ async function syncProfile(req, res) {
   }
 }
 
-module.exports = { syncProfile };
+module.exports = { signup, syncProfile };

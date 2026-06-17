@@ -19,6 +19,7 @@ import {
   ChevronDown,
 } from 'lucide-react';
 import { useAuth } from '../lib/AuthProvider';
+import { roleHome } from '../lib/constants';
 import { Field, btnPrimary, Spinner } from '../components/ui';
 
 const STEPS = ['Account type', 'Personal info', 'Create login'];
@@ -340,10 +341,15 @@ function RoleCard({ active, onClick, icon: Icon, title, description }) {
 }
 
 export default function SignupPage() {
-  const { signUp } = useAuth();
+  const { signUp, session, role: authRole } = useAuth();
   const navigate = useNavigate();
   const [params] = useSearchParams();
   const next = params.get('next') || '/';
+
+  // Already signed in? Send them to their home/dashboard instead of the form.
+  useEffect(() => {
+    if (session && authRole) navigate(roleHome(authRole, next), { replace: true });
+  }, [session, authRole, next, navigate]);
 
   const [step, setStep] = useState(1);
   const [role, setRole] = useState('passenger');
@@ -534,7 +540,7 @@ export default function SignupPage() {
             <p className="text-brand-grey text-base leading-relaxed mt-4 max-w-md">
               {role === 'driver'
                 ? 'Register as a driver, submit your details, and get approved to start accepting trips.'
-                : 'Create your rider account to book rides, order food, and track deliveries in one app.'}
+                : 'Create your user account to book rides, order food, and track deliveries in one app.'}
             </p>
 
             <ul className="mt-8 space-y-3 text-sm font-semibold text-brand-dark">
@@ -612,13 +618,13 @@ export default function SignupPage() {
                     className="space-y-3"
                   >
                     <p className="text-sm text-brand-grey mb-4">
-                      How will you use Smart Mappia? You can register as a rider or a driver.
+                      How will you use Smart Mappia? You can register as a user or a driver.
                     </p>
                     <RoleCard
                       active={role === 'passenger'}
                       onClick={() => setRole('passenger')}
                       icon={User}
-                      title="Rider"
+                      title="User"
                       description="Book airport transfers, order food, and track your deliveries."
                     />
                     <RoleCard

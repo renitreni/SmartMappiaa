@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const { requireAdmin } = require('../middleware/auth');
 const {
+  getStats,
   listBookings,
   getBookingDetail,
   verifyPayment,
@@ -14,6 +15,7 @@ const {
 // Every admin route requires an authenticated admin (Supabase JWT, role admin).
 router.use(requireAdmin);
 
+router.get('/stats', getStats);
 router.get('/bookings', listBookings);
 router.get('/bookings/:bookingCode', getBookingDetail);
 router.post('/bookings/:bookingCode/verify-payment', verifyPayment);

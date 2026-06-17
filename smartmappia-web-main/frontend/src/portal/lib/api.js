@@ -41,6 +41,7 @@ export const api = {
   base: API_BASE,
 
   // --- auth ---
+  authSignup: (body) => request('/api/auth/signup', { method: 'POST', body }),
   authSync: (body = {}) => request('/api/auth/sync', { method: 'POST', body }),
 
   // --- passenger ---
@@ -53,6 +54,7 @@ export const api = {
   tracking: (code) => request(`/api/tracking/${code}`),
 
   // --- admin (role enforced by backend) ---
+  adminStats: () => request('/api/admin/stats'),
   adminList: (query = '') => request(`/api/admin/bookings${query}`),
   adminDetail: (code) => request(`/api/admin/bookings/${code}`),
   adminVerify: (code, body = {}) => request(`/api/admin/bookings/${code}/verify-payment`, { method: 'POST', body }),

@@ -410,6 +410,13 @@ Errors always come back as `{ "error": "message" }` (validation also adds `detai
 
 ### Auth
 
+#### `POST /api/auth/signup` (public)
+Creates the account server-side with its **email already confirmed** (no confirmation email),
+so new users can sign in immediately. The frontend signs in right after, then calls `/sync`.
+- **Body (required):** `email`, `password` (≥6 chars). **Optional:** `full_name`, `whatsapp_number`, `mobile_number`
+- **201** `{ id, email }` · **400** validation · **409** email already exists
+- Role is *not* set here — it's chosen at `/sync`. The body can never grant `admin`.
+
 #### 🔒 `POST /api/auth/sync`
 Upsert the caller's profile from their token + chosen role. Called right after signup/login.
 - **Body (optional):** `role` (`passenger`|`driver`), `full_name`, `whatsapp_number`, `mobile_number`
@@ -456,6 +463,10 @@ Public live tracking (safe fields only — no internal IDs).
 - **200** `{ status, db, testMode, paymentMode, time }`
 
 ### Admin (🔒 role `admin`)
+
+#### `GET /api/admin/stats`
+Dashboard overview — totals, revenue, status breakdowns, driver counts.
+- **200** `{ totals:{ bookings, completed, cancelled, active, today, revenue, currency, needsReview, awaitingPayment }, drivers:{ total, approved, pending }, bookingsByStatus:{…}, paymentsByStatus:{…}, generatedAt }`
 
 #### `GET /api/admin/bookings`
 Filters: `booking_status`, `payment_status`, `limit` (≤200, default 50), `offset`.
