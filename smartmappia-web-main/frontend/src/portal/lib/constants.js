@@ -27,6 +27,15 @@ export const AIRPORTS = [
   { id: 'kkia_t5', name: 'King Khalid Intl — Terminal 5', lat: 24.9489, lng: 46.7026 },
 ];
 
+/** Dropdown options with terminal name prominent and airport as secondary line. */
+export function airportDropdownOptions() {
+  return AIRPORTS.map((a) => {
+    const sep = a.name.indexOf(' — ');
+    if (sep === -1) return { value: a.id, label: a.name };
+    return { value: a.id, label: a.name.slice(sep + 3), sublabel: a.name.slice(0, sep) };
+  });
+}
+
 export const RIYADH_CENTER = { lat: 24.7136, lng: 46.6753 };
 
 // Human-friendly labels + colors for booking statuses.

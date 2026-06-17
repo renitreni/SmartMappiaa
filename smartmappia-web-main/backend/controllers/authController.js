@@ -11,6 +11,11 @@
 // ---------------------------------------------------------------------
 const { supabase } = require('../lib/supabase');
 const { config } = require('../lib/config');
+const {
+  hasExtendedProfileColumns,
+  profileSelectColumns,
+  buildProfileUpsert,
+} = require('../lib/profileSchema');
 
 const SELF_ROLES = ['passenger', 'driver'];
 
@@ -84,31 +89,31 @@ async function syncProfile(req, res) {
     // Admins are implicitly approved; otherwise keep current approval state.
     const driverApproved = role === 'admin' ? true : (existing ? existing.driver_approved : false);
 
+    const extended = await hasExtendedProfileColumns(supabase);
+    const upsertRow = buildProfileUpsert({
+      id,
+      role,
+      email,
+      driverApproved,
+      existing,
+      body: b,
+      extended,
+    });
+
     const { data: profile, error } = await supabase
       .from('profiles')
-      .upsert(
-        {
-          id,
-          role,
-          email: email || null,
-          full_name: b.full_name ?? (existing ? undefined : null),
-          whatsapp_number: b.whatsapp_number ?? undefined,
-          mobile_number: b.mobile_number ?? undefined,
-          date_of_birth: b.date_of_birth ?? undefined,
-          gender: b.gender ?? undefined,
-          national_id: b.national_id ?? undefined,
-          vehicle_type: b.vehicle_type ?? undefined,
-          vehicle_plate: b.vehicle_plate ?? undefined,
-          driver_approved: driverApproved,
-        },
-        { onConflict: 'id' }
-      )
-      .select('id, role, full_name, whatsapp_number, mobile_number, email, driver_approved, date_of_birth, gender, national_id, vehicle_type, vehicle_plate')
+      .upsert(upsertRow, { onConflict: 'id' })
+      .select(profileSelectColumns(extended))
       .single();
 
     if (error) {
       console.error('syncProfile upsert error:', error);
-      return res.status(500).json({ error: error.message });
+      const hint =
+        (error.message || '').includes('date_of_birth') ||
+        (error.message || '').includes('driver_approved')
+          ? ' Database migrations may be incomplete — run 0001, 0002, and 0003 SQL files in Supabase SQL Editor.'
+          : '';
+      return res.status(500).json({ error: error.message + hint });
     }
 
     return res.json({

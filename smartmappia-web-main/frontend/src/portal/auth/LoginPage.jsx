@@ -21,7 +21,7 @@ const inputWithIconClass =
   'focus:outline-none focus:border-brand-orange focus:ring-2 focus:ring-brand-orange/15 transition-all';
 
 export default function LoginPage() {
-  const { signIn, session, role } = useAuth();
+  const { signIn, session, role, profileError, profileLoading } = useAuth();
   const navigate = useNavigate();
   const [params] = useSearchParams();
   const next = params.get('next') || '/';
@@ -36,6 +36,14 @@ export default function LoginPage() {
   useEffect(() => {
     if (session && role) navigate(roleHome(role, next), { replace: true });
   }, [session, role, next, navigate]);
+
+  // Supabase login succeeded but /api/auth/sync failed (often missing DB migration).
+  useEffect(() => {
+    if (session && !profileLoading && profileError) {
+      setError(profileError);
+      setBusy(false);
+    }
+  }, [session, profileLoading, profileError]);
 
   async function submit(e) {
     e.preventDefault();

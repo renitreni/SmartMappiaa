@@ -343,8 +343,8 @@ A quick triage for the usual suspects:
 - **"Email not confirmed"** — the user exists but hasn't confirmed. Click the email link, turn
   off "Confirm email", or use the seeder (which pre-confirms).
 - **"Profile not set up…"** (this one's from *our* backend) — the token is valid but there's no
-  `profiles` row yet. Make sure the migrations (`0001`, `0002`) have run, then sign out and back
-  in so `/api/auth/sync` can create the row.
+  `profiles` row yet. Make sure the migrations (`0001`, `0002`, `0003`) have run, then sign out and back
+  in so `/api/auth/sync` can create the row. Run `npm run check:migrations` in `backend/` to verify.
 
 ---
 
