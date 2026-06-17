@@ -2,11 +2,12 @@
 // Sign in (shared by passengers, drivers and admins — role comes from the
 // profile, not the login form).
 // ---------------------------------------------------------------------
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useNavigate, useSearchParams, Link } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { LogIn, Mail, Lock, ArrowLeft, MapPin, Package, Utensils } from 'lucide-react';
 import { useAuth } from '../lib/AuthProvider';
+import { roleHome } from '../lib/constants';
 import { Field, btnPrimary, Spinner } from '../components/ui';
 
 const features = [
@@ -20,7 +21,7 @@ const inputWithIconClass =
   'focus:outline-none focus:border-brand-orange focus:ring-2 focus:ring-brand-orange/15 transition-all';
 
 export default function LoginPage() {
-  const { signIn } = useAuth();
+  const { signIn, session, role } = useAuth();
   const navigate = useNavigate();
   const [params] = useSearchParams();
   const next = params.get('next') || '/';
@@ -30,16 +31,21 @@ export default function LoginPage() {
   const [error, setError] = useState(null);
   const [busy, setBusy] = useState(false);
 
+  // Already signed in? Don't show the form — send them to their home/dashboard.
+  // (Also handles the post-login redirect once the profile/role loads.)
+  useEffect(() => {
+    if (session && role) navigate(roleHome(role, next), { replace: true });
+  }, [session, role, next, navigate]);
+
   async function submit(e) {
     e.preventDefault();
     setError(null);
     setBusy(true);
     try {
       await signIn(email.trim(), password);
-      navigate(next, { replace: true });
+      // The effect above redirects once the role is known.
     } catch (err) {
       setError(err.message);
-    } finally {
       setBusy(false);
     }
   }

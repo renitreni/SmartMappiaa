@@ -20,6 +20,76 @@ function adminId(req) {
   return req.adminId || null;
 }
 
+// --- GET /api/admin/stats --------------------------------------------
+// Dashboard overview: totals, revenue, status breakdowns, driver counts.
+// For the MVP we read slim columns and aggregate in JS; swap to SQL
+// aggregates if the bookings table ever gets large.
+const ACTIVE_BOOKING = ['driver_assigned', 'driver_on_the_way', 'arrived', 'in_progress'];
+
+async function getStats(req, res) {
+  try {
+    const { data: bookings, error } = await supabase
+      .from('bookings')
+      .select('booking_status, payment_status, fare_amount, created_at');
+    if (error) return res.status(500).json({ error: error.message });
+
+    const { data: drivers, error: dErr } = await supabase
+      .from('profiles')
+      .select('driver_approved')
+      .eq('role', 'driver');
+    if (dErr) return res.status(500).json({ error: dErr.message });
+
+    const startOfToday = new Date();
+    startOfToday.setHours(0, 0, 0, 0);
+
+    const bookingsByStatus = {};
+    const paymentsByStatus = {};
+    let revenue = 0;
+    let completed = 0;
+    let cancelled = 0;
+    let active = 0;
+    let today = 0;
+
+    for (const b of bookings || []) {
+      bookingsByStatus[b.booking_status] = (bookingsByStatus[b.booking_status] || 0) + 1;
+      paymentsByStatus[b.payment_status] = (paymentsByStatus[b.payment_status] || 0) + 1;
+      if (b.payment_status === 'verified') revenue += Number(b.fare_amount) || 0;
+      if (b.booking_status === 'completed') completed += 1;
+      if (b.booking_status === 'cancelled') cancelled += 1;
+      if (ACTIVE_BOOKING.includes(b.booking_status)) active += 1;
+      if (b.created_at && new Date(b.created_at) >= startOfToday) today += 1;
+    }
+
+    const totalDrivers = (drivers || []).length;
+    const approvedDrivers = (drivers || []).filter((d) => d.driver_approved).length;
+
+    return res.json({
+      totals: {
+        bookings: (bookings || []).length,
+        completed,
+        cancelled,
+        active,
+        today,
+        revenue: Math.round(revenue * 100) / 100,
+        currency: 'SAR',
+        needsReview: paymentsByStatus.proof_uploaded || 0,
+        awaitingPayment: paymentsByStatus.awaiting_proof || 0,
+      },
+      drivers: {
+        total: totalDrivers,
+        approved: approvedDrivers,
+        pending: totalDrivers - approvedDrivers,
+      },
+      bookingsByStatus,
+      paymentsByStatus,
+      generatedAt: new Date().toISOString(),
+    });
+  } catch (err) {
+    console.error('getStats error:', err);
+    return res.status(500).json({ error: 'Unexpected server error' });
+  }
+}
+
 // --- GET /api/admin/drivers ------------------------------------------
 async function listDrivers(req, res) {
   try {
@@ -282,6 +352,7 @@ async function assignDriver(req, res) {
 }
 
 module.exports = {
+  getStats,
   listBookings,
   getBookingDetail,
   verifyPayment,

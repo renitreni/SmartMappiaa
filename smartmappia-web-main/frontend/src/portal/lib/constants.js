@@ -2,6 +2,13 @@
 // Shared constants + small presentation helpers for the portals.
 // ---------------------------------------------------------------------
 
+// Where each role lands after signing in (admins always go to their dashboard).
+export function roleHome(role, next = '/') {
+  if (role === 'admin') return '/admin';
+  if (role === 'driver') return '/driver';
+  return next || '/';
+}
+
 // Fare model (mirrors backend lib/fare.js): flat base + 3.75% service fee.
 export const FARE_BASE = 100;
 export const SERVICE_FEE_RATE = 0.0375;

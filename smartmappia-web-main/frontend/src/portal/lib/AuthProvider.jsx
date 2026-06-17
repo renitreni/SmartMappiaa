@@ -85,13 +85,16 @@ export function AuthProvider({ children }) {
 
     async signUp(email, password, details) {
       if (!supabase) throw new Error('Auth is not configured (set VITE_SUPABASE_URL / VITE_SUPABASE_ANON_KEY).');
+      // Create the account server-side (email pre-confirmed) so there's no
+      // confirmation email, then sign in immediately.
+      await api.authSignup({ email, password, ...(details || {}) });
       localStorage.setItem(PENDING_KEY, JSON.stringify(details || {}));
-      const { data, error } = await supabase.auth.signUp({ email, password });
+      const { error } = await supabase.auth.signInWithPassword({ email, password });
       if (error) {
         localStorage.removeItem(PENDING_KEY);
         throw error;
       }
-      return { needsConfirmation: !data.session };
+      return { needsConfirmation: false };
     },
 
     async signIn(email, password) {

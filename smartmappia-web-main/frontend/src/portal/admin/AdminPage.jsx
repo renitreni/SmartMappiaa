@@ -9,6 +9,7 @@ import { useBroadcast } from '../lib/useBroadcast';
 import { realtimeEnabled } from '../lib/supabaseClient';
 import { statusMeta } from '../lib/constants';
 import { PortalShell, Card, Badge, Spinner, btnPrimary } from '../components/ui';
+import Dashboard from './Dashboard';
 
 const FILTERS = [
   { id: 'review', label: 'Needs review', q: '?payment_status=proof_uploaded' },
@@ -212,7 +213,7 @@ function DriversView() {
 }
 
 export default function AdminPage() {
-  const [tab, setTab] = useState('bookings');
+  const [tab, setTab] = useState('overview');
   const [tick, setTick] = useState(0);
 
   return (
@@ -225,14 +226,16 @@ export default function AdminPage() {
       }
     >
       <div className="flex gap-2 mb-4">
-        {['bookings', 'drivers'].map((t) => (
+        {['overview', 'bookings', 'drivers'].map((t) => (
           <button key={t} onClick={() => setTab(t)}
             className={`px-4 py-2 rounded-xl text-sm font-bold border capitalize transition-colors cursor-pointer ${tab === t ? 'bg-brand-black text-white border-brand-black' : 'bg-white text-brand-grey border-brand-border hover:text-brand-dark'}`}>
             {t}
           </button>
         ))}
       </div>
-      {tab === 'bookings' ? <BookingsView key={`b${tick}`} /> : <DriversView key={`d${tick}`} />}
+      {tab === 'overview' && <Dashboard key={`o${tick}`} />}
+      {tab === 'bookings' && <BookingsView key={`b${tick}`} />}
+      {tab === 'drivers' && <DriversView key={`d${tick}`} />}
     </PortalShell>
   );
 }

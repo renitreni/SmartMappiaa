@@ -230,7 +230,7 @@ export default function DriverPage() {
               {whatsappLink(activeRide.passengerWhatsapp) && (
                 <a href={whatsappLink(activeRide.passengerWhatsapp, `Hi, I'm your Smart Mappia driver for ${activeRide.bookingCode}`)} target="_blank" rel="noreferrer"
                   className="mt-3 w-full inline-flex items-center justify-center gap-2 bg-green-500 hover:bg-green-600 text-white font-bold py-2.5 rounded-xl text-sm">
-                  <MessageCircle className="w-4 h-4" /> Message rider
+                  <MessageCircle className="w-4 h-4" /> Message user
                 </a>
               )}
 

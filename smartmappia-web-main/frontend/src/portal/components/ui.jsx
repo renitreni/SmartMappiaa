@@ -94,6 +94,12 @@ export const inputClass =
   'w-full bg-white border border-brand-border rounded-xl px-4 py-3 text-brand-dark text-sm ' +
   'focus:outline-none focus:border-brand-orange transition-colors';
 
+// Styled <input type="file"> — orange "choose file" button + standard input look.
+export const fileInputClass =
+  inputClass +
+  ' cursor-pointer file:mr-3 file:rounded-lg file:border-0 file:bg-brand-orange ' +
+  'file:text-white file:px-3 file:py-1.5 file:font-bold';
+
 export const btnPrimary =
   'inline-flex items-center justify-center gap-2 bg-brand-orange hover:bg-brand-orange/90 ' +
   'text-white font-black py-3 px-5 rounded-xl transition-all shadow-lg shadow-brand-orange/20 ' +

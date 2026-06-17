@@ -20,7 +20,7 @@ heavy lifting: routing, Supabase (auth + realtime + uploads), and free OpenStree
 | `/pay/:code` | anyone with the code | The payment screen on its own — STC Pay details, the itemized fare, and the proof upload. Deep-linkable (the `/book` flow leads here too). |
 | `/track/:code` | anyone with the code | The star of the show: a **live map** with the driver moving, an ETA ticking down, WhatsApp the driver, pickup/drop-off pins, a cancel button, and the trip timeline. |
 | `/driver` | role: driver | Go online, share GPS, watch the **nearest open requests** roll in, accept one, drive the trip, WhatsApp the rider. Locked until an admin approves you. |
-| `/admin` | role: admin | Review payment screenshots (verify/reject), **approve drivers**, and browse every booking. |
+| `/admin` | role: admin | Three tabs: **Overview** (stats dashboard — revenue, bookings, drivers, status breakdown), **Bookings** (review screenshots, verify/reject), and **Drivers** (approve/revoke). Admins land here automatically on sign-in. |
 
 ---
 
@@ -30,6 +30,12 @@ Accounts are real, backed by **Supabase Auth** (email + password). The moment so
 the app makes a single call to `POST /api/auth/sync`, which creates or updates their `profiles`
 row and figures out their role. From then on, every request to the backend carries the Supabase
 access token (`Authorization: Bearer …`) and the backend decides what they're allowed to do.
+
+Signups go through the backend (`/api/auth/signup`), which creates the account with its email
+**pre-confirmed** — so there's no confirmation email and new users sign in immediately. After
+sign-in, everyone is routed to their home automatically: **admins → `/admin`**, drivers →
+`/driver`, riders → where they were headed. Already-signed-in users can't reach `/login` or
+`/signup` (they get bounced to their dashboard).
 
 The three roles:
 
