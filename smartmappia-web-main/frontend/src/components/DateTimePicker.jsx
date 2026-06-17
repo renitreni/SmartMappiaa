@@ -25,15 +25,11 @@ function toValue(date) {
 function formatDisplay(value) {
   const d = parseValue(value);
   if (!d) return 'Select date & time';
-  return d.toLocaleString('en-GB', {
-    weekday: 'short',
-    day: 'numeric',
-    month: 'short',
-    year: 'numeric',
-    hour: 'numeric',
-    minute: '2-digit',
-    hour12: true,
-  });
+  const weekday = d.toLocaleString('en-GB', { weekday: 'short' });
+  const date = d.toLocaleString('en-GB', { day: 'numeric', month: 'short' });
+  const time = d.toLocaleString('en-GB', { hour: 'numeric', minute: '2-digit', hour12: true });
+  const yearSuffix = d.getFullYear() !== new Date().getFullYear() ? ` ${d.getFullYear()}` : '';
+  return `${weekday}, ${date}${yearSuffix} · ${time}`;
 }
 
 function getCalendarDays(year, month) {
@@ -193,13 +189,17 @@ export default function DateTimePicker({ value, onChange, minDate }) {
       <button
         type="button"
         onClick={() => setOpen((o) => !o)}
-        className={`w-full bg-white border rounded-xl px-4 py-3 text-sm transition-all cursor-pointer flex items-center justify-between gap-2 focus:outline-none ${
+        className={`w-full min-w-0 bg-white border rounded-xl px-4 py-3 text-sm transition-all cursor-pointer flex items-center justify-between gap-3 focus:outline-none ${
           open
             ? 'border-brand-orange ring-2 ring-brand-orange/15'
             : 'border-brand-border focus:border-brand-orange focus:ring-2 focus:ring-brand-orange/15'
         }`}
       >
-        <span className={value ? 'text-brand-dark font-medium' : 'text-brand-grey'}>
+        <span
+          className={`min-w-0 flex-1 truncate whitespace-nowrap text-left ${
+            value ? 'text-brand-dark font-medium' : 'text-brand-grey'
+          }`}
+        >
           {formatDisplay(value)}
         </span>
         <Calendar className={`w-4 h-4 shrink-0 ${open ? 'text-brand-orange' : 'text-brand-grey'}`} />

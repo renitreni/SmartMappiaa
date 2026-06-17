@@ -12,6 +12,7 @@
     "seed:user": "node scripts/seed-user.js",
     "seed:driver": "node scripts/seed-driver.js",
     "seed:accounts": "node scripts/seed-admin.js && node scripts/seed-user.js && node scripts/seed-driver.js",
+    "check:migrations": "node scripts/check-migrations.js",
     "seed:demo": "node scripts/demo/seed-demo.js",
     "seed:pay": "node scripts/demo/seed-pay.js",
     "seed:request": "node scripts/demo/seed-request.js",

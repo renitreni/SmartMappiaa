@@ -10,23 +10,142 @@ import {
   ShoppingBag,
   Package,
   HelpCircle,
+  LogOut,
+  LayoutDashboard,
 } from "lucide-react";
+import { useAuth } from "../portal/lib/AuthProvider";
+import { roleHome } from "../portal/lib/constants";
+
+const menuLinks = [
+  { name: "Home",         href: "#home",         Icon: Home },
+  { name: "About",        href: "#about",        Icon: Info },
+  { name: "Features",     href: "#features",     Icon: Sparkles },
+  { name: "How It Works", href: "#how-it-works", Icon: Lightbulb },
+  { name: "Restaurants",  href: "#restaurants",  Icon: UtensilsCrossed },
+  { name: "Shop",         href: "#shop",         Icon: ShoppingBag },
+  { name: "Pick & Drop",  href: "#pick-drop",    Icon: Package },
+  { name: "FAQ",          href: "#faq",          Icon: HelpCircle },
+];
+
+function AuthActions({ mobile = false, onNavigate }) {
+  const { session, user, role, profileLoading, signOut } = useAuth();
+
+  const wrapClass = mobile
+    ? "flex flex-col gap-2"
+    : "flex items-center gap-2 shrink-0";
+
+  if (session && profileLoading) {
+    return (
+      <div className={wrapClass}>
+        <span className="text-xs font-bold text-brand-grey px-3 py-2">Loading…</span>
+      </div>
+    );
+  }
+
+  if (session && role) {
+    const dashboardPath = role !== "passenger" ? roleHome(role) : null;
+    const dashboardLabel =
+      role === "admin" ? "Admin dashboard" : role === "driver" ? "Driver dashboard" : null;
+    const displayName = user?.email?.split("@")[0] || "Account";
+
+    return (
+      <div className={wrapClass}>
+        {!mobile && (
+          <span className="hidden xl:inline text-xs font-bold text-brand-grey max-w-[120px] truncate">
+            {displayName}
+          </span>
+        )}
+
+        {dashboardPath && (
+          <Link
+            to={dashboardPath}
+            onClick={onNavigate}
+            className={
+              mobile
+                ? "flex items-center justify-center gap-2 w-full font-black py-3.5 rounded-2xl text-sm text-brand-dark border border-brand-border cursor-pointer"
+                : "inline-flex items-center gap-1.5 whitespace-nowrap text-sm font-bold px-3 py-2 rounded-full cursor-pointer text-brand-dark hover:text-brand-orange hover:bg-orange-50 transition-colors"
+            }
+          >
+            <LayoutDashboard className="w-4 h-4" />
+            {mobile ? dashboardLabel : "Dashboard"}
+          </Link>
+        )}
+
+        {role === "passenger" && (
+          <Link to="/book" onClick={onNavigate}>
+            {mobile ? (
+              <span className="block text-center w-full bg-brand-orange text-white font-black py-4 rounded-2xl text-sm cursor-pointer shadow-lg shadow-brand-orange/25">
+                Book a Ride
+              </span>
+            ) : (
+              <motion.span
+                whileHover={{ scale: 1.05, y: -1 }}
+                whileTap={{ scale: 0.95 }}
+                transition={{ type: "spring", stiffness: 400, damping: 18 }}
+                className="inline-block whitespace-nowrap bg-brand-orange text-white text-xs font-black px-5 py-3 rounded-full cursor-pointer shadow-md shadow-brand-orange/25 hover:shadow-xl hover:shadow-brand-orange/30 transition-shadow duration-300"
+              >
+                Book a Ride
+              </motion.span>
+            )}
+          </Link>
+        )}
+
+        <button
+          type="button"
+          onClick={() => {
+            onNavigate?.();
+            signOut();
+          }}
+          className={
+            mobile
+              ? "flex items-center justify-center gap-2 w-full font-black py-3 rounded-2xl text-sm text-brand-grey border border-brand-border cursor-pointer"
+              : "inline-flex items-center gap-1.5 whitespace-nowrap text-sm font-bold px-3 py-2 rounded-full cursor-pointer text-brand-grey hover:text-brand-dark hover:bg-brand-surface transition-colors"
+          }
+        >
+          <LogOut className="w-4 h-4" />
+          Sign out
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <div className={wrapClass}>
+      <Link
+        to="/login"
+        onClick={onNavigate}
+        className={
+          mobile
+            ? "block text-center w-full font-black py-3 rounded-2xl text-sm text-brand-dark border border-brand-border cursor-pointer"
+            : "whitespace-nowrap text-sm font-bold px-3 py-2 rounded-full cursor-pointer text-brand-dark hover:text-brand-orange transition-colors"
+        }
+      >
+        Sign in
+      </Link>
+      <Link to="/book" onClick={onNavigate}>
+        {mobile ? (
+          <span className="block text-center w-full bg-brand-orange text-white font-black py-4 rounded-2xl text-sm cursor-pointer shadow-lg shadow-brand-orange/25">
+            Book a Ride
+          </span>
+        ) : (
+          <motion.span
+            whileHover={{ scale: 1.05, y: -1 }}
+            whileTap={{ scale: 0.95 }}
+            transition={{ type: "spring", stiffness: 400, damping: 18 }}
+            className="inline-block whitespace-nowrap bg-brand-orange text-white text-xs font-black px-5 py-3 rounded-full cursor-pointer shadow-md shadow-brand-orange/25 hover:shadow-xl hover:shadow-brand-orange/30 transition-shadow duration-300"
+          >
+            Book a Ride
+          </motion.span>
+        )}
+      </Link>
+    </div>
+  );
+}
 
 const Navbar = () => {
   const [isOpen, setIsOpen] = useState(false);
   const [scrolled, setScrolled] = useState(false);
   const [hoveredLink, setHoveredLink] = useState(null);
-
-  const menuLinks = [
-    { name: "Home",         href: "#home",         Icon: Home },
-    { name: "About",        href: "#about",        Icon: Info },
-    { name: "Features",     href: "#features",     Icon: Sparkles },
-    { name: "How It Works", href: "#how-it-works", Icon: Lightbulb },
-    { name: "Restaurants",  href: "#restaurants",  Icon: UtensilsCrossed },
-    { name: "Shop",         href: "#shop",         Icon: ShoppingBag },
-    { name: "Pick & Drop",  href: "#pick-drop",    Icon: Package },
-    { name: "FAQ",          href: "#faq",          Icon: HelpCircle },
-  ];
 
   useEffect(() => {
     const onScroll = () => setScrolled(window.scrollY > 10);
@@ -41,7 +160,6 @@ const Navbar = () => {
 
   return (
     <>
-      {/* ── Desktop / Tablet Navbar ────────────────────────────────────── */}
       <motion.nav
         animate={{
           backgroundColor: scrolled
@@ -56,7 +174,6 @@ const Navbar = () => {
                    px-6 md:px-20 flex items-center justify-between
                    fixed top-0 left-0 z-50"
       >
-        {/* Logo */}
         <a href="#home" className="flex items-center gap-3">
           <motion.div
             whileHover={{ scale: 1.1, rotate: -5 }}
@@ -74,7 +191,6 @@ const Navbar = () => {
           </span>
         </a>
 
-        {/* Desktop Nav Links */}
         <ul className="hidden lg:flex items-center gap-0.5 text-sm font-semibold">
           {menuLinks.map((link, index) => (
             <li key={index}>
@@ -86,7 +202,6 @@ const Navbar = () => {
                            text-brand-grey hover:text-brand-orange
                            transition-colors duration-150"
               >
-                {/* Floating pill highlight — slides between links */}
                 {hoveredLink === index && (
                   <motion.span
                     layoutId="nav-pill"
@@ -100,32 +215,10 @@ const Navbar = () => {
           ))}
         </ul>
 
-        {/* Desktop CTA */}
-        <div className="hidden lg:flex items-center gap-2 shrink-0">
-          <Link
-            to="/login"
-            className="whitespace-nowrap text-sm font-bold px-3 py-2 rounded-full cursor-pointer
-                       text-brand-dark hover:text-brand-orange transition-colors"
-          >
-            Sign in
-          </Link>
-          <Link to="/book">
-            <motion.span
-              whileHover={{ scale: 1.05, y: -1 }}
-              whileTap={{ scale: 0.95 }}
-              transition={{ type: "spring", stiffness: 400, damping: 18 }}
-              className="inline-block whitespace-nowrap bg-brand-orange text-white text-xs font-black
-                         px-5 py-3 rounded-full cursor-pointer
-                         shadow-md shadow-brand-orange/25
-                         hover:shadow-xl hover:shadow-brand-orange/30
-                         transition-shadow duration-300"
-            >
-              Book a Ride
-            </motion.span>
-          </Link>
+        <div className="hidden lg:flex">
+          <AuthActions />
         </div>
 
-        {/* Mobile Hamburger → X */}
         <button
           onClick={() => setIsOpen(!isOpen)}
           aria-label="Toggle menu"
@@ -152,11 +245,9 @@ const Navbar = () => {
         </button>
       </motion.nav>
 
-      {/* ── Mobile Slide-in Panel ──────────────────────────────────────── */}
       <AnimatePresence>
         {isOpen && (
           <>
-            {/* Backdrop */}
             <motion.div
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
@@ -166,7 +257,6 @@ const Navbar = () => {
               className="fixed inset-0 bg-black/30 z-40 lg:hidden"
             />
 
-            {/* Panel */}
             <motion.div
               initial={{ x: "100%" }}
               animate={{ x: 0 }}
@@ -177,12 +267,10 @@ const Navbar = () => {
                          rounded-l-3xl z-45 lg:hidden
                          flex flex-col justify-between shadow-2xl overflow-hidden"
             >
-              {/* Warm orange accent strip at top */}
               <div className="absolute top-0 left-0 right-0 h-1
                               bg-gradient-to-r from-brand-orange/50 to-brand-orange
                               rounded-tl-3xl" />
 
-              {/* Nav Links */}
               <div className="pt-28 px-6">
                 <ul className="flex flex-col gap-0.5">
                   {menuLinks.map((link, index) => (
@@ -208,31 +296,13 @@ const Navbar = () => {
                 </ul>
               </div>
 
-              {/* Bottom CTA */}
               <motion.div
                 initial={{ opacity: 0, y: 16 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ delay: 0.38 }}
                 className="p-6"
               >
-                <Link
-                  to="/book"
-                  onClick={() => setIsOpen(false)}
-                  className="block text-center w-full bg-brand-orange text-white font-black
-                             py-4 rounded-2xl text-sm cursor-pointer
-                             shadow-lg shadow-brand-orange/25
-                             active:scale-[0.97] transition-transform duration-150"
-                >
-                  Book a Ride
-                </Link>
-                <Link
-                  to="/login"
-                  onClick={() => setIsOpen(false)}
-                  className="block text-center w-full mt-3 font-black py-3 rounded-2xl text-sm
-                             text-brand-dark border border-brand-border cursor-pointer"
-                >
-                  Sign in
-                </Link>
+                <AuthActions mobile onNavigate={() => setIsOpen(false)} />
               </motion.div>
             </motion.div>
           </>

@@ -4,6 +4,7 @@
 // ---------------------------------------------------------------------
 import { Navigate, useLocation, Link } from 'react-router-dom';
 import { useAuth } from '../lib/AuthProvider';
+import { roleHome } from '../lib/constants';
 import { PortalShell, Card, Spinner, btnPrimary } from './ui';
 
 function FullScreenSpinner() {
@@ -30,7 +31,7 @@ function ProfileSyncError({ message, onRetry }) {
   );
 }
 
-export default function RequireAuth({ role, children }) {
+export default function RequireAuth({ role, redirectWrongRole = false, children }) {
   const { loading, session, role: userRole, profileLoading, profileError, refreshProfile } = useAuth();
   const location = useLocation();
 
@@ -40,7 +41,7 @@ export default function RequireAuth({ role, children }) {
     return <Navigate to={`/login?next=${encodeURIComponent(location.pathname)}`} replace />;
   }
 
-  // Role-specific routes need the synced profile; booking only needs sign-in.
+  // Role-specific routes need the synced profile.
   if (role) {
     if (profileLoading) return <FullScreenSpinner />;
 
@@ -54,13 +55,16 @@ export default function RequireAuth({ role, children }) {
     }
 
     if (userRole !== role) {
+      if (redirectWrongRole) {
+        return <Navigate to={roleHome(userRole)} replace />;
+      }
       return (
         <PortalShell title="Wrong account type">
           <div className="max-w-md mx-auto">
             <Card className="p-6 text-center">
               <p className="text-brand-dark font-bold mb-1">This area is for {role}s.</p>
               <p className="text-sm text-brand-grey mb-4">You are signed in as a {userRole}.</p>
-              <Link to="/" className={btnPrimary}>Go home</Link>
+              <Link to={roleHome(userRole)} className={btnPrimary}>Go to your dashboard</Link>
             </Card>
           </div>
         </PortalShell>

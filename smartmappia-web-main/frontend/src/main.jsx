@@ -23,8 +23,8 @@ createRoot(document.getElementById('root')).render(
           <Route path="/login" element={<LoginPage />} />
           <Route path="/signup" element={<SignupPage />} />
 
-          {/* Booking requires sign-in (any signed-in user). */}
-          <Route path="/book" element={<RequireAuth><BookPage /></RequireAuth>} />
+          {/* Booking is for passengers only — drivers/admins are redirected to their dashboard. */}
+          <Route path="/book" element={<RequireAuth role="passenger" redirectWrongRole><BookPage /></RequireAuth>} />
           {/* Payment + tracking stay open by booking code. */}
           <Route path="/pay/:code" element={<PayPage />} />
           <Route path="/track/:code" element={<TrackPage />} />
