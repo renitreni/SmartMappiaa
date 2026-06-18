@@ -111,7 +111,7 @@ async function syncProfile(req, res) {
       const hint =
         (error.message || '').includes('date_of_birth') ||
         (error.message || '').includes('driver_approved')
-          ? ' Database migrations may be incomplete — run 0001, 0002, and 0003 SQL files in Supabase SQL Editor.'
+          ? ' Database migrations may be incomplete — run the SQL files in backend/migrations/ (0001, 0002, 0003) in the Supabase SQL Editor.'
           : '';
       return res.status(500).json({ error: error.message + hint });
     }

@@ -12,3 +12,5 @@ alter table profiles
   add column if not exists national_id text,
   add column if not exists vehicle_type text,
   add column if not exists vehicle_plate text;
+
+  

@@ -46,11 +46,18 @@ cd frontend && npm run dev     # http://localhost:5173
 Check: `curl http://localhost:4000/api/health` → `"db":"connected"`. `"testMode":true` means
 payments auto-verify instantly (great for demos).
 
-### 2. Create the admin (one-time, this is a real tool)
+### 2. Create the test accounts (one-time, these are real tools)
 
 ```bash
-cd backend && npm run seed:admin     # admin123@smartmappia.com / admin123
+cd backend && npm run seed:accounts   # creates all three at once:
+#   admin123@smartmappia.com  / admin123   (admin)
+#   ***REMOVED***@smartmappia.com   / ***REMOVED***    (passenger)
+#   ***REMOVED***@smartmappia.com / ***REMOVED***  (driver, pre-approved)
 ```
+
+Re-run `npm run seed:accounts` anytime to **repair a stale role** (it hard-resets each account
+to its correct role — handy if a test user ever got stuck on the admin dashboard). To inspect or
+fix roles directly in Supabase, see `backend/migrations/utilities/profile-roles.sql`.
 
 ### 3. Seed instant demo data (run from `backend/`)
 
@@ -83,11 +90,64 @@ the URL it prints.
 
 **Admin:** sign in as admin → `/admin` → review/verify payments and the **Drivers** approval tab.
 
-| Role | Email | Password |
-|---|---|---|
-| Admin | `admin123@smartmappia.com` | `admin123` |
-| Driver | `driver1@smartmappia.com` | `***REMOVED***` |
-| Rider | sign up live at `/signup` | — |
+| Role | Email | Password | Source |
+|---|---|---|---|
+| Admin | `admin123@smartmappia.com` | `admin123` | `seed:accounts` |
+| User (rider) | `***REMOVED***@smartmappia.com` | `***REMOVED***` | `seed:accounts` |
+| Driver | `***REMOVED***@smartmappia.com` | `***REMOVED***` | `seed:accounts` (pre-approved) |
+| Demo driver | `driver1@smartmappia.com` | `***REMOVED***` | `seed:demo` / `seed:request` |
+| New rider | sign up live at `/signup` | — | default role for any new account |
+
+---
+
+## Demoing the latest QA fixes
+
+Three things were just fixed/added. Here's the quickest way to show each.
+
+### A. Role-based login lands on the right screen
+Sign in (one at a time) and confirm where each account lands:
+
+| Sign in as | Lands on |
+|---|---|
+| `***REMOVED***@smartmappia.com` | **`/book`** (the rider booking screen) |
+| `***REMOVED***@smartmappia.com` | **`/driver`** |
+| `admin123@smartmappia.com` | **`/admin`** |
+
+Then sign up a brand-new account at `/signup` as a **User** → it also lands on **`/book`**.
+(Previously a rider could be dropped on the homepage or, with a stale role, the admin dashboard.)
+
+> If a seeded account ever lands somewhere wrong, its DB role is stale — run
+> `npm run seed:accounts` (or use `backend/migrations/utilities/profile-roles.sql`) to reset it.
+
+### B. Live route + ETA on the tracking map (real roads, not a straight line)
+1. Sign in as `***REMOVED***`, go to `/book`, **Continue to payment**, upload any image as proof
+   (auto-verifies) → you land on `/track/:code`.
+2. On the map you'll see a **road-following route line** between pickup and drop-off **plus an
+   ETA badge** — and it shows up **immediately**, before any driver is assigned (not just pins).
+3. (Optional, for the live driver leg) run `npm run seed:demo` in `backend/` and open the printed
+   `/track/<code>` — the route redraws from the moving driver to the pickup with a live ETA.
+
+> Under the hood this calls the public OSRM routing service. If it's ever unreachable the map
+> quietly falls back to a straight guide line + estimated ETA, so the demo never breaks.
+
+### C. Admin "View" switch — preview the User/Driver app without logging out
+1. Sign in as `admin123` → `/admin`.
+2. In the header, open the **View** dropdown (it replaced the old Refresh button; **Refresh** is
+   still the first item).
+3. **Switch to User View** → the rider app (`/book`) renders and a **"Previewing as User"** banner
+   appears at the bottom. You're still logged in as admin — no re-login happened.
+4. Open the View menu again (or use the banner) → **Switch to Driver View** → `/driver` renders
+   with a **"Previewing as Driver"** banner. To show it end-to-end: run `npm run seed:request`
+   first, then while previewing as driver, **Go online** and **Accept** the open ride.
+5. Click **Back to Admin View** on the banner → you're back on `/admin`, still the same admin
+   session throughout.
+6. Sign in as `***REMOVED***`/`***REMOVED***` to confirm the **View** dropdown and banner **never** appear
+   for non-admins.
+
+> ⚠️ **Heads-up for the demo:** previewing uses the admin's real login, and the backend now lets
+> admin act through the user/driver screens. So any real action you take while previewing
+> (accepting a ride, uploading a proof, posting GPS) **writes real data** — e.g. accepting a ride
+> assigns *the admin* as that ride's driver. Fine for a demo; just don't mistake it for read-only.
 
 ---
 
@@ -103,7 +163,7 @@ cd backend && npm run seed:clean
 rm -rf scripts/demo
 
 # 3. (optional) delete this playbook
-rm ../DEMO.md
+rm ../docs/DEMO.md
 ```
 
 Then remove the four demo lines from `backend/package.json` → `scripts`

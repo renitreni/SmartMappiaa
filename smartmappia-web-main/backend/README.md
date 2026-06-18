@@ -50,6 +50,9 @@ role from the `profiles` table.
   then can they see the feed or accept rides.
 - **Admins** aren't a signup option. Any account whose email is in `ADMIN_EMAILS` becomes an
   admin automatically on sign-in.
+- An **admin also passes the driver guards** (`requireDriver` / `requireApprovedDriver`). This
+  backs the admin "View" switch, which lets an admin try the user and driver screens without
+  logging out. It's a testing convenience — see the admin-preview note in `DOCUMENTATION.md`.
 
 *(The old `x-admin-key` / `x-driver-key` shared-secret headers are gone — JWT replaced them.)*
 
@@ -59,10 +62,14 @@ role from the `profiles` table.
 
 ### 1. Set up the database (once)
 
-In your Supabase project, open **SQL Editor → New query**, then run these two files in order:
+In your Supabase project, open **SQL Editor → New query**, then run these three files from
+`migrations/` in order:
 
-1. `0001_init_smart_mappia.sql` — all the tables, statuses, and security rules
-2. `0002_auth_driver_approval.sql` — adds the driver-approval flag
+1. `migrations/0001_init_smart_mappia.sql` — all the tables, statuses, and security rules
+2. `migrations/0002_auth_driver_approval.sql` — adds the driver-approval flag
+3. `migrations/0003_profile_registration_fields.sql` — sign-up extras (date of birth, vehicle, etc.)
+
+Run `npm run check:migrations` afterwards to confirm all three are applied.
 
 ### 2. A few Supabase switches
 
@@ -96,19 +103,26 @@ npm run dev
 
 You should see `Smart Mappia API running on http://localhost:4000`.
 
-### 5. Create the admin account
+### 5. Create the test accounts
 
 ```bash
-npm run seed:admin
+npm run seed:accounts
 ```
 
-This creates a ready-to-use admin (default `admin123@smartmappia.com` / `admin123`, set by
-`ADMIN_SEED_EMAIL` / `ADMIN_SEED_PASSWORD`) with its email pre-confirmed, and marks the profile
-as admin. It's idempotent — re-running just resets the password. Then sign in at `/login` with
-those credentials.
+This creates three ready-to-use logins, each with its email pre-confirmed:
 
-> These are **test credentials** — change them before production, and keep the email in sync
-> with `ADMIN_EMAILS`.
+| Role | Email | Password |
+|---|---|---|
+| Admin | `admin123@smartmappia.com` | `admin123` |
+| User (passenger) | `***REMOVED***@smartmappia.com` | `***REMOVED***` |
+| Driver (pre-approved) | `***REMOVED***@smartmappia.com` | `***REMOVED***` |
+
+It's idempotent — re-running resets each account to its correct role and password, which is the
+quickest way to fix a profile that got stuck on the wrong role. (`npm run seed:admin` still works
+if you only want the admin.) Sign in at `/login` with any of them.
+
+> These are **test credentials** — change them before production, and keep the admin email in
+> sync with `ADMIN_EMAILS`.
 
 ---
 
@@ -185,8 +199,11 @@ smart-mappia-backend/
 ├── app.js                         # Express app (middleware + routes)
 ├── server.js                      # local runner (app.listen)
 ├── vercel.json   package.json   .env.example
-├── 0001_init_smart_mappia.sql     # base schema
-└── 0002_auth_driver_approval.sql  # driver-approval flag
+└── migrations/
+    ├── 0001_init_smart_mappia.sql            # base schema
+    ├── 0002_auth_driver_approval.sql         # driver-approval flag
+    ├── 0003_profile_registration_fields.sql  # sign-up extra fields
+    └── utilities/profile-roles.sql           # inspect/fix a stuck role
 ```
 
 ---

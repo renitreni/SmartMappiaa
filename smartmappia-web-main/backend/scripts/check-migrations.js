@@ -45,9 +45,9 @@ async function main() {
       console.log(`❌ ${check.id} ${check.name}`);
       console.log(`   ${err}`);
       if (check.sqlFile) {
-        console.log(`   → Run backend/${check.sqlFile} in Supabase → SQL Editor\n`);
+        console.log(`   → Run backend/migrations/${check.sqlFile} in Supabase → SQL Editor\n`);
       } else {
-        console.log('   → Run backend/0001_init_smart_mappia.sql first\n');
+        console.log('   → Run backend/migrations/0001_init_smart_mappia.sql first\n');
       }
     } else {
       console.log(`✅ ${check.id} ${check.name}`);

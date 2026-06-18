@@ -18,9 +18,9 @@ heavy lifting: routing, Supabase (auth + realtime + uploads), and free OpenStree
 | `/login`, `/signup` | everyone | Email + password. Signup lets you pick **Rider** or **Driver**. |
 | `/book` | signed-in users | Book a trip → pay by STC Pay (upload the screenshot) → off to tracking. Bounces you to `/login` if you're signed out. |
 | `/pay/:code` | anyone with the code | The payment screen on its own — STC Pay details, the itemized fare, and the proof upload. Deep-linkable (the `/book` flow leads here too). |
-| `/track/:code` | anyone with the code | The star of the show: a **live map** with the driver moving, an ETA ticking down, WhatsApp the driver, pickup/drop-off pins, a cancel button, and the trip timeline. |
+| `/track/:code` | anyone with the code | The star of the show: a **live map** with a **road-following route line** and a live ETA, the driver moving, WhatsApp the driver, pickup/drop-off pins, a cancel button, and the trip timeline. |
 | `/driver` | role: driver | Go online, share GPS, watch the **nearest open requests** roll in, accept one, drive the trip, WhatsApp the rider. Locked until an admin approves you. |
-| `/admin` | role: admin | Three tabs: **Overview** (stats dashboard — revenue, bookings, drivers, status breakdown), **Bookings** (review screenshots, verify/reject), and **Drivers** (approve/revoke). Admins land here automatically on sign-in. |
+| `/admin` | role: admin | Three tabs: **Overview** (stats dashboard — revenue, bookings, drivers, status breakdown), **Bookings** (review screenshots, verify/reject), and **Drivers** (approve/revoke). A **View** menu in the header lets the admin preview the user/driver screens without logging out. Admins land here automatically on sign-in. |
 
 ---
 
@@ -34,8 +34,9 @@ access token (`Authorization: Bearer …`) and the backend decides what they're 
 Signups go through the backend (`/api/auth/signup`), which creates the account with its email
 **pre-confirmed** — so there's no confirmation email and new users sign in immediately. After
 sign-in, everyone is routed to their home automatically: **admins → `/admin`**, drivers →
-`/driver`, riders → where they were headed. Already-signed-in users can't reach `/login` or
-`/signup` (they get bounced to their dashboard).
+`/driver`, riders → `/book` (or back to the page they were headed for). Already-signed-in users
+can't reach `/login` or `/signup` (they get bounced to their dashboard). The single source of
+truth for "where does this role land" is `roleHome()` in `portal/lib/constants.js`.
 
 The three roles:
 
@@ -108,6 +109,32 @@ Two things worth calling out:
 
 ---
 
+## The route on the map
+
+The tracking map draws the actual driving route, not a straight line. `lib/osrm.js` asks the public
+**OSRM** service for the road geometry between two points (driver → pickup before the trip, pickup →
+drop-off during it) and `RideMap` renders it as a polyline, with the trip time as the ETA. The
+pickup → drop-off route shows the moment you open `/track`, before any driver is assigned.
+
+OSRM's demo server is free and needs no key, but it has no uptime promise. If a request fails or times
+out, `osrm.js` returns nothing and the map falls back to a straight guide line plus the crow-flies ETA.
+The screen never breaks on a routing hiccup.
+
+## Admin preview (the "View" switch)
+
+An admin can look at the user and driver screens without signing out. The **View** menu on `/admin`
+(it replaced the old Refresh button — Refresh is still in there) switches to "User View" or "Driver
+View". `ViewModeProvider` holds that choice in React state plus `sessionStorage`, so a refresh keeps
+it, and a persistent banner shows which mode is active with a **Back to Admin View** button. The admin
+stays logged in as admin the whole time — only the rendered screen changes.
+
+`RequireAuth` lets the admin through the `/book` and `/driver` guards while previewing, and the backend
+guards do the same (see `backend/middleware/auth.js`). Because the real token is still the admin's, any
+action writes real data — accepting a ride in Driver View assigns it to the admin account. That's the
+trade for testing the full flow from one login.
+
+---
+
 ## Getting it running
 
 1. **Install** (if you haven't): `npm install`
@@ -123,8 +150,9 @@ Two things worth calling out:
 
 A handful of switches in the Supabase dashboard make the live features work:
 
-- **Database** — run `0001_init_smart_mappia.sql`, then `0002_auth_driver_approval.sql`
-  (that second one adds the driver-approval flag).
+- **Database** — run the three files in `backend/migrations/`, in order:
+  `0001_init_smart_mappia.sql`, `0002_auth_driver_approval.sql` (the driver-approval flag), and
+  `0003_profile_registration_fields.sql` (extra sign-up fields).
 - **Auth** — the email provider is on by default. For a frictionless MVP, turn **off**
   "Confirm email" (Auth → Providers → Email) so new signups get a session right away. If you
   leave it on, people confirm via email first — the signup screen already handles both cases.
@@ -152,16 +180,18 @@ Three dependencies were added, each pulling real weight:
 ```
 src/portal/
 ├── lib/
-│   ├── api.js            # backend client — auto-attaches the auth token
-│   ├── supabaseClient.js # anon Supabase client (realtime + proof upload)
-│   ├── AuthProvider.jsx  # session + profile/role context (useAuth)
-│   ├── useBroadcast.js   # subscribe to a realtime channel
-│   ├── geo.js            # haversine distance + a geolocation hook
-│   └── constants.js      # airports, fare breakdown, status labels, WhatsApp links
+│   ├── api.js              # backend client — auto-attaches the auth token
+│   ├── supabaseClient.js   # anon Supabase client (realtime + proof upload)
+│   ├── AuthProvider.jsx    # session + profile/role context (useAuth)
+│   ├── ViewModeProvider.jsx# admin "preview as user/driver" state + banner
+│   ├── useBroadcast.js     # subscribe to a realtime channel
+│   ├── osrm.js             # road route + ETA from the public OSRM service
+│   ├── geo.js              # haversine distance + a geolocation hook
+│   └── constants.js        # roleHome, airports, fare, status labels, WhatsApp links
 ├── components/
-│   ├── RideMap.jsx       # Leaflet/OSM map with clean colored pins
-│   ├── RequireAuth.jsx   # route guard (redirect / wrong-role screen)
-│   └── ui.jsx            # shell, badge, spinner, inputs, buttons
+│   ├── RideMap.jsx         # Leaflet/OSM map: colored pins + route polyline
+│   ├── RequireAuth.jsx     # route guard (redirect / wrong-role / admin preview)
+│   └── ui.jsx              # shell, badge, spinner, inputs, buttons
 ├── auth/
 │   ├── LoginPage.jsx     # /login
 │   └── SignupPage.jsx    # /signup  (Rider or Driver)
