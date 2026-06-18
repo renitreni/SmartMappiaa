@@ -479,7 +479,8 @@ export default function SignupPage() {
       if (needsConfirmation) {
         setConfirmSent(true);
       } else {
-        navigate(role === 'driver' ? '/driver' : next, { replace: true });
+        // Land each new account on its portal (passenger -> /book, driver -> /driver).
+        navigate(roleHome(role, next), { replace: true });
       }
     } catch (err) {
       setError(err.message);

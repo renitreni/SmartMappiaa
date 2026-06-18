@@ -74,7 +74,11 @@ function requireAdmin(req, res, next) {
 
 function requireDriver(req, res, next) {
   requireAuth(req, res, () => {
-    if (req.role !== 'driver') return res.status(403).json({ error: 'Driver access required' });
+    // Admins may exercise driver routes for testing (the admin "preview as
+    // driver" view) — admin passes any role check; routes are not duplicated.
+    if (req.role !== 'driver' && req.role !== 'admin') {
+      return res.status(403).json({ error: 'Driver access required' });
+    }
     req.driverId = req.userId;
     return next();
   });
@@ -82,7 +86,8 @@ function requireDriver(req, res, next) {
 
 function requireApprovedDriver(req, res, next) {
   requireDriver(req, res, () => {
-    if (!req.profile.driver_approved) {
+    // Admin bypasses the approval gate (admins are implicitly approved).
+    if (req.role !== 'admin' && !req.profile.driver_approved) {
       return res.status(403).json({ error: 'Your driver account is pending admin approval' });
     }
     return next();

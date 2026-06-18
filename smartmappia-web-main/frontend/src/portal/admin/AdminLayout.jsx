@@ -1,7 +1,7 @@
 // ---------------------------------------------------------------------
 // Admin shell — dark sidebar, light workspace, responsive navigation.
 // ---------------------------------------------------------------------
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import {
   LayoutDashboard,
   ClipboardList,
@@ -12,9 +12,105 @@ import {
   X,
   ExternalLink,
   Bell,
+  ChevronDown,
+  Eye,
+  User,
+  Car,
+  ArrowLeft,
 } from 'lucide-react';
-import { useState } from 'react';
+import { useState, useRef, useEffect } from 'react';
+import { AnimatePresence, motion } from 'framer-motion';
 import { useAuth } from '../lib/AuthProvider';
+import { useViewMode } from '../lib/ViewModeProvider';
+
+// Admin-only action menu that replaces the old Refresh button. Lets the admin
+// refresh data or preview the user/driver portal WITHOUT logging out (the
+// Supabase session/JWT stays admin — see ViewModeProvider). Only ever rendered
+// inside AdminLayout, which itself is gated by RequireAuth role="admin".
+function ViewSwitchMenu({ onRefresh }) {
+  const navigate = useNavigate();
+  const { previewRole, setPreviewRole } = useViewMode();
+  const [open, setOpen] = useState(false);
+  const ref = useRef(null);
+
+  useEffect(() => {
+    if (!open) return undefined;
+    function onClickAway(e) {
+      if (ref.current && !ref.current.contains(e.target)) setOpen(false);
+    }
+    function onKey(e) {
+      if (e.key === 'Escape') setOpen(false);
+    }
+    document.addEventListener('mousedown', onClickAway);
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('mousedown', onClickAway);
+      document.removeEventListener('keydown', onKey);
+    };
+  }, [open]);
+
+  function run(fn) {
+    setOpen(false);
+    fn();
+  }
+
+  const items = [
+    { key: 'refresh', label: 'Refresh', icon: RefreshCw, action: () => onRefresh && onRefresh() },
+    { key: 'user', label: 'Switch to User View', icon: User, action: () => { setPreviewRole('passenger'); navigate('/book'); } },
+    { key: 'driver', label: 'Switch to Driver View', icon: Car, action: () => { setPreviewRole('driver'); navigate('/driver'); } },
+  ];
+  if (previewRole) {
+    items.push({ key: 'back', label: 'Back to Admin View', icon: ArrowLeft, action: () => { setPreviewRole(null); navigate('/admin'); } });
+  }
+
+  return (
+    <div ref={ref} className="relative">
+      <button
+        type="button"
+        aria-haspopup="menu"
+        aria-expanded={open}
+        onClick={() => setOpen((o) => !o)}
+        className={`flex items-center gap-1.5 p-2.5 sm:px-3 sm:py-2.5 rounded-xl bg-white border text-brand-grey hover:text-brand-dark cursor-pointer shadow-sm transition-colors ${
+          open ? 'border-brand-orange/40 text-brand-dark' : 'border-black/5'
+        }`}
+        title="View options"
+      >
+        <Eye className="w-4 h-4" />
+        <span className="hidden sm:inline text-xs font-bold">View</span>
+        <ChevronDown className={`w-3.5 h-3.5 transition-transform ${open ? 'rotate-180' : ''}`} />
+      </button>
+
+      <AnimatePresence>
+        {open && (
+          <motion.div
+            initial={{ opacity: 0, y: -6, scale: 0.98 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: -6, scale: 0.98 }}
+            transition={{ duration: 0.15, ease: 'easeOut' }}
+            className="absolute right-0 top-[calc(100%+6px)] z-50 w-56"
+            role="menu"
+          >
+            <ul className="bg-white border border-brand-border rounded-xl shadow-xl shadow-brand-orange/10 py-1.5">
+              {items.map(({ key, label, icon: Icon, action }) => (
+                <li key={key} role="none">
+                  <button
+                    type="button"
+                    role="menuitem"
+                    onClick={() => run(action)}
+                    className="w-full flex items-center gap-2.5 px-3.5 py-2.5 text-sm text-left text-brand-dark hover:bg-brand-surface hover:text-brand-orange transition-colors cursor-pointer"
+                  >
+                    <Icon className="w-4 h-4 shrink-0" />
+                    <span className="font-medium">{label}</span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  );
+}
 
 export const ADMIN_NAV = [
   { id: 'overview', label: 'Overview', icon: LayoutDashboard },
@@ -160,14 +256,7 @@ export default function AdminLayout({ activeTab, onTabChange, onRefresh, childre
               >
                 <Bell className="w-4 h-4" />
               </button>
-              <button
-                type="button"
-                onClick={onRefresh}
-                className="p-2.5 rounded-xl bg-white border border-black/5 text-brand-grey hover:text-brand-dark cursor-pointer shadow-sm transition-colors"
-                title="Refresh data"
-              >
-                <RefreshCw className="w-4 h-4" />
-              </button>
+              <ViewSwitchMenu onRefresh={onRefresh} />
               <Link
                 to="/"
                 className="hidden sm:inline-flex items-center gap-1.5 text-xs font-bold text-brand-dark bg-white border border-black/5 px-3.5 py-2.5 rounded-xl shadow-sm hover:border-brand-orange/30 hover:text-brand-orange transition-colors"

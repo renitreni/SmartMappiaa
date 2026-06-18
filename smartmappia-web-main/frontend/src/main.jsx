@@ -5,6 +5,7 @@ import 'leaflet/dist/leaflet.css'
 import './index.css'
 import App from './App.jsx'
 import { AuthProvider } from './portal/lib/AuthProvider.jsx'
+import { ViewModeProvider, PreviewBanner } from './portal/lib/ViewModeProvider.jsx'
 import RequireAuth from './portal/components/RequireAuth.jsx'
 import LoginPage from './portal/auth/LoginPage.jsx'
 import SignupPage from './portal/auth/SignupPage.jsx'
@@ -18,20 +19,23 @@ createRoot(document.getElementById('root')).render(
   <StrictMode>
     <BrowserRouter>
       <AuthProvider>
-        <Routes>
-          <Route path="/" element={<App />} />
-          <Route path="/login" element={<LoginPage />} />
-          <Route path="/signup" element={<SignupPage />} />
+        <ViewModeProvider>
+          <Routes>
+            <Route path="/" element={<App />} />
+            <Route path="/login" element={<LoginPage />} />
+            <Route path="/signup" element={<SignupPage />} />
 
-          {/* Booking is for passengers only — drivers/admins are redirected to their dashboard. */}
-          <Route path="/book" element={<RequireAuth role="passenger" redirectWrongRole><BookPage /></RequireAuth>} />
-          {/* Payment + tracking stay open by booking code. */}
-          <Route path="/pay/:code" element={<PayPage />} />
-          <Route path="/track/:code" element={<TrackPage />} />
+            {/* Booking is for passengers only — drivers/admins are redirected to their dashboard. */}
+            <Route path="/book" element={<RequireAuth role="passenger" redirectWrongRole><BookPage /></RequireAuth>} />
+            {/* Payment + tracking stay open by booking code. */}
+            <Route path="/pay/:code" element={<PayPage />} />
+            <Route path="/track/:code" element={<TrackPage />} />
 
-          <Route path="/driver" element={<RequireAuth role="driver"><DriverPage /></RequireAuth>} />
-          <Route path="/admin" element={<RequireAuth role="admin"><AdminPage /></RequireAuth>} />
-        </Routes>
+            <Route path="/driver" element={<RequireAuth role="driver"><DriverPage /></RequireAuth>} />
+            <Route path="/admin" element={<RequireAuth role="admin"><AdminPage /></RequireAuth>} />
+          </Routes>
+          <PreviewBanner />
+        </ViewModeProvider>
       </AuthProvider>
     </BrowserRouter>
   </StrictMode>,
