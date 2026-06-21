@@ -24,8 +24,7 @@ async function getTracking(req, res) {
           'pickup_address, pickup_lat, pickup_lng, dropoff_address, dropoff_lat, dropoff_lng, ' +
           'pickup_datetime, fare_amount, currency, ' +
           'payment_status, booking_status, verification_mode, driver_ride_status, ' +
-          'scheduled_pickup_eta_text, payment_confirmation_eta_text, ' +
-          'driver_arrival_eta_minutes, created_at'
+          'confirmed_at, created_at'
       )
       .eq('booking_code', bookingCode)
       .single();
@@ -95,10 +94,15 @@ async function getTracking(req, res) {
       bookingStatus: booking.booking_status,
       verificationMode: booking.verification_mode,
       driverRideStatus: booking.driver_ride_status,
+      // ETAs are derived automatically from live data (no hand-filled columns):
+      //   - scheduledPickup      : the booking's scheduled pickup time
+      //   - paymentConfirmation  : when payment was confirmed (null until verified)
+      //   - driverArrivalMinutes : live estimate from the driver's latest GPS to
+      //                            the pickup point (null until a driver is active)
       etas: {
-        scheduledPickup: booking.scheduled_pickup_eta_text,
-        paymentConfirmation: booking.payment_confirmation_eta_text,
-        driverArrivalMinutes: booking.driver_arrival_eta_minutes,
+        scheduledPickup: booking.pickup_datetime,
+        paymentConfirmation: booking.confirmed_at,
+        driverArrivalMinutes: liveEtaMinutes,
       },
       driver,
       driverLocation,

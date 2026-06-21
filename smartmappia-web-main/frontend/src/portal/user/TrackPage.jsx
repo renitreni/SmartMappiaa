@@ -15,6 +15,7 @@ import { useBroadcast } from '../lib/useBroadcast';
 import { realtimeEnabled } from '../lib/supabaseClient';
 import { statusMeta, whatsappLink, CANCELLABLE } from '../lib/constants';
 import { fetchRoute } from '../lib/osrm';
+import { movementFrom, bearingDeg } from '../lib/geo';
 import { PortalShell, Card, Badge, Spinner, btnGhost } from '../components/ui';
 import RideMap from '../components/RideMap';
 
@@ -31,6 +32,8 @@ export default function TrackPage() {
   const [error, setError] = useState(null);
   const [loading, setLoading] = useState(true);
   const [cancelling, setCancelling] = useState(false);
+  const [movement, setMovement] = useState({ speedKmh: null, moving: false, heading: null });
+  const prevDriverRef = useRef(null);
   const doneRef = useRef(false);
 
   const refetch = useCallback(async () => {
@@ -98,6 +101,19 @@ export default function TrackPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [routeSig]);
 
+  // Derive speed + heading from successive driver positions for the live badge
+  // and the car's facing direction.
+  useEffect(() => {
+    const cur = live.driverLocation || data?.driverLocation;
+    if (!cur || cur.lat == null) return;
+    const prev = prevDriverRef.current;
+    if (prev && (prev.lat !== cur.lat || prev.lng !== cur.lng)) {
+      const dt = cur.at && prev.at ? (new Date(cur.at) - new Date(prev.at)) / 1000 : null;
+      setMovement({ ...movementFrom(prev, cur, dt), heading: bearingDeg(prev, cur) });
+    }
+    prevDriverRef.current = { lat: cur.lat, lng: cur.lng, at: cur.at };
+  }, [live.driverLocation, data?.driverLocation]);
+
   async function onCancel() {
     if (!window.confirm('Cancel this booking? This cannot be undone.')) return;
     setCancelling(true);
@@ -143,7 +159,7 @@ export default function TrackPage() {
   const markers = [
     pickup && { ...pickup, type: 'pickup', label: 'Pickup', key: 'p' },
     dropoff && { ...dropoff, type: 'dropoff', label: 'Drop-off', key: 'd' },
-    driverLoc && { lat: driverLoc.lat, lng: driverLoc.lng, type: 'driver', label: 'Your driver', key: 'driver' },
+    driverLoc && { lat: driverLoc.lat, lng: driverLoc.lng, type: 'driver', label: 'Your driver', key: 'driver', heading: movement.heading },
   ].filter(Boolean);
 
   const mapLegend = [
@@ -189,7 +205,14 @@ export default function TrackPage() {
       <div className="grid lg:grid-cols-5 gap-4">
         {/* Map */}
         <Card className="lg:col-span-3 p-2 relative overflow-hidden">
-          <RideMap markers={markers} line={line} legend={mapLegend} height={380} />
+          <RideMap
+            markers={markers}
+            line={line}
+            legend={mapLegend}
+            height={380}
+            follow={isActive && !!driverLoc}
+            followTarget={tripStarted ? dropoff : pickup}
+          />
           {eta != null && line && (
             <div className="absolute top-4 left-4 z-[400] bg-white rounded-xl shadow-lg border border-brand-border px-4 py-2 flex items-center gap-2">
               <Clock className="w-4 h-4 text-brand-orange" />
@@ -198,6 +221,15 @@ export default function TrackPage() {
                   {isActive ? 'ETA' : 'Est. trip'}
                 </div>
                 <div className="font-black text-brand-black leading-tight">{eta} min</div>
+                {isActive && driverLoc && (
+                  movement.moving && movement.speedKmh != null ? (
+                    <div className="text-[10px] font-bold text-green-600 leading-none mt-0.5">
+                      Moving · ~{Math.round(movement.speedKmh)} km/h
+                    </div>
+                  ) : (
+                    <div className="text-[10px] font-bold text-brand-grey leading-none mt-0.5">Stopped</div>
+                  )
+                )}
               </div>
             </div>
           )}

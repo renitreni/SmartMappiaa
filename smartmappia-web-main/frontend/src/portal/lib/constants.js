@@ -8,7 +8,10 @@
 export function roleHome(role, next = '/') {
   if (role === 'admin') return '/admin';
   if (role === 'driver') return '/driver';
-  return next && next !== '/' ? next : '/book';
+  // Passengers: honor an explicit `next`, but never follow a stale one into an
+  // admin/driver-only area (e.g. ?next=/admin left over after switching accounts).
+  const safeNext = next && next !== '/' && !next.startsWith('/admin') && !next.startsWith('/driver');
+  return safeNext ? next : '/book';
 }
 
 // Fare model (mirrors backend lib/fare.js): flat base + 3.75% service fee.

@@ -21,6 +21,28 @@ export function etaMinutes(distanceKm, avgSpeedKmh = 30) {
   return Math.max(1, Math.round((distanceKm / avgSpeedKmh) * 60));
 }
 
+// Compass bearing in degrees (0 = North, 90 = East) from point a to point b.
+// Used to point the moving vehicle icon in its direction of travel.
+export function bearingDeg(a, b) {
+  if (!a || !b || a.lat == null || a.lng == null || b.lat == null || b.lng == null) return null;
+  const lat1 = toRad(a.lat);
+  const lat2 = toRad(b.lat);
+  const dLng = toRad(b.lng - a.lng);
+  const y = Math.sin(dLng) * Math.cos(lat2);
+  const x = Math.cos(lat1) * Math.sin(lat2) - Math.sin(lat1) * Math.cos(lat2) * Math.cos(dLng);
+  return (Math.atan2(y, x) * 180) / Math.PI; // -180..180; CSS rotate handles negatives fine
+}
+
+// Speed + "is the vehicle moving?" between two points captured dtSeconds apart.
+// Absurd speeds (GPS glitches or teleport test data) are ignored for the read.
+export function movementFrom(prev, curr, dtSeconds, movingThresholdKmh = 3) {
+  const km = haversineKm(prev, curr);
+  if (km == null || !dtSeconds || dtSeconds <= 0) return { speedKmh: null, moving: false };
+  const speed = (km / dtSeconds) * 3600;
+  const speedKmh = speed > 400 ? null : speed;
+  return { speedKmh, moving: speedKmh != null && speedKmh >= movingThresholdKmh };
+}
+
 // Watch (or one-shot) the device location.
 //   useGeolocation({ watch: true, enabled: isOnline })
 export function useGeolocation({ watch = false, enabled = true } = {}) {
@@ -34,12 +56,16 @@ export function useGeolocation({ watch = false, enabled = true } = {}) {
       setError('Geolocation is not available in this browser.');
       return undefined;
     }
-    const onOk = (pos) =>
+    const onOk = (pos) => {
+      // A fresh fix clears any earlier transient error (e.g. a watch "Timeout
+      // expired") so we don't keep showing a stale warning once we have a spot.
+      setError(null);
       setCoords({
         lat: pos.coords.latitude,
         lng: pos.coords.longitude,
         accuracy: pos.coords.accuracy,
       });
+    };
     const onErr = (e) => setError(e.message || 'Could not get your location.');
     const opts = { enableHighAccuracy: true, maximumAge: 10000, timeout: 20000 };
 

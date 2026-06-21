@@ -4,6 +4,7 @@
 // knows who the caller is and what role they have.
 // ---------------------------------------------------------------------
 import { supabase } from './supabaseClient';
+import { notifyError } from './notify';
 
 const API_BASE = import.meta.env.VITE_API_BASE || 'http://localhost:4000';
 
@@ -14,13 +15,26 @@ async function authHeader() {
   return token ? { Authorization: `Bearer ${token}` } : {};
 }
 
-async function request(path, { method = 'GET', body, headers = {} } = {}) {
+// Pass { silent: true } for background/polling calls so a transient failure
+// doesn't fire a popup every few seconds. All other errors show one via Swal.
+async function request(path, { method = 'GET', body, headers = {}, silent = false } = {}) {
   const auth = await authHeader();
-  const res = await fetch(`${API_BASE}${path}`, {
-    method,
-    headers: { 'Content-Type': 'application/json', ...auth, ...headers },
-    body: body !== undefined ? JSON.stringify(body) : undefined,
-  });
+
+  let res;
+  try {
+    res = await fetch(`${API_BASE}${path}`, {
+      method,
+      headers: { 'Content-Type': 'application/json', ...auth, ...headers },
+      body: body !== undefined ? JSON.stringify(body) : undefined,
+    });
+  } catch {
+    // Network/CORS failure: the server couldn't be reached at all.
+    const err = new Error('Network error: could not reach the server. Please check your connection.');
+    err.status = 0;
+    if (!silent) notifyError(err.message);
+    throw err;
+  }
+
   let data = null;
   try {
     data = await res.json();
@@ -32,6 +46,7 @@ async function request(path, { method = 'GET', body, headers = {} } = {}) {
     const err = new Error(msg);
     err.status = res.status;
     err.details = data && data.details;
+    if (!silent) notifyError(msg);
     throw err;
   }
   return data;
@@ -42,7 +57,7 @@ export const api = {
 
   // --- auth ---
   authSignup: (body) => request('/api/auth/signup', { method: 'POST', body }),
-  authSync: (body = {}) => request('/api/auth/sync', { method: 'POST', body }),
+  authSync: (body = {}) => request('/api/auth/sync', { method: 'POST', body, silent: true }),
 
   // --- passenger ---
   createBooking: (b) => request('/api/bookings', { method: 'POST', body: b }),
@@ -51,7 +66,7 @@ export const api = {
   paymentInstructions: (code) => request(`/api/bookings/${code}/payment-instructions`),
   proofSignedUrl: (code, body) => request(`/api/bookings/${code}/payment-proof/signed-url`, { method: 'POST', body }),
   recordProof: (code, body) => request(`/api/bookings/${code}/payment-proof`, { method: 'POST', body }),
-  tracking: (code) => request(`/api/tracking/${code}`),
+  tracking: (code) => request(`/api/tracking/${code}`, { silent: true }), // polled every 8s
 
   // --- admin (role enforced by backend) ---
   adminStats: () => request('/api/admin/stats'),
@@ -67,10 +82,10 @@ export const api = {
   // --- driver (identity from token) ---
   driverAvailable: (lat, lng) => {
     const q = lat != null && lng != null ? `?lat=${lat}&lng=${lng}` : '';
-    return request(`/api/driver/available${q}`);
+    return request(`/api/driver/available${q}`, { silent: true }); // polled feed
   },
-  driverRides: () => request('/api/driver/rides'),
+  driverRides: () => request('/api/driver/rides', { silent: true }), // polled feed
   driverAccept: (code) => request(`/api/driver/rides/${code}/accept`, { method: 'POST' }),
   driverStatus: (code, status) => request(`/api/driver/rides/${code}/status`, { method: 'POST', body: { status } }),
-  driverLocation: (body) => request('/api/driver/location', { method: 'POST', body }),
+  driverLocation: (body) => request('/api/driver/location', { method: 'POST', body, silent: true }), // 12s GPS ping
 };

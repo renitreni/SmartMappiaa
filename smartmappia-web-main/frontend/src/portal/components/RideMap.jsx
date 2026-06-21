@@ -1,7 +1,7 @@
 // ---------------------------------------------------------------------
 // Leaflet map styled for Smart Mappia (warm light tiles, brand pins).
 // ---------------------------------------------------------------------
-import { useEffect } from 'react';
+import { useEffect, useRef, useMemo } from 'react';
 import { MapContainer, TileLayer, Marker, Popup, Polyline, useMap } from 'react-leaflet';
 import L from 'leaflet';
 import { RIYADH_CENTER } from '../lib/constants';
@@ -45,12 +45,20 @@ function pin(marker) {
   const isDriver = kind === 'driver';
   const size = isDriver ? 40 : 36;
 
+  // Rotate the car toward its travel direction (Waze-style) when we know it.
+  const headingStyle =
+    isDriver && marker.heading != null
+      ? `style="display:inline-flex;transition:transform 0.6s ease;transform:rotate(${marker.heading}deg)"`
+      : '';
+
   const inner = isDriver
     ? `<div class="sm-map-driver-core">
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M19 17h2c.6 0 1-.4 1-1v-3c0-.9-.7-1.7-1.5-1.9L18 10l-2.7-5.4A2 2 0 0 0 13.5 3h-3A2 2 0 0 0 8.7 4.6L6 10l-2.5 1.1C2.7 11.3 2 12.1 2 13v3c0 .6.4 1 1 1h2"/>
-          <circle cx="7" cy="17" r="2"/><circle cx="17" cy="17" r="2"/>
-        </svg>
+        <span ${headingStyle}>
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M19 17h2c.6 0 1-.4 1-1v-3c0-.9-.7-1.7-1.5-1.9L18 10l-2.7-5.4A2 2 0 0 0 13.5 3h-3A2 2 0 0 0 8.7 4.6L6 10l-2.5 1.1C2.7 11.3 2 12.1 2 13v3c0 .6.4 1 1 1h2"/>
+            <circle cx="7" cy="17" r="2"/><circle cx="17" cy="17" r="2"/>
+          </svg>
+        </span>
       </div>`
     : `<span class="sm-map-pin-glyph">${glyph}</span>`;
 
@@ -78,6 +86,85 @@ function FitBounds({ points }) {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [JSON.stringify(points.map((p) => [p?.lat, p?.lng]))]);
+  return null;
+}
+
+// A driver marker that GLIDES from its last spot to each new GPS point instead
+// of teleporting, so the car looks like it is actually driving (Grab/Waze feel).
+function AnimatedDriverMarker({ marker }) {
+  const map = useMap();
+  const markerRef = useRef(null);
+  const curRef = useRef({ lat: marker.lat, lng: marker.lng });
+  const rafRef = useRef(null);
+
+  const icon = useMemo(() => pin(marker), [marker.heading, marker.type]);
+
+  // Create the Leaflet marker once and clean it up on unmount.
+  useEffect(() => {
+    const m = L.marker([marker.lat, marker.lng], { icon, zIndexOffset: 1000 });
+    m.addTo(map);
+    markerRef.current = m;
+    return () => {
+      if (rafRef.current) cancelAnimationFrame(rafRef.current);
+      m.remove();
+      markerRef.current = null;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [map]);
+
+  // Keep the icon (heading rotation) fresh.
+  useEffect(() => {
+    if (markerRef.current) markerRef.current.setIcon(icon);
+  }, [icon]);
+
+  // Tween to each new position.
+  useEffect(() => {
+    const m = markerRef.current;
+    if (!m) return undefined;
+    const from = curRef.current;
+    const to = { lat: marker.lat, lng: marker.lng };
+    const jump = Math.abs(to.lat - from.lat) + Math.abs(to.lng - from.lng);
+    // Snap instantly on the first fix or an implausible jump (test/teleport data).
+    if (jump === 0 || jump > 0.5) {
+      m.setLatLng([to.lat, to.lng]);
+      curRef.current = to;
+      return undefined;
+    }
+    const duration = 1200;
+    const start = performance.now();
+    if (rafRef.current) cancelAnimationFrame(rafRef.current);
+    const step = (now) => {
+      const t = Math.min(1, (now - start) / duration);
+      const lat = from.lat + (to.lat - from.lat) * t;
+      const lng = from.lng + (to.lng - from.lng) * t;
+      m.setLatLng([lat, lng]);
+      curRef.current = { lat, lng };
+      if (t < 1) rafRef.current = requestAnimationFrame(step);
+    };
+    rafRef.current = requestAnimationFrame(step);
+    return undefined;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [marker.lat, marker.lng]);
+
+  return null;
+}
+
+// Keep the moving driver (and the current leg target) in view without the
+// jarring full re-fit FitBounds does every tick.
+function FollowDriver({ driver, target }) {
+  const map = useMap();
+  const inited = useRef(false);
+  useEffect(() => {
+    if (!driver || driver.lat == null) return;
+    const pts = [driver, target].filter((p) => p && p.lat != null && p.lng != null);
+    if (!inited.current && pts.length >= 2) {
+      map.fitBounds(pts.map((p) => [p.lat, p.lng]), { padding: [60, 60], maxZoom: 15 });
+      inited.current = true;
+    } else {
+      map.panTo([driver.lat, driver.lng], { animate: true, duration: 0.8 });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [driver?.lat, driver?.lng, target?.lat, target?.lng]);
   return null;
 }
 
@@ -109,8 +196,13 @@ export default function RideMap({
   height = 320,
   className = '',
   legend = null,
+  follow = false,
+  followTarget = null,
 }) {
   const valid = markers.filter((m) => m && m.lat != null && m.lng != null);
+  const driverMarkers = valid.filter((m) => m.type === 'driver');
+  const staticMarkers = valid.filter((m) => m.type !== 'driver');
+  const driver = driverMarkers[0] || null;
   const center = valid[0] ? [valid[0].lat, valid[0].lng] : [RIYADH_CENTER.lat, RIYADH_CENTER.lng];
 
   const linePositions = line && line.length >= 2 ? line.map((p) => [p.lat, p.lng]) : null;
@@ -147,7 +239,7 @@ export default function RideMap({
             />
           </>
         )}
-        {valid.map((m, i) => (
+        {staticMarkers.map((m, i) => (
           <Marker key={m.key || i} position={[m.lat, m.lng]} icon={pin(m)}>
             {m.label && (
               <Popup>
@@ -156,7 +248,14 @@ export default function RideMap({
             )}
           </Marker>
         ))}
-        <FitBounds points={valid} />
+        {driverMarkers.map((m, i) => (
+          <AnimatedDriverMarker key={m.key || `driver-${i}`} marker={m} />
+        ))}
+        {follow && driver ? (
+          <FollowDriver driver={driver} target={followTarget} />
+        ) : (
+          <FitBounds points={valid} />
+        )}
       </MapContainer>
 
       {legend && <MapLegend items={legend} />}

@@ -1,5 +1,6 @@
 import { Home, Plane, ArrowRight, ArrowDown, CircleDot } from 'lucide-react';
 import { motion } from 'framer-motion';
+import { openLegalModal } from '../../portal/lib/legal';
 
 export function DirectionToggle({ value, onChange, variant = 'cards' }) {
   const options = [
@@ -292,6 +293,30 @@ export function LocationHint({ active, lat, lng }) {
       <CircleDot size={12} />
       GPS location set ({lat.toFixed(4)}, {lng.toFixed(4)})
     </span>
+  );
+}
+
+export function LegalConsentNote({ className = '' }) {
+  return (
+    <p className={`text-center text-[11px] text-brand-grey leading-relaxed ${className}`}>
+      By continuing you agree to our{' '}
+      <button
+        type="button"
+        onClick={() => openLegalModal('privacy')}
+        className="text-brand-orange hover:underline font-medium cursor-pointer"
+      >
+        Privacy Policy
+      </button>{' '}
+      and{' '}
+      <button
+        type="button"
+        onClick={() => openLegalModal('terms')}
+        className="text-brand-orange hover:underline font-medium cursor-pointer"
+      >
+        Terms of Service
+      </button>
+      .
+    </p>
   );
 }
 

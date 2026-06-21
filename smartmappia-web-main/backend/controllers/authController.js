@@ -86,8 +86,12 @@ async function syncProfile(req, res) {
       role = (existing && existing.role) || 'passenger';
     }
 
-    // Admins are implicitly approved; otherwise keep current approval state.
-    const driverApproved = role === 'admin' ? true : (existing ? existing.driver_approved : false);
+    // Pilot policy: drivers no longer require manual admin verification. Any
+    // driver (and admin) is approved on sign-up, so verified, ready-to-go rides
+    // appear in their feed automatically. Passengers keep the driver-only flag
+    // at its default. To re-enable manual vetting, restore the previous line
+    // (`role === 'admin' ? true : keep existing`) and migration 0004's default.
+    const driverApproved = role === 'admin' || role === 'driver' ? true : (existing ? existing.driver_approved : false);
 
     const extended = await hasExtendedProfileColumns(supabase);
     const upsertRow = buildProfileUpsert({
