@@ -14,38 +14,26 @@ import { api } from '../lib/api';
 import { useBroadcast } from '../lib/useBroadcast';
 import { realtimeEnabled } from '../lib/supabaseClient';
 import { statusMeta, whatsappLink, CANCELLABLE } from '../lib/constants';
-<<<<<<< HEAD
-import { PortalShell, Card, Badge, Spinner, btnGhost } from '../components/ui';
-import RideMap from '../components/RideMap';
-
-=======
 import { fetchRoute } from '../lib/osrm';
-import { movementFrom, bearingDeg } from '../lib/geo';
+import { movementFrom, bearingDeg, resolveCoordsFromAddress } from '../lib/geo';
 import { PortalShell, Card, Badge, Spinner, btnGhost } from '../components/ui';
 import RideMap from '../components/RideMap';
 
 // Round a coord to ~100m so the OSRM route only refetches on real movement.
 const r3 = (x) => (x == null ? '' : Math.round(x * 1000) / 1000);
 
->>>>>>> 0e76961b6c844daa651302735be3f95582c61c86
 const ACTIVE = ['accepted', 'on_the_way', 'arrived', 'started'];
 
 export default function TrackPage() {
   const { code } = useParams();
   const [data, setData] = useState(null);
   const [live, setLive] = useState({ driverLocation: null, etaMinutes: null });
-<<<<<<< HEAD
-  const [error, setError] = useState(null);
-  const [loading, setLoading] = useState(true);
-  const [cancelling, setCancelling] = useState(false);
-=======
   const [route, setRoute] = useState(null);
   const [error, setError] = useState(null);
   const [loading, setLoading] = useState(true);
   const [cancelling, setCancelling] = useState(false);
   const [movement, setMovement] = useState({ speedKmh: null, moving: false, heading: null });
   const prevDriverRef = useRef(null);
->>>>>>> 0e76961b6c844daa651302735be3f95582c61c86
   const doneRef = useRef(false);
 
   const refetch = useCallback(async () => {
@@ -81,8 +69,6 @@ export default function TrackPage() {
     realtimeEnabled
   );
 
-<<<<<<< HEAD
-=======
   // Real road route (OSRM) for the current leg: driver→pickup while the driver
   // is on the way, otherwise pickup→dropoff (shown immediately, even before a
   // driver is assigned, so the passenger sees their route — not just pins).
@@ -97,8 +83,8 @@ export default function TrackPage() {
 
   useEffect(() => {
     if (!data) return undefined;
-    const pickup = data.pickupLat != null ? { lat: data.pickupLat, lng: data.pickupLng } : null;
-    const dropoff = data.dropoffLat != null ? { lat: data.dropoffLat, lng: data.dropoffLng } : null;
+    const pickup = resolveCoordsFromAddress(data.pickupAddress, data.pickupLat, data.pickupLng);
+    const dropoff = resolveCoordsFromAddress(data.dropoffAddress, data.dropoffLat, data.dropoffLng);
     const driverLoc = live.driverLocation || data.driverLocation;
     const tripStarted = data.driverRideStatus === 'started';
 
@@ -128,7 +114,6 @@ export default function TrackPage() {
     prevDriverRef.current = { lat: cur.lat, lng: cur.lng, at: cur.at };
   }, [live.driverLocation, data?.driverLocation]);
 
->>>>>>> 0e76961b6c844daa651302735be3f95582c61c86
   async function onCancel() {
     if (!window.confirm('Cancel this booking? This cannot be undone.')) return;
     setCancelling(true);
@@ -162,27 +147,19 @@ export default function TrackPage() {
 
   const meta = statusMeta(data.bookingStatus);
   const driverLoc = live.driverLocation || data.driverLocation;
-<<<<<<< HEAD
-  const eta = live.etaMinutes ?? data.liveEtaMinutes;
-=======
   // Live driver ETA wins; otherwise fall back to the OSRM route's trip time.
   const eta = live.etaMinutes ?? data.liveEtaMinutes ?? route?.durationMin ?? null;
->>>>>>> 0e76961b6c844daa651302735be3f95582c61c86
   const isActive = ACTIVE.includes(data.driverRideStatus);
   const waiting = data.bookingStatus === 'confirmed' || data.bookingStatus === 'payment_under_review';
   const tripStarted = data.driverRideStatus === 'started';
 
-  const pickup = data.pickupLat != null ? { lat: data.pickupLat, lng: data.pickupLng } : null;
-  const dropoff = data.dropoffLat != null ? { lat: data.dropoffLat, lng: data.dropoffLng } : null;
+  const pickup = resolveCoordsFromAddress(data.pickupAddress, data.pickupLat, data.pickupLng);
+  const dropoff = resolveCoordsFromAddress(data.dropoffAddress, data.dropoffLat, data.dropoffLng);
 
   const markers = [
     pickup && { ...pickup, type: 'pickup', label: 'Pickup', key: 'p' },
     dropoff && { ...dropoff, type: 'dropoff', label: 'Drop-off', key: 'd' },
-<<<<<<< HEAD
-    driverLoc && { lat: driverLoc.lat, lng: driverLoc.lng, type: 'driver', label: 'Your driver', key: 'driver' },
-=======
     driverLoc && { lat: driverLoc.lat, lng: driverLoc.lng, type: 'driver', label: 'Your driver', key: 'driver', heading: movement.heading },
->>>>>>> 0e76961b6c844daa651302735be3f95582c61c86
   ].filter(Boolean);
 
   const mapLegend = [
@@ -191,19 +168,12 @@ export default function TrackPage() {
     driverLoc && { glyph: '●', color: '#FF7E21', label: 'Driver' },
   ].filter(Boolean);
 
-<<<<<<< HEAD
-  // Dashed guide line: driver→pickup before the trip, pickup→dropoff during.
-  let line = null;
-  if (driverLoc && pickup && !tripStarted) line = [driverLoc, pickup];
-  else if (pickup && dropoff && tripStarted) line = [pickup, dropoff];
-=======
   // Prefer the real OSRM road geometry; fall back to a straight guide line
   // (driver→pickup before the trip, otherwise pickup→dropoff) when unavailable.
   let straight = null;
   if (driverLoc && pickup && !tripStarted) straight = [driverLoc, pickup];
   else if (pickup && dropoff) straight = [pickup, dropoff];
   const line = route?.coords && route.coords.length >= 2 ? route.coords : straight;
->>>>>>> 0e76961b6c844daa651302735be3f95582c61c86
 
   const canCancel = CANCELLABLE.includes(data.bookingStatus);
   const waLink = data.driver && whatsappLink(data.driver.whatsapp, `Hi, this is about booking ${code}`);
@@ -235,15 +205,6 @@ export default function TrackPage() {
       <div className="grid lg:grid-cols-5 gap-4">
         {/* Map */}
         <Card className="lg:col-span-3 p-2 relative overflow-hidden">
-<<<<<<< HEAD
-          <RideMap markers={markers} line={line} legend={mapLegend} height={380} />
-          {isActive && eta != null && (
-            <div className="absolute top-4 left-4 z-[400] bg-white rounded-xl shadow-lg border border-brand-border px-4 py-2 flex items-center gap-2">
-              <Clock className="w-4 h-4 text-brand-orange" />
-              <div>
-                <div className="text-[10px] font-bold text-brand-grey uppercase leading-none">ETA</div>
-                <div className="font-black text-brand-black leading-tight">{eta} min</div>
-=======
           <RideMap
             markers={markers}
             line={line}
@@ -269,7 +230,6 @@ export default function TrackPage() {
                     <div className="text-[10px] font-bold text-brand-grey leading-none mt-0.5">Stopped</div>
                   )
                 )}
->>>>>>> 0e76961b6c844daa651302735be3f95582c61c86
               </div>
             </div>
           )}

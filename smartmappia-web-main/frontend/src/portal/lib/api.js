@@ -4,10 +4,7 @@
 // knows who the caller is and what role they have.
 // ---------------------------------------------------------------------
 import { supabase } from './supabaseClient';
-<<<<<<< HEAD
-=======
 import { notifyError } from './notify';
->>>>>>> 0e76961b6c844daa651302735be3f95582c61c86
 
 const API_BASE = import.meta.env.VITE_API_BASE || 'http://localhost:4000';
 
@@ -18,15 +15,6 @@ async function authHeader() {
   return token ? { Authorization: `Bearer ${token}` } : {};
 }
 
-<<<<<<< HEAD
-async function request(path, { method = 'GET', body, headers = {} } = {}) {
-  const auth = await authHeader();
-  const res = await fetch(`${API_BASE}${path}`, {
-    method,
-    headers: { 'Content-Type': 'application/json', ...auth, ...headers },
-    body: body !== undefined ? JSON.stringify(body) : undefined,
-  });
-=======
 // Pass { silent: true } for background/polling calls so a transient failure
 // doesn't fire a popup every few seconds. All other errors show one via Swal.
 async function request(path, { method = 'GET', body, headers = {}, silent = false } = {}) {
@@ -47,7 +35,6 @@ async function request(path, { method = 'GET', body, headers = {}, silent = fals
     throw err;
   }
 
->>>>>>> 0e76961b6c844daa651302735be3f95582c61c86
   let data = null;
   try {
     data = await res.json();
@@ -59,10 +46,7 @@ async function request(path, { method = 'GET', body, headers = {}, silent = fals
     const err = new Error(msg);
     err.status = res.status;
     err.details = data && data.details;
-<<<<<<< HEAD
-=======
     if (!silent) notifyError(msg);
->>>>>>> 0e76961b6c844daa651302735be3f95582c61c86
     throw err;
   }
   return data;
@@ -73,11 +57,7 @@ export const api = {
 
   // --- auth ---
   authSignup: (body) => request('/api/auth/signup', { method: 'POST', body }),
-<<<<<<< HEAD
-  authSync: (body = {}) => request('/api/auth/sync', { method: 'POST', body }),
-=======
   authSync: (body = {}) => request('/api/auth/sync', { method: 'POST', body, silent: true }),
->>>>>>> 0e76961b6c844daa651302735be3f95582c61c86
 
   // --- passenger ---
   createBooking: (b) => request('/api/bookings', { method: 'POST', body: b }),
@@ -86,11 +66,7 @@ export const api = {
   paymentInstructions: (code) => request(`/api/bookings/${code}/payment-instructions`),
   proofSignedUrl: (code, body) => request(`/api/bookings/${code}/payment-proof/signed-url`, { method: 'POST', body }),
   recordProof: (code, body) => request(`/api/bookings/${code}/payment-proof`, { method: 'POST', body }),
-<<<<<<< HEAD
-  tracking: (code) => request(`/api/tracking/${code}`),
-=======
   tracking: (code) => request(`/api/tracking/${code}`, { silent: true }), // polled every 8s
->>>>>>> 0e76961b6c844daa651302735be3f95582c61c86
 
   // --- admin (role enforced by backend) ---
   adminStats: () => request('/api/admin/stats'),
@@ -106,19 +82,10 @@ export const api = {
   // --- driver (identity from token) ---
   driverAvailable: (lat, lng) => {
     const q = lat != null && lng != null ? `?lat=${lat}&lng=${lng}` : '';
-<<<<<<< HEAD
-    return request(`/api/driver/available${q}`);
-  },
-  driverRides: () => request('/api/driver/rides'),
-  driverAccept: (code) => request(`/api/driver/rides/${code}/accept`, { method: 'POST' }),
-  driverStatus: (code, status) => request(`/api/driver/rides/${code}/status`, { method: 'POST', body: { status } }),
-  driverLocation: (body) => request('/api/driver/location', { method: 'POST', body }),
-=======
     return request(`/api/driver/available${q}`, { silent: true }); // polled feed
   },
   driverRides: () => request('/api/driver/rides', { silent: true }), // polled feed
   driverAccept: (code) => request(`/api/driver/rides/${code}/accept`, { method: 'POST' }),
   driverStatus: (code, status) => request(`/api/driver/rides/${code}/status`, { method: 'POST', body: { status } }),
   driverLocation: (body) => request('/api/driver/location', { method: 'POST', body, silent: true }), // 12s GPS ping
->>>>>>> 0e76961b6c844daa651302735be3f95582c61c86
 };

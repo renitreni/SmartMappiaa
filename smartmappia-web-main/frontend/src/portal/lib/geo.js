@@ -2,6 +2,43 @@
 // Geo helpers + a browser geolocation hook.
 // ---------------------------------------------------------------------
 import { useEffect, useRef, useState } from 'react';
+import { AIRPORTS, RIYADH_CENTER } from './constants';
+
+const RIYADH_DISTRICTS = {
+  malaz: { lat: 24.6872, lng: 46.7438 },
+  olaya: { lat: 24.6905, lng: 46.6853 },
+  sulamania: { lat: 24.6782, lng: 46.7127 },
+  batha: { lat: 24.6315, lng: 46.7155 },
+};
+
+export function parseCoord(value) {
+  if (value == null || value === '') return null;
+  const n = Number(value);
+  return Number.isFinite(n) ? n : null;
+}
+
+/** Best-effort coords when the booking saved an address but no GPS pin. */
+export function resolveCoordsFromAddress(address, lat, lng) {
+  const resolvedLat = parseCoord(lat);
+  const resolvedLng = parseCoord(lng);
+  if (resolvedLat != null && resolvedLng != null) {
+    return { lat: resolvedLat, lng: resolvedLng };
+  }
+  if (!address) return null;
+
+  const lower = String(address).toLowerCase();
+  for (const airport of AIRPORTS) {
+    const name = airport.name.toLowerCase();
+    if (lower.includes(name) || lower.includes('king khalid') || lower.includes('kkia')) {
+      return { lat: airport.lat, lng: airport.lng };
+    }
+  }
+  for (const [district, coords] of Object.entries(RIYADH_DISTRICTS)) {
+    if (lower.includes(district)) return coords;
+  }
+  if (lower.includes('riyadh')) return RIYADH_CENTER;
+  return null;
+}
 
 const EARTH_RADIUS_KM = 6371;
 const toRad = (d) => (d * Math.PI) / 180;
@@ -21,8 +58,6 @@ export function etaMinutes(distanceKm, avgSpeedKmh = 30) {
   return Math.max(1, Math.round((distanceKm / avgSpeedKmh) * 60));
 }
 
-<<<<<<< HEAD
-=======
 // Compass bearing in degrees (0 = North, 90 = East) from point a to point b.
 // Used to point the moving vehicle icon in its direction of travel.
 export function bearingDeg(a, b) {
@@ -45,7 +80,6 @@ export function movementFrom(prev, curr, dtSeconds, movingThresholdKmh = 3) {
   return { speedKmh, moving: speedKmh != null && speedKmh >= movingThresholdKmh };
 }
 
->>>>>>> 0e76961b6c844daa651302735be3f95582c61c86
 // Watch (or one-shot) the device location.
 //   useGeolocation({ watch: true, enabled: isOnline })
 export function useGeolocation({ watch = false, enabled = true } = {}) {
@@ -59,23 +93,16 @@ export function useGeolocation({ watch = false, enabled = true } = {}) {
       setError('Geolocation is not available in this browser.');
       return undefined;
     }
-<<<<<<< HEAD
-    const onOk = (pos) =>
-=======
     const onOk = (pos) => {
       // A fresh fix clears any earlier transient error (e.g. a watch "Timeout
       // expired") so we don't keep showing a stale warning once we have a spot.
       setError(null);
->>>>>>> 0e76961b6c844daa651302735be3f95582c61c86
       setCoords({
         lat: pos.coords.latitude,
         lng: pos.coords.longitude,
         accuracy: pos.coords.accuracy,
       });
-<<<<<<< HEAD
-=======
     };
->>>>>>> 0e76961b6c844daa651302735be3f95582c61c86
     const onErr = (e) => setError(e.message || 'Could not get your location.');
     const opts = { enableHighAccuracy: true, maximumAge: 10000, timeout: 20000 };
 

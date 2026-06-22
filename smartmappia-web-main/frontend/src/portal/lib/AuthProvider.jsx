@@ -6,10 +6,7 @@
 // returned profile (role + driverApproved) is what the UI gates on.
 // ---------------------------------------------------------------------
 import { createContext, useContext, useEffect, useRef, useState } from 'react';
-<<<<<<< HEAD
-=======
 import { useNavigate } from 'react-router-dom';
->>>>>>> 0e76961b6c844daa651302735be3f95582c61c86
 import { supabase } from './supabaseClient';
 import { api } from './api';
 
@@ -23,10 +20,7 @@ export function AuthProvider({ children }) {
   const [profileError, setProfileError] = useState(null);
   const [loading, setLoading] = useState(true);
   const syncedFor = useRef(null);
-<<<<<<< HEAD
-=======
   const navigate = useNavigate();
->>>>>>> 0e76961b6c844daa651302735be3f95582c61c86
 
   async function loadProfile() {
     setProfileLoading(true);
@@ -114,13 +108,10 @@ export function AuthProvider({ children }) {
     async signOut() {
       if (supabase) await supabase.auth.signOut();
       setProfile(null);
-<<<<<<< HEAD
-=======
       syncedFor.current = null;
       // Leave any role-protected page so a stale URL can't become ?next=/admin
       // and bounce the next account into the wrong area.
       navigate('/', { replace: true });
->>>>>>> 0e76961b6c844daa651302735be3f95582c61c86
     },
 
     refreshProfile: loadProfile,

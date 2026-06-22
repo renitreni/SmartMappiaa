@@ -1,9 +1,6 @@
 import { Home, Plane, ArrowRight, ArrowDown, CircleDot } from 'lucide-react';
 import { motion } from 'framer-motion';
-<<<<<<< HEAD
-=======
 import { openLegalModal } from '../../portal/lib/legal';
->>>>>>> 0e76961b6c844daa651302735be3f95582c61c86
 
 export function DirectionToggle({ value, onChange, variant = 'cards' }) {
   const options = [
@@ -299,8 +296,6 @@ export function LocationHint({ active, lat, lng }) {
   );
 }
 
-<<<<<<< HEAD
-=======
 export function LegalConsentNote({ className = '' }) {
   return (
     <p className={`text-center text-[11px] text-brand-grey leading-relaxed ${className}`}>
@@ -325,7 +320,6 @@ export function LegalConsentNote({ className = '' }) {
   );
 }
 
->>>>>>> 0e76961b6c844daa651302735be3f95582c61c86
 export function MapPinLegend() {
   return (
     <div className="flex items-center gap-4 text-xs text-brand-grey px-1 py-2">

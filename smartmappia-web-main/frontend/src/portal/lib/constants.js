@@ -3,12 +3,6 @@
 // ---------------------------------------------------------------------
 
 // Where each role lands after signing in (admins always go to their dashboard).
-<<<<<<< HEAD
-export function roleHome(role, next = '/') {
-  if (role === 'admin') return '/admin';
-  if (role === 'driver') return '/driver';
-  return next || '/';
-=======
 // Passengers land on their booking portal (/book), not the marketing homepage —
 // honor an explicit non-root `next` (e.g. a page they were bounced from) first.
 export function roleHome(role, next = '/') {
@@ -18,7 +12,6 @@ export function roleHome(role, next = '/') {
   // admin/driver-only area (e.g. ?next=/admin left over after switching accounts).
   const safeNext = next && next !== '/' && !next.startsWith('/admin') && !next.startsWith('/driver');
   return safeNext ? next : '/book';
->>>>>>> 0e76961b6c844daa651302735be3f95582c61c86
 }
 
 // Fare model (mirrors backend lib/fare.js): flat base + 3.75% service fee.

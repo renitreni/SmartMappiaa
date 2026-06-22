@@ -19,11 +19,7 @@ async function hasExtendedProfileColumns(supabase) {
   extendedProfileColumns = !error;
   if (!extendedProfileColumns) {
     console.warn(
-<<<<<<< HEAD
-      '[profiles] Migration 0003_profile_registration_fields.sql is missing. ' +
-=======
       '[profiles] Migration backend/migrations/0003_profile_registration_fields.sql is missing. ' +
->>>>>>> 0e76961b6c844daa651302735be3f95582c61c86
         'Login still works, but signup extras (DOB, gender, vehicle, etc.) are skipped until you run it in Supabase SQL Editor.'
     );
   }

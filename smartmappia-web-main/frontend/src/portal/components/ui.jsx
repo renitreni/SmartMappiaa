@@ -6,12 +6,12 @@ import { ArrowLeft, LogOut } from 'lucide-react';
 import { TONE_CLASSES } from '../lib/constants';
 import { useAuth } from '../lib/AuthProvider';
 
-export function PortalShell({ title, subtitle, right, onBack, children }) {
+export function PortalShell({ title, subtitle, right, onBack, children, wide = false }) {
   const { user, signOut } = useAuth();
   return (
     <div className="min-h-screen bg-brand-muted">
       <header className="sticky top-0 z-30 bg-white/95 backdrop-blur border-b border-brand-border">
-        <div className="max-w-5xl mx-auto px-4 md:px-6 h-16 flex items-center justify-between gap-3">
+        <div className={`${wide ? 'max-w-7xl' : 'max-w-5xl'} mx-auto px-4 md:px-6 h-16 flex items-center justify-between gap-3`}>
           <div className="flex items-center gap-1 shrink-0">
             {onBack && (
               <button
@@ -46,7 +46,7 @@ export function PortalShell({ title, subtitle, right, onBack, children }) {
           </div>
         </div>
       </header>
-      <main className="max-w-5xl mx-auto px-4 md:px-6 py-6">{children}</main>
+      <main className={`${wide ? 'max-w-7xl' : 'max-w-5xl'} mx-auto px-4 md:px-6 py-5 md:py-6`}>{children}</main>
     </div>
   );
 }

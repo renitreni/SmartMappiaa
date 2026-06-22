@@ -1,11 +1,7 @@
 // ---------------------------------------------------------------------
 // Admin shell — dark sidebar, light workspace, responsive navigation.
 // ---------------------------------------------------------------------
-<<<<<<< HEAD
-import { Link } from 'react-router-dom';
-=======
 import { Link, useNavigate } from 'react-router-dom';
->>>>>>> 0e76961b6c844daa651302735be3f95582c61c86
 import {
   LayoutDashboard,
   ClipboardList,
@@ -16,11 +12,6 @@ import {
   X,
   ExternalLink,
   Bell,
-<<<<<<< HEAD
-} from 'lucide-react';
-import { useState } from 'react';
-import { useAuth } from '../lib/AuthProvider';
-=======
   ChevronDown,
   Eye,
   User,
@@ -120,7 +111,6 @@ function ViewSwitchMenu({ onRefresh }) {
     </div>
   );
 }
->>>>>>> 0e76961b6c844daa651302735be3f95582c61c86
 
 export const ADMIN_NAV = [
   { id: 'overview', label: 'Overview', icon: LayoutDashboard },
@@ -266,18 +256,7 @@ export default function AdminLayout({ activeTab, onTabChange, onRefresh, childre
               >
                 <Bell className="w-4 h-4" />
               </button>
-<<<<<<< HEAD
-              <button
-                type="button"
-                onClick={onRefresh}
-                className="p-2.5 rounded-xl bg-white border border-black/5 text-brand-grey hover:text-brand-dark cursor-pointer shadow-sm transition-colors"
-                title="Refresh data"
-              >
-                <RefreshCw className="w-4 h-4" />
-              </button>
-=======
               <ViewSwitchMenu onRefresh={onRefresh} />
->>>>>>> 0e76961b6c844daa651302735be3f95582c61c86
               <Link
                 to="/"
                 className="hidden sm:inline-flex items-center gap-1.5 text-xs font-bold text-brand-dark bg-white border border-black/5 px-3.5 py-2.5 rounded-xl shadow-sm hover:border-brand-orange/30 hover:text-brand-orange transition-colors"

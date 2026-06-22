@@ -1,5 +1,3 @@
-<<<<<<< HEAD
-=======
 import { openLegalModal } from "../portal/lib/legal";
 
 const legalLinks = [
@@ -8,7 +6,6 @@ const legalLinks = [
   { label: "Cookie Preferences", kind: null },
 ];
 
->>>>>>> 0e76961b6c844daa651302735be3f95582c61c86
 const exploreLinks = [
   { label: "Features", href: "#features" },
   { label: "How It Works", href: "#how-it-works" },
@@ -273,16 +270,6 @@ const Footer = () => {
             . All rights reserved.
           </p>
           <div className="flex flex-wrap items-center justify-center gap-x-5 gap-y-2">
-<<<<<<< HEAD
-            {["Privacy Policy", "Terms of Service", "Cookie Preferences"].map((item, i, arr) => (
-              <span key={item} className="flex items-center gap-5">
-                <a
-                  href="#"
-                  className="text-xs text-white/35 hover:text-white/70 transition-colors duration-200"
-                >
-                  {item}
-                </a>
-=======
             {legalLinks.map(({ label, kind }, i, arr) => (
               <span key={label} className="flex items-center gap-5">
                 {kind ? (
@@ -301,7 +288,6 @@ const Footer = () => {
                     {label}
                   </a>
                 )}
->>>>>>> 0e76961b6c844daa651302735be3f95582c61c86
                 {i < arr.length - 1 && (
                   <span className="text-white/15 hidden sm:inline">·</span>
                 )}

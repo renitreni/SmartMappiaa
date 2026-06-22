@@ -18,12 +18,8 @@
     "react": "^19.2.6",
     "react-dom": "^19.2.6",
     "react-leaflet": "^5.0.0",
-<<<<<<< HEAD
-    "react-router-dom": "^7.17.0"
-=======
     "react-router-dom": "^7.17.0",
     "sweetalert2": "^11.26.25"
->>>>>>> 0e76961b6c844daa651302735be3f95582c61c86
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

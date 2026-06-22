@@ -8,10 +8,7 @@ import { AIRPORTS, fareBreakdown, airportDropdownOptions } from "../portal/lib/c
 import {
   DirectionToggle,
   FareSummary,
-<<<<<<< HEAD
-=======
   LegalConsentNote,
->>>>>>> 0e76961b6c844daa651302735be3f95582c61c86
 } from "../components/booking/BookingUI";
 
 const FARE = fareBreakdown();
@@ -136,10 +133,7 @@ const PickDrop = () => {
             </div>
 
             <div className="px-6 md:px-8 pb-7">
-<<<<<<< HEAD
-=======
               <LegalConsentNote className="mb-3" />
->>>>>>> 0e76961b6c844daa651302735be3f95582c61c86
               <Link
                 to={bookUrl}
                 className="flex w-full items-center justify-center gap-2 bg-brand-orange hover:bg-brand-orange/90 text-white font-black py-4 rounded-xl transition-all duration-300 shadow-lg shadow-brand-orange/25 text-sm cursor-pointer group"
