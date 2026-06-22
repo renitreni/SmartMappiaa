@@ -10,7 +10,11 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { Power, MessageCircle, MapPin, Flag, Navigation, Check, ShieldAlert } from 'lucide-react';
 import { api } from '../lib/api';
 import { useAuth } from '../lib/AuthProvider';
+<<<<<<< HEAD
 import { useGeolocation, haversineKm, etaMinutes } from '../lib/geo';
+=======
+import { useGeolocation, haversineKm, etaMinutes, movementFrom, bearingDeg } from '../lib/geo';
+>>>>>>> 0e76961b6c844daa651302735be3f95582c61c86
 import { useBroadcast } from '../lib/useBroadcast';
 import { realtimeEnabled } from '../lib/supabaseClient';
 import { whatsappLink } from '../lib/constants';
@@ -53,11 +57,32 @@ export default function DriverPage() {
   const [error, setError] = useState(null);
   const [busyCode, setBusyCode] = useState(null);
   const [lastPayout, setLastPayout] = useState(null);
+<<<<<<< HEAD
+=======
+  const [driverMove, setDriverMove] = useState({ speedKmh: null, moving: false, heading: null });
+  const prevCoordRef = useRef(null);
+>>>>>>> 0e76961b6c844daa651302735be3f95582c61c86
 
   const { coords, error: geoError } = useGeolocation({ watch: true, enabled: online });
   const coordsRef = useRef(coords);
   coordsRef.current = coords;
 
+<<<<<<< HEAD
+=======
+  // Speed + heading from the driver's own GPS stream (drives the live badge and
+  // the car's facing direction on the map).
+  useEffect(() => {
+    if (!coords) return;
+    const now = Date.now();
+    const prev = prevCoordRef.current;
+    if (prev && (prev.lat !== coords.lat || prev.lng !== coords.lng)) {
+      const dt = (now - prev.t) / 1000;
+      setDriverMove({ ...movementFrom(prev, coords, dt), heading: bearingDeg(prev, coords) });
+    }
+    prevCoordRef.current = { lat: coords.lat, lng: coords.lng, t: now };
+  }, [coords?.lat, coords?.lng]);
+
+>>>>>>> 0e76961b6c844daa651302735be3f95582c61c86
   const loadActive = useCallback(async () => {
     try {
       const { rides } = await api.driverRides();
@@ -150,14 +175,22 @@ export default function DriverPage() {
   let line = null;
   if (activeRide) {
     markers = [
+<<<<<<< HEAD
       here && { ...here, type: 'driver', label: 'You', key: 'me' },
+=======
+      here && { ...here, type: 'driver', label: 'You', key: 'me', heading: driverMove.heading },
+>>>>>>> 0e76961b6c844daa651302735be3f95582c61c86
       activeRide.pickupLat != null && { lat: activeRide.pickupLat, lng: activeRide.pickupLng, type: 'pickup', label: 'Pickup', key: 'p' },
       activeRide.dropoffLat != null && { lat: activeRide.dropoffLat, lng: activeRide.dropoffLng, type: 'dropoff', label: 'Drop-off', key: 'd' },
     ].filter(Boolean);
     if (here && activeRide.pickupLat != null && activeRide.driverRideStatus !== 'started') line = [here, { lat: activeRide.pickupLat, lng: activeRide.pickupLng }];
   } else {
     markers = [
+<<<<<<< HEAD
       here && { ...here, type: 'driver', label: 'You', key: 'me' },
+=======
+      here && { ...here, type: 'driver', label: 'You', key: 'me', heading: driverMove.heading },
+>>>>>>> 0e76961b6c844daa651302735be3f95582c61c86
       ...available.filter((r) => r.pickupLat != null).map((r) => ({
         lat: r.pickupLat,
         lng: r.pickupLng,
@@ -168,6 +201,15 @@ export default function DriverPage() {
     ].filter(Boolean);
   }
 
+<<<<<<< HEAD
+=======
+  const navTarget = activeRide
+    ? activeRide.driverRideStatus === 'started'
+      ? { lat: activeRide.dropoffLat, lng: activeRide.dropoffLng }
+      : { lat: activeRide.pickupLat, lng: activeRide.pickupLng }
+    : null;
+
+>>>>>>> 0e76961b6c844daa651302735be3f95582c61c86
   const mapLegend = [
     here && { glyph: '●', color: '#FF7E21', label: 'You' },
     { glyph: 'P', color: '#FF7E21', label: activeRide ? 'Pickup' : 'Requests' },
@@ -191,6 +233,14 @@ export default function DriverPage() {
             <div className="font-black text-brand-black">{online ? "You're online" : "You're offline"}</div>
             <div className="text-xs text-brand-grey">
               {online ? (coords ? `${coords.lat.toFixed(4)}, ${coords.lng.toFixed(4)}` : 'Getting your location…') : 'Go online to receive ride requests'}
+<<<<<<< HEAD
+=======
+              {online && coords && driverMove.speedKmh != null && (
+                <span className={driverMove.moving ? 'text-green-600 font-bold' : 'text-brand-grey'}>
+                  {driverMove.moving ? ` · Moving ~${Math.round(driverMove.speedKmh)} km/h` : ' · Stopped'}
+                </span>
+              )}
+>>>>>>> 0e76961b6c844daa651302735be3f95582c61c86
             </div>
           </div>
         </div>
@@ -199,7 +249,11 @@ export default function DriverPage() {
         </button>
       </Card>
 
+<<<<<<< HEAD
       {geoError && online && <div className="mb-4 p-3 rounded-xl bg-amber-50 border border-amber-200 text-amber-700 text-sm">{geoError}</div>}
+=======
+      {geoError && online && !coords && <div className="mb-4 p-3 rounded-xl bg-amber-50 border border-amber-200 text-amber-700 text-sm">{geoError}</div>}
+>>>>>>> 0e76961b6c844daa651302735be3f95582c61c86
 
       {lastPayout && !activeRide && (
         <Card className="p-4 mb-4 bg-green-50 border-green-200">
@@ -210,7 +264,18 @@ export default function DriverPage() {
 
       <div className="grid lg:grid-cols-5 gap-4">
         <Card className="lg:col-span-3 p-2 overflow-hidden">
+<<<<<<< HEAD
           <RideMap markers={markers} line={line} legend={mapLegend} height={380} />
+=======
+          <RideMap
+            markers={markers}
+            line={line}
+            legend={mapLegend}
+            height={380}
+            follow={!!activeRide && !!here}
+            followTarget={navTarget}
+          />
+>>>>>>> 0e76961b6c844daa651302735be3f95582c61c86
         </Card>
 
         <div className="lg:col-span-2 space-y-4">
@@ -234,6 +299,22 @@ export default function DriverPage() {
                 </a>
               )}
 
+<<<<<<< HEAD
+=======
+              {navTarget && navTarget.lat != null && (
+                <a
+                  href={`https://waze.com/ul?ll=${navTarget.lat},${navTarget.lng}&navigate=yes`}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="mt-2 w-full inline-flex items-center justify-center gap-2 bg-brand-dark hover:bg-black text-white font-bold py-2.5 rounded-xl text-sm"
+                  title="Open turn-by-turn navigation"
+                >
+                  <Navigation className="w-4 h-4" />
+                  Navigate to {activeRide.driverRideStatus === 'started' ? 'drop-off' : 'pickup'} (Waze)
+                </a>
+              )}
+
+>>>>>>> 0e76961b6c844daa651302735be3f95582c61c86
               {NEXT[activeRide.driverRideStatus] && (
                 <button onClick={() => advance(activeRide.bookingCode, NEXT[activeRide.driverRideStatus].status)}
                   disabled={busyCode === activeRide.bookingCode} className={btnPrimary + ' w-full mt-3'}>

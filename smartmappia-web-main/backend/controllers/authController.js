@@ -86,8 +86,17 @@ async function syncProfile(req, res) {
       role = (existing && existing.role) || 'passenger';
     }
 
+<<<<<<< HEAD
     // Admins are implicitly approved; otherwise keep current approval state.
     const driverApproved = role === 'admin' ? true : (existing ? existing.driver_approved : false);
+=======
+    // Pilot policy: drivers no longer require manual admin verification. Any
+    // driver (and admin) is approved on sign-up, so verified, ready-to-go rides
+    // appear in their feed automatically. Passengers keep the driver-only flag
+    // at its default. To re-enable manual vetting, restore the previous line
+    // (`role === 'admin' ? true : keep existing`) and migration 0004's default.
+    const driverApproved = role === 'admin' || role === 'driver' ? true : (existing ? existing.driver_approved : false);
+>>>>>>> 0e76961b6c844daa651302735be3f95582c61c86
 
     const extended = await hasExtendedProfileColumns(supabase);
     const upsertRow = buildProfileUpsert({
@@ -111,7 +120,11 @@ async function syncProfile(req, res) {
       const hint =
         (error.message || '').includes('date_of_birth') ||
         (error.message || '').includes('driver_approved')
+<<<<<<< HEAD
           ? ' Database migrations may be incomplete — run 0001, 0002, and 0003 SQL files in Supabase SQL Editor.'
+=======
+          ? ' Database migrations may be incomplete — run the SQL files in backend/migrations/ (0001, 0002, 0003) in the Supabase SQL Editor.'
+>>>>>>> 0e76961b6c844daa651302735be3f95582c61c86
           : '';
       return res.status(500).json({ error: error.message + hint });
     }

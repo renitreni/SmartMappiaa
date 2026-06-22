@@ -17,7 +17,14 @@ const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
 export const supabase =
   url && anonKey
     ? createClient(url, anonKey, {
+<<<<<<< HEAD
         auth: { persistSession: false },
+=======
+        // Persist the auth session to localStorage so a page refresh keeps the
+        // user signed in (this is also the client AuthProvider logs in with),
+        // and keep the access token fresh in the background.
+        auth: { persistSession: true, autoRefreshToken: true },
+>>>>>>> 0e76961b6c844daa651302735be3f95582c61c86
         realtime: { params: { eventsPerSecond: 10 } },
       })
     : null;

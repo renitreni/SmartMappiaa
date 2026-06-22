@@ -116,8 +116,16 @@ backend/
 ├── server.js                     # local runner (app.listen)
 ├── vercel.json                   # routes all requests to api/index.js
 ├── package.json   .env.example
+<<<<<<< HEAD
 ├── 0001_init_smart_mappia.sql    # base schema (run once)
 ├── 0002_auth_driver_approval.sql # adds the driver-approval flag (run once)
+=======
+├── migrations/
+│   ├── 0001_init_smart_mappia.sql            # base schema (run once)
+│   ├── 0002_auth_driver_approval.sql         # adds the driver-approval flag (run once)
+│   ├── 0003_profile_registration_fields.sql  # sign-up extra fields (run once)
+│   └── utilities/profile-roles.sql           # inspect/fix a stuck role (not auto-run)
+>>>>>>> 0e76961b6c844daa651302735be3f95582c61c86
 ├── README.md                     # quick start
 └── DOCUMENTATION.md              # you are here
 ```
@@ -158,8 +166,16 @@ More on this in §10.
 
 ## 4. The data model
 
+<<<<<<< HEAD
 The full schema is in [`0001_init_smart_mappia.sql`](0001_init_smart_mappia.sql), with the
 driver-approval flag added by [`0002_auth_driver_approval.sql`](0002_auth_driver_approval.sql).
+=======
+The full schema is in [`migrations/0001_init_smart_mappia.sql`](migrations/0001_init_smart_mappia.sql),
+with the driver-approval flag added by
+[`migrations/0002_auth_driver_approval.sql`](migrations/0002_auth_driver_approval.sql) and the extra
+sign-up fields by
+[`migrations/0003_profile_registration_fields.sql`](migrations/0003_profile_registration_fields.sql).
+>>>>>>> 0e76961b6c844daa651302735be3f95582c61c86
 Run both once in the Supabase SQL editor. The tables:
 
 | Table | What it holds |
@@ -280,8 +296,19 @@ ladder of guards:
 | `requireToken` | any valid token (profile may not exist yet) | `req.authUser` |
 | `requireAuth` | valid token **and** an existing profile | `req.userId`, `req.role`, `req.profile` |
 | `requireAdmin` | `requireAuth` + role `admin` | `req.adminId` |
+<<<<<<< HEAD
 | `requireDriver` | `requireAuth` + role `driver` | `req.driverId` |
 | `requireApprovedDriver` | `requireDriver` + `driver_approved = true` | — |
+=======
+| `requireDriver` | `requireAuth` + role `driver` **or `admin`** | `req.driverId` |
+| `requireApprovedDriver` | `requireDriver` + `driver_approved = true` (admin skips approval) | — |
+
+> **Admin passes the driver guards on purpose.** An admin can act through the user and driver
+> screens via the dashboard "View" switch (preview mode) without logging out, so `requireDriver`
+> and `requireApprovedDriver` let `admin` through. Real auth is unchanged — this only widens what
+> the existing admin token may do. Anything the admin does while previewing writes real data (an
+> accepted ride is assigned to the admin account). `requireAdmin` stays admin-only.
+>>>>>>> 0e76961b6c844daa651302735be3f95582c61c86
 
 ### The three roles
 
@@ -542,11 +569,19 @@ image and get a free confirmed ride.
 | 3 | Set `ADMIN_EMAILS` to your real admin addresses | env | That's how admin access is granted now. |
 | 4 | Confirm `PLATFORM_COMMISSION_RATE` / `MANUAL_PAYMENT_FEE` | env | These decide what drivers actually get paid — check with finance. |
 | 5 | Create the **private** `payment-proofs` bucket | Supabase | Proof uploads fail without it; private so receipts aren't public. |
+<<<<<<< HEAD
 | 6 | Run both migrations (`0001`, `0002`) and confirm RLS is on | Supabase | Schema + the driver-approval flag + table protection. |
+=======
+| 6 | Run all three migrations from `migrations/` (`0001`, `0002`, `0003`) and confirm RLS is on | Supabase | Schema + the driver-approval flag + sign-up fields + table protection. |
+>>>>>>> 0e76961b6c844daa651302735be3f95582c61c86
 | 7 | Turn **off** "Confirm email" or wire up the email flow | Supabase Auth | Decides whether new signups get a session immediately. |
 | 8 | **Lock down CORS** | `app.js` | `cors()` currently allows every origin — restrict to your frontend domain. |
 | 9 | Put **all** env vars in the Vercel dashboard | Vercel | Serverless reads env from there, not your local `.env`. |
 | 10 | Double-check the **service-role key is backend-only** | review | It bypasses RLS; it must never end up in a frontend bundle. |
+<<<<<<< HEAD
+=======
+| 11 | Decide whether **admin should still pass the driver guards** | `middleware/auth.js` | The admin "View" preview lets admin act as a driver. Keep it for an internal tool; remove the `\|\| role === 'admin'` allowances if real admins shouldn't accept rides. |
+>>>>>>> 0e76961b6c844daa651302735be3f95582c61c86
 
 ### Worth doing soon after launch
 
@@ -580,9 +615,16 @@ npm install
 npm run dev                 # node --watch server.js → http://localhost:4000
 ```
 
+<<<<<<< HEAD
 One-time Supabase setup: run `0001_init_smart_mappia.sql` then
 `0002_auth_driver_approval.sql` in the SQL editor, create the private `payment-proofs` bucket,
 and (for an easy MVP) turn off "Confirm email" under Auth → Providers.
+=======
+One-time Supabase setup: run the three files in `migrations/` (`0001_init_smart_mappia.sql`,
+`0002_auth_driver_approval.sql`, `0003_profile_registration_fields.sql`) in the SQL editor, create
+the private `payment-proofs` bucket, and (for an easy MVP) turn off "Confirm email" under
+Auth → Providers.
+>>>>>>> 0e76961b6c844daa651302735be3f95582c61c86
 
 Smoke-test it:
 ```bash

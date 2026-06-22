@@ -4,6 +4,10 @@
 // ---------------------------------------------------------------------
 import { Navigate, useLocation, Link } from 'react-router-dom';
 import { useAuth } from '../lib/AuthProvider';
+<<<<<<< HEAD
+=======
+import { useViewMode } from '../lib/ViewModeProvider';
+>>>>>>> 0e76961b6c844daa651302735be3f95582c61c86
 import { roleHome } from '../lib/constants';
 import { PortalShell, Card, Spinner, btnPrimary } from './ui';
 
@@ -33,6 +37,10 @@ function ProfileSyncError({ message, onRetry }) {
 
 export default function RequireAuth({ role, redirectWrongRole = false, children }) {
   const { loading, session, role: userRole, profileLoading, profileError, refreshProfile } = useAuth();
+<<<<<<< HEAD
+=======
+  const { previewRole } = useViewMode();
+>>>>>>> 0e76961b6c844daa651302735be3f95582c61c86
   const location = useLocation();
 
   if (loading) return <FullScreenSpinner />;
@@ -54,7 +62,15 @@ export default function RequireAuth({ role, redirectWrongRole = false, children 
       );
     }
 
+<<<<<<< HEAD
     if (userRole !== role) {
+=======
+    // An admin previewing as user/driver may enter that portal while keeping
+    // their real admin role/JWT (see ViewModeProvider).
+    const previewAllowed = userRole === 'admin' && previewRole === role;
+
+    if (userRole !== role && !previewAllowed) {
+>>>>>>> 0e76961b6c844daa651302735be3f95582c61c86
       if (redirectWrongRole) {
         return <Navigate to={roleHome(userRole)} replace />;
       }

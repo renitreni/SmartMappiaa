@@ -27,6 +27,10 @@ import {
   FareSummary,
   LocationHint,
   MapPinLegend,
+<<<<<<< HEAD
+=======
+  LegalConsentNote,
+>>>>>>> 0e76961b6c844daa651302735be3f95582c61c86
 } from '../../components/booking/BookingUI';
 
 const FARE = fareBreakdown();
@@ -227,6 +231,10 @@ export default function BookPage() {
               </div>
 
               <FareSummary fare={FARE} showButton buttonLabel="Continue to payment" busy={busy} compact />
+<<<<<<< HEAD
+=======
+              <LegalConsentNote />
+>>>>>>> 0e76961b6c844daa651302735be3f95582c61c86
             </form>
           </Card>
 
