@@ -8,7 +8,11 @@
 // uses the browser `fetch`.
 // ---------------------------------------------------------------------
 
-const OSRM_BASE = 'https://router.project-osrm.org/route/v1/driving';
+// Routing base. Defaults to the public OSRM demo (fine for local/testing, but
+// rate-limited and not for production). Set VITE_OSRM_BASE to a self-hosted OSRM
+// (or a backend proxy) for production — e.g. https://yourdomain.com/osrm/route/v1/driving
+const OSRM_BASE =
+  import.meta.env.VITE_OSRM_BASE || 'https://router.project-osrm.org/route/v1/driving';
 
 function valid(p) {
   return p && Number.isFinite(p.lat) && Number.isFinite(p.lng);

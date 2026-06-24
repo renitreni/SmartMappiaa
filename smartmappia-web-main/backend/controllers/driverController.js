@@ -51,7 +51,7 @@ async function listAvailableRides(req, res) {
       .eq('booking_status', 'confirmed')
       .is('assigned_driver_id', null)
       .order('created_at', { ascending: true });
-    if (error) return res.status(500).json({ error: error.message });
+    if (error) { console.error('driver query error:', error); return res.status(500).json({ error: 'Unexpected server error' }); }
 
     const rides = (data || []).map((r) => {
       const distanceKm = here
@@ -163,7 +163,7 @@ async function updateDriverLocation(req, res) {
       lng: Number(lng),
       accuracy_meters: accuracy != null ? Number(accuracy) : null,
     });
-    if (error) return res.status(500).json({ error: error.message });
+    if (error) { console.error('driver query error:', error); return res.status(500).json({ error: 'Unexpected server error' }); }
 
     // Push live position to any active ride this driver is on.
     const { data: activeRides } = await supabase
@@ -209,7 +209,7 @@ async function listMyRides(req, res) {
     }
 
     const { data, error } = await query;
-    if (error) return res.status(500).json({ error: error.message });
+    if (error) { console.error('driver query error:', error); return res.status(500).json({ error: 'Unexpected server error' }); }
 
     return res.json({ rides: data });
   } catch (err) {
@@ -248,7 +248,7 @@ async function updateRideStatus(req, res) {
       .eq('id', booking.id)
       .select('booking_code, driver_ride_status, booking_status')
       .single();
-    if (updErr) return res.status(500).json({ error: updErr.message });
+    if (updErr) { console.error('driver update error:', updErr); return res.status(500).json({ error: 'Unexpected server error' }); }
 
     await addTrackingEvent(booking.id, {
       eventType: `driver_${status}`,

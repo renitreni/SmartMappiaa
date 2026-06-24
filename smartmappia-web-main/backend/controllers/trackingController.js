@@ -40,7 +40,8 @@ async function getTracking(req, res) {
       .eq('booking_id', booking.id)
       .order('created_at', { ascending: true });
     if (eventsErr) {
-      return res.status(500).json({ error: eventsErr.message });
+      console.error('tracking events query error:', eventsErr);
+      return res.status(500).json({ error: 'Unexpected server error' });
     }
 
     // Assigned driver contact (safe fields only) + latest live position.

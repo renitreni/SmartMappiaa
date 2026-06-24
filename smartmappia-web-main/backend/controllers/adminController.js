@@ -31,13 +31,13 @@ async function getStats(req, res) {
     const { data: bookings, error } = await supabase
       .from('bookings')
       .select('booking_status, payment_status, fare_amount, created_at');
-    if (error) return res.status(500).json({ error: error.message });
+    if (error) { console.error('admin query error:', error); return res.status(500).json({ error: 'Unexpected server error' }); }
 
     const { data: drivers, error: dErr } = await supabase
       .from('profiles')
       .select('driver_approved')
       .eq('role', 'driver');
-    if (dErr) return res.status(500).json({ error: dErr.message });
+    if (dErr) { console.error('admin drivers query error:', dErr); return res.status(500).json({ error: 'Unexpected server error' }); }
 
     const startOfToday = new Date();
     startOfToday.setHours(0, 0, 0, 0);
@@ -90,6 +90,74 @@ async function getStats(req, res) {
   }
 }
 
+// --- GET /api/admin/reports?range=day|week|month|quarter|half|year ---
+// Time-windowed analytics for the admin Reports tab + CSV export. Returns
+// totals, a day/month-bucketed series, and the raw rows (so the frontend can
+// build a CSV without a separate endpoint). Aggregated in JS for the MVP.
+const RANGE_DAYS = { day: 1, week: 7, month: 30, quarter: 90, half: 180, year: 365 };
+
+async function getReports(req, res) {
+  try {
+    const range = RANGE_DAYS[req.query.range] ? req.query.range : 'month';
+    const days = RANGE_DAYS[range];
+    const to = new Date();
+    const from = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
+
+    const { data, error } = await supabase
+      .from('bookings')
+      .select(
+        'booking_code, created_at, booking_status, payment_status, fare_amount, ' +
+          'currency, trip_type, passenger_name'
+      )
+      .gte('created_at', from.toISOString())
+      .order('created_at', { ascending: true });
+    if (error) { console.error('admin query error:', error); return res.status(500).json({ error: 'Unexpected server error' }); }
+
+    const rows = data || [];
+    const byMonth = days > 90; // bucket by month for long ranges, else by day
+    const series = {};
+    let revenue = 0;
+    let completed = 0;
+    let cancelled = 0;
+
+    for (const b of rows) {
+      const d = new Date(b.created_at);
+      const key = byMonth
+        ? `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
+        : d.toISOString().slice(0, 10);
+      if (!series[key]) series[key] = { bucket: key, count: 0, revenue: 0 };
+      series[key].count += 1;
+      const fare = Number(b.fare_amount) || 0;
+      if (b.payment_status === 'verified') {
+        series[key].revenue += fare;
+        revenue += fare;
+      }
+      if (b.booking_status === 'completed') completed += 1;
+      if (b.booking_status === 'cancelled') cancelled += 1;
+    }
+
+    const round = (n) => Math.round(n * 100) / 100;
+    return res.json({
+      range,
+      granularity: byMonth ? 'month' : 'day',
+      from: from.toISOString(),
+      to: to.toISOString(),
+      totals: {
+        bookings: rows.length,
+        completed,
+        cancelled,
+        revenue: round(revenue),
+        currency: 'SAR',
+      },
+      series: Object.values(series).map((s) => ({ ...s, revenue: round(s.revenue) })),
+      rows,
+    });
+  } catch (err) {
+    console.error('getReports error:', err);
+    return res.status(500).json({ error: 'Unexpected server error' });
+  }
+}
+
 // --- GET /api/admin/drivers ------------------------------------------
 async function listDrivers(req, res) {
   try {
@@ -98,7 +166,7 @@ async function listDrivers(req, res) {
       .select('id, full_name, email, whatsapp_number, mobile_number, national_id, vehicle_type, vehicle_plate, driver_approved, created_at')
       .eq('role', 'driver')
       .order('created_at', { ascending: false });
-    if (error) return res.status(500).json({ error: error.message });
+    if (error) { console.error('admin query error:', error); return res.status(500).json({ error: 'Unexpected server error' }); }
     return res.json({ drivers: data });
   } catch (err) {
     console.error('listDrivers error:', err);
@@ -168,7 +236,7 @@ async function listBookings(req, res) {
     if (req.query.payment_status) query = query.eq('payment_status', req.query.payment_status);
 
     const { data, error, count } = await query;
-    if (error) return res.status(500).json({ error: error.message });
+    if (error) { console.error('admin query error:', error); return res.status(500).json({ error: 'Unexpected server error' }); }
 
     return res.json({ total: count ?? data.length, limit, offset, bookings: data });
   } catch (err) {
@@ -239,7 +307,7 @@ async function verifyPayment(req, res) {
       proofId,
       manualReference: (req.body && req.body.manual_reference) || null,
     });
-    if (error) return res.status(500).json({ error: error.message });
+    if (error) { console.error('admin query error:', error); return res.status(500).json({ error: 'Unexpected server error' }); }
 
     return res.json({
       bookingCode: updated.booking_code,
@@ -273,7 +341,7 @@ async function rejectPayment(req, res) {
       reason,
       proofId,
     });
-    if (error) return res.status(500).json({ error: error.message });
+    if (error) { console.error('admin query error:', error); return res.status(500).json({ error: 'Unexpected server error' }); }
 
     return res.json({
       bookingCode: updated.booking_code,
@@ -323,7 +391,7 @@ async function assignDriver(req, res) {
       .eq('id', booking.id)
       .select('booking_code, booking_status, driver_ride_status')
       .single();
-    if (error) return res.status(500).json({ error: error.message });
+    if (error) { console.error('admin query error:', error); return res.status(500).json({ error: 'Unexpected server error' }); }
 
     await addTrackingEvent(booking.id, {
       eventType: 'driver_assigned',
@@ -353,6 +421,7 @@ async function assignDriver(req, res) {
 
 module.exports = {
   getStats,
+  getReports,
   listBookings,
   getBookingDetail,
   verifyPayment,

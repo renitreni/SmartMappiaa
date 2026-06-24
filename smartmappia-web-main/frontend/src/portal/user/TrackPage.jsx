@@ -16,6 +16,7 @@ import { realtimeEnabled } from '../lib/supabaseClient';
 import { statusMeta, whatsappLink, CANCELLABLE } from '../lib/constants';
 import { fetchRoute } from '../lib/osrm';
 import { movementFrom, bearingDeg, resolveCoordsFromAddress } from '../lib/geo';
+import { notifyAlert } from '../lib/notify';
 import { PortalShell, Card, Badge, Spinner, btnGhost } from '../components/ui';
 import RideMap from '../components/RideMap';
 
@@ -34,6 +35,7 @@ export default function TrackPage() {
   const [cancelling, setCancelling] = useState(false);
   const [movement, setMovement] = useState({ speedKmh: null, moving: false, heading: null });
   const prevDriverRef = useRef(null);
+  const prevStatusRef = useRef(null);
   const doneRef = useRef(false);
 
   const refetch = useCallback(async () => {
@@ -113,6 +115,25 @@ export default function TrackPage() {
     }
     prevDriverRef.current = { lat: cur.lat, lng: cur.lng, at: cur.at };
   }, [live.driverLocation, data?.driverLocation]);
+
+  // Ring the bell + toast when the driver's status changes (arrived, on the
+  // way to drop-off, etc.). Skips the first load so we only alert on real
+  // transitions while the passenger is watching.
+  useEffect(() => {
+    const s = data?.driverRideStatus;
+    if (!s) return;
+    const prev = prevStatusRef.current;
+    prevStatusRef.current = s;
+    if (prev == null || prev === s) return;
+    const msgs = {
+      accepted: { t: 'A driver accepted your trip', icon: 'success' },
+      on_the_way: { t: 'Your driver is on the way to you', icon: 'info' },
+      arrived: { t: 'Your driver has arrived', icon: 'success' },
+      started: { t: "You're on the way to your destination", icon: 'info' },
+      completed: { t: 'Trip completed — thank you for riding', icon: 'success' },
+    };
+    if (msgs[s]) notifyAlert(msgs[s].t, { icon: msgs[s].icon });
+  }, [data?.driverRideStatus]);
 
   async function onCancel() {
     if (!window.confirm('Cancel this booking? This cannot be undone.')) return;

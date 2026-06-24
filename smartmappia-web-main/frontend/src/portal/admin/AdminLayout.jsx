@@ -6,6 +6,7 @@ import {
   LayoutDashboard,
   ClipboardList,
   Users,
+  BarChart3,
   RefreshCw,
   LogOut,
   Menu,
@@ -116,6 +117,7 @@ export const ADMIN_NAV = [
   { id: 'overview', label: 'Overview', icon: LayoutDashboard },
   { id: 'bookings', label: 'Bookings', icon: ClipboardList },
   { id: 'drivers', label: 'Drivers', icon: Users },
+  { id: 'reports', label: 'Reports', icon: BarChart3 },
 ];
 
 const PAGE_COPY = {
@@ -130,6 +132,10 @@ const PAGE_COPY = {
   drivers: {
     title: 'Drivers',
     subtitle: 'Approve new drivers and manage fleet access.',
+  },
+  reports: {
+    title: 'Reports',
+    subtitle: 'Bookings and revenue over time — export to CSV.',
   },
 };
 

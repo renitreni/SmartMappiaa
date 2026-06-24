@@ -45,6 +45,7 @@ import { useBroadcast } from '../lib/useBroadcast';
 import { realtimeEnabled } from '../lib/supabaseClient';
 
 import { whatsappLink } from '../lib/constants';
+import { notifyAlert } from '../lib/notify';
 
 import { PortalShell, Card, Badge, Spinner, btnPrimary } from '../components/ui';
 
@@ -730,7 +731,11 @@ export default function DriverPage() {
 
         const r = normRide(payload);
 
-        setAvailable((list) => (list.some((x) => x.bookingCode === r.bookingCode) ? list : [...list, r]));
+        setAvailable((list) => {
+          if (list.some((x) => x.bookingCode === r.bookingCode)) return list;
+          notifyAlert('New ride request nearby', { icon: 'info' });
+          return [...list, r];
+        });
 
       },
 

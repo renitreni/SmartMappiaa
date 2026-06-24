@@ -66,10 +66,13 @@ export const api = {
   paymentInstructions: (code) => request(`/api/bookings/${code}/payment-instructions`),
   proofSignedUrl: (code, body) => request(`/api/bookings/${code}/payment-proof/signed-url`, { method: 'POST', body }),
   recordProof: (code, body) => request(`/api/bookings/${code}/payment-proof`, { method: 'POST', body }),
+  // Tap Payments hosted-redirect charge (backend endpoint pending — see NOTES §2).
+  createTapCharge: (code) => request(`/api/payments/${code}/tap-charge`, { method: 'POST' }),
   tracking: (code) => request(`/api/tracking/${code}`, { silent: true }), // polled every 8s
 
   // --- admin (role enforced by backend) ---
   adminStats: () => request('/api/admin/stats'),
+  adminReports: (range) => request(`/api/admin/reports?range=${encodeURIComponent(range)}`),
   adminList: (query = '') => request(`/api/admin/bookings${query}`),
   adminDetail: (code) => request(`/api/admin/bookings/${code}`),
   adminVerify: (code, body = {}) => request(`/api/admin/bookings/${code}/verify-payment`, { method: 'POST', body }),

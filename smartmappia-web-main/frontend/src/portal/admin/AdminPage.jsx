@@ -442,6 +442,150 @@ function DriversView() {
   );
 }
 
+// --- Reports tab -----------------------------------------------------
+const REPORT_RANGES = [
+  { id: 'day', label: 'Today' },
+  { id: 'month', label: '30 days' },
+  { id: 'quarter', label: '3 months' },
+  { id: 'half', label: '6 months' },
+  { id: 'year', label: '1 year' },
+];
+
+function csvEscape(v) {
+  const s = v == null ? '' : String(v);
+  return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+}
+
+function rowsToCsv(rows) {
+  const cols = [
+    'booking_code', 'created_at', 'booking_status', 'payment_status',
+    'fare_amount', 'currency', 'trip_type', 'passenger_name',
+  ];
+  const head = cols.join(',');
+  const body = rows.map((r) => cols.map((c) => csvEscape(r[c])).join(',')).join('\n');
+  return `${head}\n${body}`;
+}
+
+function downloadCsv(filename, csv) {
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+function ReportStat({ label, value }) {
+  return (
+    <Card className="p-4">
+      <div className="text-[10px] font-bold uppercase tracking-wide text-brand-grey">{label}</div>
+      <div className="text-2xl font-black text-brand-black mt-1 tabular-nums">{value}</div>
+    </Card>
+  );
+}
+
+function ReportsView() {
+  const [range, setRange] = useState('month');
+  const [data, setData] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    setError(null);
+    api.adminReports(range)
+      .then((d) => { if (!cancelled) setData(d); })
+      .catch((e) => { if (!cancelled) setError(e.message); })
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+  }, [range]);
+
+  function exportCsv() {
+    if (!data?.rows?.length) return;
+    const stamp = new Date().toISOString().slice(0, 10);
+    downloadCsv(`smartmappia-report-${range}-${stamp}.csv`, rowsToCsv(data.rows));
+  }
+
+  const t = data?.totals;
+
+  return (
+    <div className="space-y-4">
+      <div className="flex flex-wrap items-center gap-2">
+        {REPORT_RANGES.map((r) => (
+          <button
+            key={r.id}
+            type="button"
+            onClick={() => setRange(r.id)}
+            className={`px-4 py-2 rounded-full text-xs font-bold cursor-pointer transition-all ${
+              range === r.id
+                ? 'bg-brand-black text-white shadow-md'
+                : 'bg-white text-brand-grey border border-black/5 hover:text-brand-dark'
+            }`}
+          >
+            {r.label}
+          </button>
+        ))}
+        <button
+          type="button"
+          onClick={exportCsv}
+          disabled={!data?.rows?.length}
+          className={btnPrimary + ' ml-auto !py-2 !px-4 disabled:opacity-50 disabled:cursor-not-allowed'}
+        >
+          Download CSV
+        </button>
+      </div>
+
+      {error && <Card className="p-4 text-red-600 text-sm font-medium">{error}</Card>}
+      {loading && <div className="flex justify-center py-16"><Spinner className="!w-7 !h-7" /></div>}
+
+      {!loading && t && (
+        <>
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            <ReportStat label="Bookings" value={t.bookings} />
+            <ReportStat label="Completed" value={t.completed} />
+            <ReportStat label="Cancelled" value={t.cancelled} />
+            <ReportStat label="Revenue" value={`SAR ${t.revenue}`} />
+          </div>
+
+          <Card className="p-0 overflow-hidden">
+            <div className="px-4 py-3 border-b border-brand-border flex items-center justify-between gap-3">
+              <span className="font-black text-brand-black text-sm">By {data.granularity}</span>
+              <span className="text-xs text-brand-grey">
+                {new Date(data.from).toLocaleDateString()} – {new Date(data.to).toLocaleDateString()}
+              </span>
+            </div>
+            <div className="max-h-[360px] overflow-auto">
+              <table className="w-full text-sm">
+                <thead className="bg-brand-surface text-brand-grey text-xs uppercase sticky top-0">
+                  <tr>
+                    <th className="text-left px-4 py-2 font-bold">Period</th>
+                    <th className="text-right px-4 py-2 font-bold">Bookings</th>
+                    <th className="text-right px-4 py-2 font-bold">Revenue</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {data.series.length === 0 && (
+                    <tr><td colSpan={3} className="px-4 py-6 text-center text-brand-grey">No data in this range.</td></tr>
+                  )}
+                  {data.series.map((s) => (
+                    <tr key={s.bucket} className="border-t border-brand-border">
+                      <td className="px-4 py-2 text-brand-dark">{s.bucket}</td>
+                      <td className="px-4 py-2 text-right tabular-nums">{s.count}</td>
+                      <td className="px-4 py-2 text-right tabular-nums">SAR {s.revenue}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </Card>
+        </>
+      )}
+    </div>
+  );
+}
+
 export default function AdminPage() {
   const [tab, setTab] = useState('overview');
   const [tick, setTick] = useState(0);
@@ -455,6 +599,7 @@ export default function AdminPage() {
       {tab === 'overview' && <Dashboard key={`o${tick}`} onNavigate={setTab} />}
       {tab === 'bookings' && <BookingsView key={`b${tick}`} />}
       {tab === 'drivers' && <DriversView key={`d${tick}`} />}
+      {tab === 'reports' && <ReportsView key={`r${tick}`} />}
     </AdminLayout>
   );
 }

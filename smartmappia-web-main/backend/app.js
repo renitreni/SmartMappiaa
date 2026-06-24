@@ -8,6 +8,8 @@
 // ---------------------------------------------------------------------
 const express = require('express');
 const cors = require('cors');
+const helmet = require('helmet');
+const rateLimit = require('express-rate-limit');
 
 const healthRoutes = require('./routes/health');
 const authRoutes = require('./routes/auth');
@@ -18,8 +20,24 @@ const driverRoutes = require('./routes/driver');
 
 const app = express();
 
-app.use(cors()); // allow the frontend (e.g. on Vercel) to call this API
+// Security headers. cross-origin RP so the separate frontend origin can read API responses.
+app.use(helmet({ crossOriginResourcePolicy: { policy: 'cross-origin' } }));
+
+// CORS: restrict to CORS_ORIGINS (comma-separated) when set; otherwise allow all
+// (fine for local/pilot). Set CORS_ORIGINS to the production frontend origin(s) before launch.
+const corsOrigins = (process.env.CORS_ORIGINS || '')
+  .split(',')
+  .map((o) => o.trim())
+  .filter(Boolean);
+app.use(cors(corsOrigins.length ? { origin: corsOrigins } : {}));
 app.use(express.json()); // parse JSON request bodies
+
+// Rate limiting. Effective on a single server/VPS; on serverless it's best-effort
+// per-instance. General cap on the whole API, stricter on auth to slow brute force.
+const generalLimiter = rateLimit({ windowMs: 60 * 1000, max: 120, standardHeaders: true, legacyHeaders: false });
+const authLimiter = rateLimit({ windowMs: 60 * 1000, max: 20, standardHeaders: true, legacyHeaders: false });
+app.use('/api/', generalLimiter);
+app.use('/api/auth', authLimiter);
 
 // --- Routes ---
 app.use('/api/health', healthRoutes);
@@ -37,6 +55,14 @@ app.get('/', (req, res) => {
 // 404 fallback for anything unmatched
 app.use((req, res) => {
   res.status(404).json({ error: 'Not found' });
+});
+
+// Central error handler — log the detail server-side, never leak stack traces
+// or raw DB/internal errors to the client.
+// eslint-disable-next-line no-unused-vars
+app.use((err, req, res, next) => {
+  console.error('Unhandled error:', err);
+  res.status(err.status || 500).json({ error: 'Unexpected server error' });
 });
 
 module.exports = app;

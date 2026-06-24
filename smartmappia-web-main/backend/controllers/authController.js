@@ -53,7 +53,7 @@ async function signup(req, res) {
         return res.status(409).json({ error: 'An account with this email already exists. Please sign in.' });
       }
       console.error('signup error:', error);
-      return res.status(500).json({ error: error.message });
+      return res.status(500).json({ error: 'Could not create the account. Please try again.' });
     }
 
     return res.status(201).json({ id: data.user.id, email: data.user.email });
@@ -117,7 +117,7 @@ async function syncProfile(req, res) {
         (error.message || '').includes('driver_approved')
           ? ' Database migrations may be incomplete — run the SQL files in backend/migrations/ (0001, 0002, 0003) in the Supabase SQL Editor.'
           : '';
-      return res.status(500).json({ error: error.message + hint });
+      return res.status(500).json({ error: 'Could not sync your profile.' + hint });
     }
 
     return res.json({

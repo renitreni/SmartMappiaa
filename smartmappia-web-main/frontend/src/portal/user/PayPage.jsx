@@ -10,6 +10,7 @@ import { Upload, CheckCircle2 } from 'lucide-react';
 import { api } from '../lib/api';
 import { uploadProofFile } from '../lib/supabaseClient';
 import { PortalShell, Card, Field, fileInputClass, btnPrimary, Spinner } from '../components/ui';
+import TapPayButton from '../../components/booking/TapPayButton';
 
 export default function PayPage() {
   const { code } = useParams();
@@ -58,6 +59,12 @@ export default function PayPage() {
             <p className="text-sm text-brand-grey mb-5">
               Booking code <span className="font-mono font-bold text-brand-dark">{code}</span>
             </p>
+
+            <TapPayButton bookingCode={code} />
+            <div className="relative my-5 text-center">
+              <div className="absolute inset-0 flex items-center"><div className="w-full border-t border-brand-border" /></div>
+              <span className="relative bg-white px-3 text-xs font-bold uppercase tracking-wider text-brand-grey">or pay manually</span>
+            </div>
 
             <div className="bg-brand-warm border border-brand-border rounded-xl p-4 space-y-2 text-sm">
               <div className="flex justify-between"><span className="text-brand-grey">Send via STC Pay to</span><span className="font-bold">{instructions.stcPay.number || '—'}</span></div>

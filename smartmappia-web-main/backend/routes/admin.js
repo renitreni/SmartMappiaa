@@ -3,6 +3,7 @@ const router = express.Router();
 const { requireAdmin } = require('../middleware/auth');
 const {
   getStats,
+  getReports,
   listBookings,
   getBookingDetail,
   verifyPayment,
@@ -16,6 +17,7 @@ const {
 router.use(requireAdmin);
 
 router.get('/stats', getStats);
+router.get('/reports', getReports);
 router.get('/bookings', listBookings);
 router.get('/bookings/:bookingCode', getBookingDetail);
 router.post('/bookings/:bookingCode/verify-payment', verifyPayment);

@@ -37,6 +37,13 @@ async function createBooking(req, res) {
     if (!b.pickup_datetime) errors.push('pickup_datetime is required (ISO timestamp)');
     if (!b.passenger_name) errors.push('passenger_name is required');
     if (!b.passenger_whatsapp) errors.push('passenger_whatsapp is required');
+    if (b.pickup_datetime && Number.isNaN(Date.parse(b.pickup_datetime))) {
+      errors.push('pickup_datetime must be a valid ISO timestamp');
+    }
+    const numOrNull = (v) => v == null || (typeof v === 'number' && Number.isFinite(v));
+    if (![b.pickup_lat, b.pickup_lng, b.dropoff_lat, b.dropoff_lng].every(numOrNull)) {
+      errors.push('coordinates must be numbers');
+    }
     if (errors.length) {
       return res.status(400).json({ error: 'Validation failed', details: errors });
     }
@@ -165,7 +172,8 @@ async function cancelBooking(req, res) {
       .select('booking_code, booking_status')
       .single();
     if (updErr) {
-      return res.status(500).json({ error: updErr.message });
+      console.error('cancel booking update error:', updErr);
+      return res.status(500).json({ error: 'Unexpected server error' });
     }
 
     await addTrackingEvent(booking.id, {
