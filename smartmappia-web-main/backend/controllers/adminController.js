@@ -13,8 +13,9 @@
 const { supabase } = require('../lib/supabase');
 const { addTrackingEvent } = require('../lib/tracking');
 const { verifyBookingPayment, rejectBookingPayment } = require('../lib/payments');
-const { createProofDownloadUrl } = require('../lib/storage');
+const { createProofDownloadUrl, createDriverDocDownloadUrl } = require('../lib/storage');
 const { pushBookingStatus, announceRequestTaken } = require('../lib/realtime');
+const { config } = require('../lib/config');
 
 function adminId(req) {
   return req.adminId || null;
@@ -419,6 +420,120 @@ async function assignDriver(req, res) {
   }
 }
 
+// --- GET /api/admin/drivers/:driverId/documents ----------------------
+// Lists a driver's verification documents with short-lived signed download URLs.
+async function listDriverDocuments(req, res) {
+  try {
+    const { data: driver, error: dErr } = await supabase
+      .from('profiles')
+      .select('id, full_name, email, whatsapp_number, driver_approved, driver_verification_status')
+      .eq('id', req.params.driverId)
+      .eq('role', 'driver')
+      .maybeSingle();
+    if (dErr || !driver) return res.status(404).json({ error: 'Driver not found' });
+
+    const { data: docs, error } = await supabase
+      .from('driver_documents')
+      .select('id, doc_type, status, rejection_reason, file_name, mime_type, expiry_date, storage_path, reviewed_at, created_at')
+      .eq('driver_id', req.params.driverId)
+      .order('created_at', { ascending: false });
+    if (error) { console.error('listDriverDocuments error:', error); return res.status(500).json({ error: 'Unexpected server error' }); }
+
+    // Attach a signed download URL per doc (best-effort; never expose storage_path).
+    const documents = [];
+    for (const d of docs) {
+      let url = null;
+      try { url = await createDriverDocDownloadUrl(d.storage_path); } catch (e) { console.error('signed url error:', e.message); }
+      const { storage_path, ...safe } = d;
+      documents.push({ ...safe, url });
+    }
+
+    return res.json({
+      driver: {
+        id: driver.id,
+        fullName: driver.full_name,
+        email: driver.email,
+        whatsapp: driver.whatsapp_number,
+        driverApproved: driver.driver_approved,
+        verificationStatus: driver.driver_verification_status,
+      },
+      requiredTypes: config.driverDocs.requiredTypes,
+      documents,
+    });
+  } catch (err) {
+    console.error('listDriverDocuments error:', err);
+    return res.status(500).json({ error: 'Unexpected server error' });
+  }
+}
+
+// --- POST /api/admin/drivers/:driverId/documents/:docId/review -------
+// Verify or reject a single document; auto-approve the driver once all
+// required documents are verified.
+async function reviewDriverDocument(req, res) {
+  try {
+    const status = req.body && req.body.status;
+    if (status !== 'verified' && status !== 'rejected') {
+      return res.status(400).json({ error: "status must be 'verified' or 'rejected'" });
+    }
+    const reason = status === 'rejected' ? ((req.body && req.body.rejection_reason) || null) : null;
+    if (status === 'rejected' && !reason) {
+      return res.status(400).json({ error: 'rejection_reason is required when rejecting' });
+    }
+
+    const { data: doc, error: updErr } = await supabase
+      .from('driver_documents')
+      .update({
+        status,
+        rejection_reason: reason,
+        reviewed_by_admin_id: adminId(req),
+        reviewed_at: new Date().toISOString(),
+      })
+      .eq('id', req.params.docId)
+      .eq('driver_id', req.params.driverId)
+      .select('id, doc_type, status')
+      .single();
+    if (updErr || !doc) return res.status(404).json({ error: 'Document not found for this driver' });
+
+    // Recompute the driver's overall standing.
+    const { data: allDocs } = await supabase
+      .from('driver_documents')
+      .select('doc_type, status')
+      .eq('driver_id', req.params.driverId);
+    const verifiedTypes = new Set((allDocs || []).filter((d) => d.status === 'verified').map((d) => d.doc_type));
+    const allRequiredVerified = config.driverDocs.requiredTypes.every((t) => verifiedTypes.has(t));
+
+    let verificationStatus;
+    let driverApproved;
+    if (status === 'rejected') {
+      verificationStatus = 'rejected';
+      driverApproved = false;
+    } else if (allRequiredVerified) {
+      verificationStatus = 'approved';
+      driverApproved = true;
+    } else {
+      verificationStatus = 'submitted';
+      driverApproved = false;
+    }
+
+    await supabase
+      .from('profiles')
+      .update({ driver_verification_status: verificationStatus, driver_approved: driverApproved })
+      .eq('id', req.params.driverId);
+
+    return res.json({
+      docId: doc.id,
+      docType: doc.doc_type,
+      status: doc.status,
+      driverApproved,
+      verificationStatus,
+      allRequiredVerified,
+    });
+  } catch (err) {
+    console.error('reviewDriverDocument error:', err);
+    return res.status(500).json({ error: 'Unexpected server error' });
+  }
+}
+
 module.exports = {
   getStats,
   getReports,
@@ -429,4 +544,6 @@ module.exports = {
   assignDriver,
   listDrivers,
   setDriverApproval,
+  listDriverDocuments,
+  reviewDriverDocument,
 };

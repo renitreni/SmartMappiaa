@@ -44,6 +44,8 @@ import { useBroadcast } from '../lib/useBroadcast';
 
 import { realtimeEnabled } from '../lib/supabaseClient';
 
+import DriverVerification from './DriverVerification';
+
 import { whatsappLink } from '../lib/constants';
 import { notifyAlert } from '../lib/notify';
 
@@ -805,21 +807,9 @@ export default function DriverPage() {
 
       <PortalShell title="Driver" subtitle={profile?.fullName || ''}>
 
-        <div className="max-w-md mx-auto">
+        <div className="max-w-lg mx-auto">
 
-          <Card className="p-6 text-center">
-
-            <ShieldAlert className="w-10 h-10 text-amber-500 mx-auto mb-3" />
-
-            <p className="font-black text-brand-black">Pending admin approval</p>
-
-            <p className="text-sm text-brand-grey mt-1">
-
-              Your driver account has been created. An admin needs to verify you before you can go online and accept rides.
-
-            </p>
-
-          </Card>
+          <DriverVerification />
 
         </div>
 

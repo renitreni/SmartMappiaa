@@ -1,0 +1,2 @@
+# Local MCP config — contains a personal Hostinger API token, never commit.
+.mcp.json

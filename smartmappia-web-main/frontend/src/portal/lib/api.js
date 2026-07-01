@@ -81,6 +81,9 @@ export const api = {
   adminDrivers: () => request('/api/admin/drivers'),
   adminApproveDriver: (driverId, approved = true) =>
     request(`/api/admin/drivers/${driverId}/approval`, { method: 'POST', body: { approved } }),
+  adminDriverDocuments: (driverId) => request(`/api/admin/drivers/${driverId}/documents`),
+  adminReviewDoc: (driverId, docId, body) =>
+    request(`/api/admin/drivers/${driverId}/documents/${docId}/review`, { method: 'POST', body }),
 
   // --- driver (identity from token) ---
   driverAvailable: (lat, lng) => {
@@ -91,4 +94,12 @@ export const api = {
   driverAccept: (code) => request(`/api/driver/rides/${code}/accept`, { method: 'POST' }),
   driverStatus: (code, status) => request(`/api/driver/rides/${code}/status`, { method: 'POST', body: { status } }),
   driverLocation: (body) => request('/api/driver/location', { method: 'POST', body, silent: true }), // 12s GPS ping
+  // driver verification documents
+  driverDocSignedUrl: (body) => request('/api/driver/documents/signed-url', { method: 'POST', body }),
+  driverRecordDoc: (body) => request('/api/driver/documents', { method: 'POST', body }),
+  driverDocuments: () => request('/api/driver/documents', { silent: true }),
+
+  // --- notifications (device push tokens) ---
+  registerPushToken: (body) => request('/api/notifications/register', { method: 'POST', body, silent: true }),
+  unregisterPushToken: (token) => request('/api/notifications/unregister', { method: 'POST', body: { token }, silent: true }),
 };

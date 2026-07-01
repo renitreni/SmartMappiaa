@@ -39,6 +39,26 @@ const config = {
     allowedMimeTypes: ['image/jpeg', 'image/png', 'image/webp', 'application/pdf'],
   },
 
+  // Supabase Storage bucket holding driver verification documents (PRIVATE bucket).
+  driverDocs: {
+    bucket: process.env.DRIVER_DOCS_BUCKET || 'driver-docs',
+    uploadUrlTtlSeconds: toNumber(process.env.DRIVER_DOCS_UPLOAD_TTL, 900),
+    downloadUrlTtlSeconds: toNumber(process.env.DRIVER_DOCS_DOWNLOAD_TTL, 3600),
+    maxBytes: toNumber(process.env.DRIVER_DOCS_MAX_BYTES, 10 * 1024 * 1024), // 10 MB
+    allowedMimeTypes: ['image/jpeg', 'image/png', 'image/webp', 'application/pdf'],
+    // Full doc vocabulary (must match the driver_doc_type enum in migration 0005).
+    allTypes: [
+      'national_id', 'license', 'vehicle_registration',
+      'insurance', 'tga_permit', 'profile_photo', 'vehicle_photo',
+    ],
+    // Docs that MUST be 'verified' before a driver is auto-approved.
+    // tga_permit is optional; adjust per TGA guidance.
+    requiredTypes: [
+      'national_id', 'license', 'vehicle_registration',
+      'insurance', 'profile_photo', 'vehicle_photo',
+    ],
+  },
+
   // Auth: accounts whose email is listed here automatically become admins
   // on sign-in/sync (comma-separated, case-insensitive).
   adminEmails: (process.env.ADMIN_EMAILS || '')

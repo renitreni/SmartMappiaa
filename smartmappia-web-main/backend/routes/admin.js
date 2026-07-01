@@ -11,6 +11,8 @@ const {
   assignDriver,
   listDrivers,
   setDriverApproval,
+  listDriverDocuments,
+  reviewDriverDocument,
 } = require('../controllers/adminController');
 
 // Every admin route requires an authenticated admin (Supabase JWT, role admin).
@@ -27,5 +29,7 @@ router.post('/bookings/:bookingCode/assign-driver', assignDriver);
 // Driver approval (verification)
 router.get('/drivers', listDrivers);
 router.post('/drivers/:driverId/approval', setDriverApproval);
+router.get('/drivers/:driverId/documents', listDriverDocuments);
+router.post('/drivers/:driverId/documents/:docId/review', reviewDriverDocument);
 
 module.exports = router;

@@ -17,8 +17,13 @@ const bookingRoutes = require('./routes/bookings');
 const trackingRoutes = require('./routes/tracking');
 const adminRoutes = require('./routes/admin');
 const driverRoutes = require('./routes/driver');
+const notificationRoutes = require('./routes/notifications');
 
 const app = express();
+
+// Behind the Nginx reverse proxy on the VPS: trust the first proxy hop so the
+// real client IP (X-Forwarded-For) is used for rate limiting, not the proxy's.
+app.set('trust proxy', 1);
 
 // Security headers. cross-origin RP so the separate frontend origin can read API responses.
 app.use(helmet({ crossOriginResourcePolicy: { policy: 'cross-origin' } }));
@@ -46,6 +51,7 @@ app.use('/api/bookings', bookingRoutes);
 app.use('/api/tracking', trackingRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/driver', driverRoutes);
+app.use('/api/notifications', notificationRoutes);
 
 // Friendly root
 app.get('/', (req, res) => {

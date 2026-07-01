@@ -3,7 +3,7 @@
 // Access is gated by RequireAuth role="admin"; identity from the session.
 // ---------------------------------------------------------------------
 import { useCallback, useEffect, useState } from 'react';
-import { Check, X, ExternalLink, ShieldCheck, ShieldX, Search } from 'lucide-react';
+import { Check, X, ExternalLink, ShieldCheck, ShieldX, Search, FileText } from 'lucide-react';
 import { api } from '../lib/api';
 import { useBroadcast } from '../lib/useBroadcast';
 import { realtimeEnabled } from '../lib/supabaseClient';
@@ -294,12 +294,102 @@ function BookingsView() {
   );
 }
 
+const DOC_LABELS = {
+  national_id: 'National ID / Iqama',
+  license: 'Driving License',
+  vehicle_registration: 'Vehicle Registration (Istimara)',
+  insurance: 'Vehicle Insurance',
+  tga_permit: 'TGA Ride-hailing Permit',
+  profile_photo: 'Driver Photo',
+  vehicle_photo: 'Vehicle Photo + Plate',
+};
+
+// Expandable panel: a driver's uploaded documents with per-doc Verify/Reject.
+// Verifying all required docs auto-approves the driver (backend-side).
+function DriverDocsPanel({ driverId, onReviewed }) {
+  const [data, setData] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+  const [busyId, setBusyId] = useState(null);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try { setData(await api.adminDriverDocuments(driverId)); }
+    catch (e) { setError(e.message); }
+    finally { setLoading(false); }
+  }, [driverId]);
+  useEffect(() => { load(); }, [load]);
+
+  async function review(docId, status) {
+    let reason;
+    if (status === 'rejected') {
+      reason = window.prompt('Reason for rejecting this document:');
+      if (reason === null) return; // cancelled
+      if (!reason.trim()) { setError('A rejection reason is required.'); return; }
+    }
+    setBusyId(docId);
+    setError(null);
+    try {
+      await api.adminReviewDoc(driverId, docId, { status, rejection_reason: reason });
+      await load();
+      if (onReviewed) onReviewed();
+    } catch (e) { setError(e.message); }
+    finally { setBusyId(null); }
+  }
+
+  if (loading && !data) {
+    return <div className="p-4 flex justify-center bg-brand-muted/40"><Spinner /></div>;
+  }
+  const docs = (data && data.documents) || [];
+
+  return (
+    <div className="bg-brand-muted/40 px-4 py-3 space-y-2">
+      {error && <div className="text-xs text-red-600 font-medium">{error}</div>}
+      {docs.length === 0 && <div className="text-sm text-brand-grey">No documents uploaded yet.</div>}
+      {docs.map((d) => (
+        <div key={d.id} className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 bg-white rounded-xl border border-brand-border p-3">
+          <div className="min-w-0">
+            <div className="font-bold text-brand-dark text-sm">{DOC_LABELS[d.doc_type] || d.doc_type}</div>
+            <div className="text-xs text-brand-grey">
+              <Badge tone={d.status === 'verified' ? 'green' : d.status === 'rejected' ? 'red' : 'amber'}>{d.status}</Badge>
+              {d.expiry_date ? ` · expires ${d.expiry_date}` : ''}
+              {d.rejection_reason ? ` · ${d.rejection_reason}` : ''}
+            </div>
+          </div>
+          <div className="flex items-center gap-2 shrink-0">
+            {d.url && (
+              <a href={d.url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-sm font-bold text-brand-dark border border-brand-border rounded-lg px-2.5 py-1.5 hover:bg-brand-muted">
+                <ExternalLink className="w-4 h-4" /> View
+              </a>
+            )}
+            <button type="button" onClick={() => review(d.id, 'verified')} disabled={busyId === d.id || d.status === 'verified'}
+              className="inline-flex items-center gap-1 text-sm font-bold text-green-700 border border-green-200 rounded-lg px-2.5 py-1.5 hover:bg-green-50 disabled:opacity-40 cursor-pointer">
+              <Check className="w-4 h-4" /> Verify
+            </button>
+            <button type="button" onClick={() => review(d.id, 'rejected')} disabled={busyId === d.id || d.status === 'rejected'}
+              className="inline-flex items-center gap-1 text-sm font-bold text-red-600 border border-red-200 rounded-lg px-2.5 py-1.5 hover:bg-red-50 disabled:opacity-40 cursor-pointer">
+              <X className="w-4 h-4" /> Reject
+            </button>
+          </div>
+        </div>
+      ))}
+      {data && data.requiredTypes && (
+        <div className="text-xs text-brand-grey pt-1">
+          Required: {data.requiredTypes.map((t) => DOC_LABELS[t] || t).join(', ')}. The driver is auto-approved once all required documents are verified.
+        </div>
+      )}
+    </div>
+  );
+}
+
 function DriversView() {
   const [drivers, setDrivers] = useState([]);
   const [error, setError] = useState(null);
   const [loading, setLoading] = useState(false);
   const [busyId, setBusyId] = useState(null);
   const [filter, setFilter] = useState('all');
+  const [expandedId, setExpandedId] = useState(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -376,65 +466,70 @@ function DriversView() {
         )}
         {!loading &&
           filtered.map((d, i) => (
-            <div
-              key={d.id}
-              className={`flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-4 ${
-                i > 0 ? 'border-t border-brand-border' : ''
-              } hover:bg-brand-muted/50 transition-colors`}
-            >
-              <div className="flex items-center gap-3 min-w-0">
-                <div className="w-10 h-10 rounded-full bg-brand-orange/15 text-brand-orange flex items-center justify-center font-black shrink-0">
-                  {(d.full_name || d.email || '?')[0].toUpperCase()}
-                </div>
-                <div className="min-w-0">
-                  <div className="font-bold text-brand-dark truncate">{d.full_name || '(no name)'}</div>
-                  <div className="text-xs text-brand-grey truncate">
-                    {d.email} · {d.mobile_number || d.whatsapp_number || '—'}
+            <div key={d.id} className={i > 0 ? 'border-t border-brand-border' : ''}>
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-4 hover:bg-brand-muted/50 transition-colors">
+                <div className="flex items-center gap-3 min-w-0">
+                  <div className="w-10 h-10 rounded-full bg-brand-orange/15 text-brand-orange flex items-center justify-center font-black shrink-0">
+                    {(d.full_name || d.email || '?')[0].toUpperCase()}
                   </div>
-                  {(d.vehicle_type || d.vehicle_plate) && (
-                    <div className="text-xs text-brand-grey truncate mt-0.5">
-                      {[d.vehicle_type, d.vehicle_plate].filter(Boolean).join(' · ')}
-                      {d.national_id ? ` · ID ${d.national_id}` : ''}
+                  <div className="min-w-0">
+                    <div className="font-bold text-brand-dark truncate">{d.full_name || '(no name)'}</div>
+                    <div className="text-xs text-brand-grey truncate">
+                      {d.email} · {d.mobile_number || d.whatsapp_number || '—'}
                     </div>
+                    {(d.vehicle_type || d.vehicle_plate) && (
+                      <div className="text-xs text-brand-grey truncate mt-0.5">
+                        {[d.vehicle_type, d.vehicle_plate].filter(Boolean).join(' · ')}
+                        {d.national_id ? ` · ID ${d.national_id}` : ''}
+                      </div>
+                    )}
+                  </div>
+                </div>
+                <div className="flex items-center gap-2 shrink-0 sm:ml-4">
+                  <Badge tone={d.driver_approved ? 'green' : 'amber'}>
+                    {d.driver_approved ? 'Approved' : 'Pending'}
+                  </Badge>
+                  <button
+                    type="button"
+                    onClick={() => setExpandedId(expandedId === d.id ? null : d.id)}
+                    className="inline-flex items-center gap-1.5 text-sm font-bold text-brand-dark border border-brand-border rounded-xl px-3 py-2 hover:bg-brand-muted cursor-pointer"
+                  >
+                    <FileText className="w-4 h-4" /> Docs
+                  </button>
+                  {d.driver_approved ? (
+                    <button
+                      type="button"
+                      onClick={() => setApproval(d.id, false)}
+                      disabled={busyId === d.id}
+                      className="inline-flex items-center gap-1.5 text-sm font-bold text-red-600 border border-red-200 rounded-xl px-3 py-2 hover:bg-red-50 cursor-pointer disabled:opacity-50"
+                    >
+                      {busyId === d.id ? (
+                        <Spinner />
+                      ) : (
+                        <>
+                          <ShieldX className="w-4 h-4" /> Revoke
+                        </>
+                      )}
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => setApproval(d.id, true)}
+                      disabled={busyId === d.id}
+                      className={btnPrimary + ' !py-2 !px-3'}
+                    >
+                      {busyId === d.id ? (
+                        <Spinner className="!border-white/40 !border-t-white" />
+                      ) : (
+                        <>
+                          <ShieldCheck className="w-4 h-4" /> Approve
+                        </>
+                      )}
+                    </button>
                   )}
                 </div>
               </div>
-              <div className="flex items-center gap-2 shrink-0 sm:ml-4">
-                <Badge tone={d.driver_approved ? 'green' : 'amber'}>
-                  {d.driver_approved ? 'Approved' : 'Pending'}
-                </Badge>
-                {d.driver_approved ? (
-                  <button
-                    type="button"
-                    onClick={() => setApproval(d.id, false)}
-                    disabled={busyId === d.id}
-                    className="inline-flex items-center gap-1.5 text-sm font-bold text-red-600 border border-red-200 rounded-xl px-3 py-2 hover:bg-red-50 cursor-pointer disabled:opacity-50"
-                  >
-                    {busyId === d.id ? (
-                      <Spinner />
-                    ) : (
-                      <>
-                        <ShieldX className="w-4 h-4" /> Revoke
-                      </>
-                    )}
-                  </button>
-                ) : (
-                  <button
-                    type="button"
-                    onClick={() => setApproval(d.id, true)}
-                    disabled={busyId === d.id}
-                    className={btnPrimary + ' !py-2 !px-3'}
-                  >
-                    {busyId === d.id ? (
-                      <Spinner className="!border-white/40 !border-t-white" />
-                    ) : (
-                      <>
-                        <ShieldCheck className="w-4 h-4" /> Approve
-                      </>
-                    )}
-                  </button>
-                )}
-              </div>
+              {expandedId === d.id && <DriverDocsPanel driverId={d.id} onReviewed={load} />}
             </div>
           ))}
       </Card>
