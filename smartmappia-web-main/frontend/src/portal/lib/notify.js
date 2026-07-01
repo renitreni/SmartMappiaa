@@ -84,3 +84,13 @@ export function notifyAlert(title, opts = {}) {
   playChime();
   notifyToast(title, opts);
 }
+
+export function notifyUnderDevelopment() {
+  Swal.fire({
+    icon: 'info',
+    title: 'Under Development',
+    text: 'The SmartMappia mobile application is currently under development. Check back soon!',
+    showConfirmButton: false,
+    timer: 2000,
+  });
+}

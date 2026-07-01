@@ -11,6 +11,7 @@ import {
   Star,
   Tag,
 } from "lucide-react";
+import { notifyUnderDevelopment } from "../portal/lib/notify";
 
 const categories = [
   { id: "all", label: "All" },
@@ -372,7 +373,11 @@ const Shop = () => {
               </p>
             </div>
 
-            <button className="w-full md:w-auto shrink-0 bg-white hover:bg-brand-warm text-brand-orange font-black text-sm px-8 py-4 rounded-xl transition-all duration-300 transform hover:scale-[1.02] active:scale-95 shadow-xl cursor-pointer">
+            <button
+              type="button"
+              onClick={notifyUnderDevelopment}
+              className="w-full md:w-auto shrink-0 bg-white hover:bg-brand-warm text-brand-orange font-black text-sm px-8 py-4 rounded-xl transition-all duration-300 transform hover:scale-[1.02] active:scale-95 shadow-xl cursor-pointer"
+            >
               Explore Shop in App
             </button>
           </div>
