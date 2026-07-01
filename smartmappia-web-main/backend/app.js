@@ -18,6 +18,7 @@ const trackingRoutes = require('./routes/tracking');
 const adminRoutes = require('./routes/admin');
 const driverRoutes = require('./routes/driver');
 const notificationRoutes = require('./routes/notifications');
+const osrmRoutes = require('./routes/osrm');
 
 const app = express();
 
@@ -52,6 +53,7 @@ app.use('/api/tracking', trackingRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/driver', driverRoutes);
 app.use('/api/notifications', notificationRoutes);
+app.use('/api/osrm', osrmRoutes);
 
 // Friendly root
 app.get('/', (req, res) => {
