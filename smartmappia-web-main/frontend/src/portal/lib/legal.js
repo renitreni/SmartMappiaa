@@ -8,8 +8,22 @@
 // avoids dash characters. Have legal counsel review before public launch.
 // ---------------------------------------------------------------------
 import Swal from 'sweetalert2';
+import { COMPANY } from '../../config/company';
 
 const LAST_UPDATED = '20 June 2026';
+
+// Static contact block reused in the Privacy and Terms modals. All values come
+// from the developer-controlled company config (never user input) so it is safe
+// to inline into the SweetAlert2 html.
+const CONTACT_HTML = `
+  <p>You can reach ${COMPANY.name} at:</p>
+  <ul class="list-disc pl-5 space-y-1">
+    <li>Email: ${COMPANY.email}</li>
+    <li>Phone: ${COMPANY.phoneDisplay}</li>
+    <li>WhatsApp: ${COMPANY.whatsappDisplay}</li>
+    <li>Address: ${COMPANY.address.full}</li>
+    <li>Website: ${COMPANY.websiteDisplay}</li>
+  </ul>`;
 
 const PRIVACY_HTML = `
   <div class="text-left text-sm leading-relaxed text-brand-grey space-y-3">
@@ -84,8 +98,9 @@ const PRIVACY_HTML = `
 
     <h3 class="font-black text-brand-black pt-2">11. Contact and Complaints</h3>
     <p>If you have any questions about this Policy or wish to exercise your rights, please contact
-    our support team through the channels listed in the app. You also have the right to lodge a
-    complaint with the competent supervisory authority in the Kingdom of Saudi Arabia.</p>  </div>
+    our support team using the details below. You also have the right to lodge a
+    complaint with the competent supervisory authority in the Kingdom of Saudi Arabia.</p>
+    ${CONTACT_HTML}  </div>
 `;
 
 const TERMS_HTML = `
@@ -138,8 +153,9 @@ const TERMS_HTML = `
     jurisdiction to settle any such dispute.</p>
 
     <h3 class="font-black text-brand-black pt-2">10. Contact</h3>
-    <p>If you have any questions about these Terms, please contact our support team through the
-    channels listed in the app.</p>  </div>
+    <p>If you have any questions about these Terms, please contact our support team using the
+    details below.</p>
+    ${CONTACT_HTML}  </div>
 `;
 
 const CONTENT = {

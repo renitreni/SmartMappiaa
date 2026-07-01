@@ -6,7 +6,7 @@
 -- This is a temporary shortcut for the closed pilot so testers don't need an
 -- admin to approve each driver. For the real app release, SKIP this migration
 -- (run only 0001, 0002, 0003) and build proper document-based verification
--- instead — see docs/production/DRIVER_VERIFICATION_ROADMAP.md. If you already ran this on
+-- instead — see docs/production/PICK_AND_DROP.md section 4. If you already ran this on
 -- an environment that is going to production, reverse it first (see the bottom
 -- of this file) so the admin approval gate is back in force.
 --

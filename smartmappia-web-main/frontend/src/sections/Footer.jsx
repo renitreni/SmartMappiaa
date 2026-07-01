@@ -1,4 +1,5 @@
 import { openLegalModal } from "../portal/lib/legal";
+import { COMPANY } from "../config/company";
 
 const legalLinks = [
   { label: "Privacy Policy", kind: "privacy" },
@@ -212,11 +213,43 @@ const Footer = () => {
                     <path
                       strokeLinecap="round"
                       strokeLinejoin="round"
+                      d="M17.657 16.657L13.414 20.9a2 2 0 01-2.828 0l-4.243-4.243a8 8 0 1111.314 0z"
+                    />
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      d="M15 11a3 3 0 11-6 0 3 3 0 016 0z"
+                    />
+                  </svg>
+                </span>
+                <span className="pt-1">
+                  {COMPANY.address.line1}
+                  <br />
+                  {COMPANY.address.line2}
+                </span>
+              </li>
+              <li className="flex items-start gap-3 text-sm text-white/55">
+                <span className="shrink-0 w-8 h-8 rounded-lg bg-brand-orange/15 flex items-center justify-center">
+                  <svg
+                    className="w-4 h-4 text-brand-orange"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    viewBox="0 0 24 24"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
                       d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"
                     />
                   </svg>
                 </span>
-                <span className="pt-1">support@smartmappia.com</span>
+                <a
+                  href={`mailto:${COMPANY.email}`}
+                  className="pt-1 hover:text-brand-orange transition-colors"
+                >
+                  {COMPANY.email}
+                </a>
               </li>
               <li className="flex items-start gap-3 text-sm text-white/55">
                 <span className="shrink-0 w-8 h-8 rounded-lg bg-brand-orange/15 flex items-center justify-center">
@@ -234,7 +267,53 @@ const Footer = () => {
                     />
                   </svg>
                 </span>
-                <span className="pt-1">+966 XX XXX XXXX</span>
+                <span className="pt-1">
+                  <a
+                    href={`tel:${COMPANY.phoneDisplay}`}
+                    className="hover:text-brand-orange transition-colors"
+                  >
+                    {COMPANY.phoneDisplay}
+                  </a>
+                  <br />
+                  <a
+                    href={COMPANY.whatsappUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="hover:text-brand-orange transition-colors"
+                  >
+                    WhatsApp {COMPANY.whatsappDisplay}
+                  </a>
+                </span>
+              </li>
+              <li className="flex items-start gap-3 text-sm text-white/55">
+                <span className="shrink-0 w-8 h-8 rounded-lg bg-brand-orange/15 flex items-center justify-center">
+                  <svg
+                    className="w-4 h-4 text-brand-orange"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    viewBox="0 0 24 24"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
+                    />
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      d="M3.6 9h16.8M3.6 15h16.8M12 3a15 15 0 010 18M12 3a15 15 0 000 18"
+                    />
+                  </svg>
+                </span>
+                <a
+                  href={COMPANY.websiteUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="pt-1 hover:text-brand-orange transition-colors"
+                >
+                  {COMPANY.websiteDisplay}
+                </a>
               </li>
               <li className="flex items-start gap-3 text-sm text-white/55">
                 <span className="shrink-0 w-8 h-8 rounded-lg bg-brand-orange/15 flex items-center justify-center">
@@ -252,7 +331,7 @@ const Footer = () => {
                     />
                   </svg>
                 </span>
-                <span className="pt-1">Daily, 7 AM – midnight</span>
+                <span className="pt-1">{COMPANY.hours}</span>
               </li>
             </ul>
           </div>
