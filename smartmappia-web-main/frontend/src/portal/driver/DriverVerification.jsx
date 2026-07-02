@@ -9,6 +9,7 @@ import { UploadCloud, CheckCircle2, Clock, XCircle, RefreshCw, FileText } from '
 import { api } from '../lib/api';
 import { uploadProofFile } from '../lib/supabaseClient';
 import { Card, Badge, Spinner, btnPrimary } from '../components/ui';
+import { UPLOAD_ACCEPT, UPLOAD_FORMATS_HINT, validateUploadFile } from '../lib/uploadFiles';
 
 const DOC_LABELS = {
   national_id: 'National ID / Iqama',
@@ -19,8 +20,6 @@ const DOC_LABELS = {
   profile_photo: 'Your Photo',
   vehicle_photo: 'Vehicle Photo + Plate',
 };
-
-const ACCEPT = 'image/jpeg,image/png,image/webp,application/pdf';
 
 function statusBadge(status) {
   if (status === 'verified') return <Badge tone="green">Verified</Badge>;
@@ -52,13 +51,18 @@ export default function DriverVerification() {
 
   async function handleFile(docType, file) {
     if (!file) return;
+    const check = validateUploadFile(file);
+    if (!check.ok) {
+      setError(check.error);
+      return;
+    }
     setUploadingType(docType);
     setError(null);
     try {
       const { bucket, path, token, maxBytes } = await api.driverDocSignedUrl({
         doc_type: docType,
         file_name: file.name,
-        mime_type: file.type,
+        mime_type: check.mimeType,
       });
       if (maxBytes && file.size > maxBytes) {
         throw new Error(`File too large (max ${Math.floor(maxBytes / 1024 / 1024)} MB).`);
@@ -68,7 +72,7 @@ export default function DriverVerification() {
         path,
         doc_type: docType,
         file_name: file.name,
-        mime_type: file.type,
+        mime_type: check.mimeType,
         size_bytes: file.size,
       });
       await load();
@@ -107,6 +111,7 @@ export default function DriverVerification() {
           <p className="font-black text-brand-black">Driver verification</p>
         </div>
         <p className={`text-sm rounded-xl border p-3 mt-2 ${banner.tone}`}>{banner.text}</p>
+        <p className="text-xs text-brand-grey mt-2">{UPLOAD_FORMATS_HINT}</p>
       </Card>
 
       {error && (
@@ -144,7 +149,7 @@ export default function DriverVerification() {
                     <input
                       ref={(el) => { inputs.current[type] = el; }}
                       type="file"
-                      accept={ACCEPT}
+                      accept={UPLOAD_ACCEPT}
                       className="hidden"
                       onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ''; handleFile(type, f); }}
                     />

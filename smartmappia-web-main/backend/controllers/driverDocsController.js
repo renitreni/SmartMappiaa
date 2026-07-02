@@ -11,6 +11,7 @@
 const { supabase } = require('../lib/supabase');
 const { config } = require('../lib/config');
 const { buildDriverDocPath, createDriverDocUploadUrl } = require('../lib/storage');
+const { validateUploadFile } = require('../lib/uploadValidation');
 
 // --- POST /api/driver/documents/signed-url ---------------------------
 async function createDocUploadUrl(req, res) {
@@ -21,10 +22,9 @@ async function createDocUploadUrl(req, res) {
         error: `doc_type is required and must be one of: ${config.driverDocs.allTypes.join(', ')}`,
       });
     }
-    if (!mime_type || !config.driverDocs.allowedMimeTypes.includes(mime_type)) {
-      return res.status(400).json({
-        error: `mime_type is required and must be one of: ${config.driverDocs.allowedMimeTypes.join(', ')}`,
-      });
+    const fileCheck = validateUploadFile({ fileName: file_name, mimeType: mime_type });
+    if (!fileCheck.ok) {
+      return res.status(400).json({ error: fileCheck.error });
     }
 
     const path = buildDriverDocPath(req.driverId, doc_type, file_name);
@@ -59,6 +59,8 @@ async function recordDriverDocument(req, res) {
     if (b.size_bytes != null && Number(b.size_bytes) > config.driverDocs.maxBytes) {
       errors.push(`file exceeds max size of ${config.driverDocs.maxBytes} bytes`);
     }
+    const fileCheck = validateUploadFile({ fileName: b.file_name, mimeType: b.mime_type });
+    if (!fileCheck.ok) errors.push(fileCheck.error);
     if (errors.length) {
       return res.status(400).json({ error: 'Validation failed', details: errors });
     }

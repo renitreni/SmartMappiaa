@@ -45,7 +45,7 @@ const config = {
     uploadUrlTtlSeconds: toNumber(process.env.DRIVER_DOCS_UPLOAD_TTL, 900),
     downloadUrlTtlSeconds: toNumber(process.env.DRIVER_DOCS_DOWNLOAD_TTL, 3600),
     maxBytes: toNumber(process.env.DRIVER_DOCS_MAX_BYTES, 10 * 1024 * 1024), // 10 MB
-    allowedMimeTypes: ['image/jpeg', 'image/png', 'image/webp', 'application/pdf'],
+    allowedMimeTypes: ['image/jpeg', 'image/png', 'application/pdf'],
     // Full doc vocabulary (must match the driver_doc_type enum in migration 0005).
     allTypes: [
       'national_id', 'license', 'vehicle_registration',
