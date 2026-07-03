@@ -27,7 +27,7 @@ export default function BottomDrawer({ open, onClose, title, children }) {
   return createPortal(
     <AnimatePresence>
       {open && (
-        <div className="fixed inset-0 z-[100] md:hidden">
+        <div className="fixed inset-0 z-[100]">
           <motion.button
             type="button"
             initial={{ opacity: 0 }}

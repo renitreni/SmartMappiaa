@@ -129,7 +129,7 @@ const PickDrop = () => {
                 </Field>
               </div>
 
-              <FareSummary fare={FARE} />
+              <FareSummary fare={FARE} hideServiceFee />
             </div>
 
             <div className="px-6 md:px-8 pb-7">

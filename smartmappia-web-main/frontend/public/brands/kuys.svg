@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 320" width="320" height="320" role="img" aria-label="Kuy's">
+  <defs>
+    <linearGradient id="ky" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#3B82F6"/>
+      <stop offset="1" stop-color="#1D4ED8"/>
+    </linearGradient>
+  </defs>
+  <circle cx="160" cy="118" r="78" fill="url(#ky)"/>
+  <path d="M138 78 v80 M138 118 l34 -40 M150 122 l26 36" fill="none" stroke="#fff" stroke-width="12" stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="186" cy="150" r="9" fill="#F59E0B"/>
+  <text x="160" y="252" text-anchor="middle" font-family="Segoe UI, Arial, sans-serif" font-weight="800" font-size="46" fill="#1D4ED8" letter-spacing="-1">Kuy's</text>
+</svg>

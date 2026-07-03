@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 320" width="320" height="320" role="img" aria-label="Al Wafa">
+  <defs>
+    <linearGradient id="aw" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#18A558"/>
+      <stop offset="1" stop-color="#0B7A3E"/>
+    </linearGradient>
+  </defs>
+  <circle cx="160" cy="118" r="78" fill="url(#aw)"/>
+  <path d="M120 96 h14 l6 16 h50 l-8 34 h-38 l3 10 h34" fill="none" stroke="#fff" stroke-width="8" stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="146" cy="168" r="7" fill="#fff"/>
+  <circle cx="180" cy="168" r="7" fill="#fff"/>
+  <path d="M196 92 c-14 4 -22 16 -18 30 c14 -2 22 -14 18 -30 z" fill="#BFE9CF"/>
+  <text x="160" y="252" text-anchor="middle" font-family="Segoe UI, Arial, sans-serif" font-weight="800" font-size="44" fill="#0B7A3E" letter-spacing="-1">Al Wafa</text>
+</svg>

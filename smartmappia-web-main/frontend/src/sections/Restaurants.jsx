@@ -6,51 +6,75 @@ import { notifyUnderDevelopment } from "../portal/lib/notify";
 const restaurantData = [
   {
     id: 1,
-    name: "Al Baik Express",
-    cuisine: "Broasted Chicken",
+    name: "Jollibee",
+    cuisine: "Filipino Fast Food",
     rating: "4.9",
     reviews: "2.4k",
     time: "12-15 min",
     fee: "Free delivery",
     tag: "Top Rated",
-    image:
-      "https://images.unsplash.com/photo-1626082927389-6cd097cdc6ec?q=80&w=600&auto=format&fit=crop",
+    logo: "/brands/jollibee.png",
+    bg: "#FFFFFF",
   },
   {
     id: 2,
-    name: "Shawarma Cartel",
-    cuisine: "Middle Eastern",
-    rating: "4.7",
+    name: "Ka Inasal",
+    cuisine: "Grilled Chicken",
+    rating: "4.8",
     reviews: "1.8k",
-    time: "10-20 min",
+    time: "15-25 min",
     fee: "SAR 5 delivery",
     tag: "Popular",
-    image:
-      "https://images.unsplash.com/photo-1528736235302-52922df5c122?q=80&w=600&auto=format&fit=crop",
+    logo: "/brands/ka-inasal.png",
+    bg: "#FFFFFF",
   },
   {
     id: 3,
-    name: "Burger Boutique",
-    cuisine: "American Gourmet",
-    rating: "4.8",
+    name: "Taster",
+    cuisine: "Comfort Food",
+    rating: "4.7",
     reviews: "960",
     time: "20-30 min",
     fee: "Free delivery",
     tag: "Trending",
-    image:
-      "https://images.unsplash.com/photo-1568901346375-23c9450c58cd?q=80&w=600&auto=format&fit=crop",
+    logo: "/brands/taster.png",
+    bg: "#FFFFFF",
   },
   {
     id: 4,
-    name: "Matcha & Co.",
-    cuisine: "Dessert & Cafe",
+    name: "Kuy's",
+    cuisine: "Filipino Street Eats",
     rating: "4.6",
     reviews: "720",
-    time: "10-15 min",
+    time: "10-20 min",
     fee: "SAR 3 delivery",
     tag: "New",
-    image:
-      "https://images.unsplash.com/photo-1559925393-8be0ec4767c8?q=80&w=600&auto=format&fit=crop",
+    logo: "/brands/kuys.png",
+    bg: "#FFFFFF",
+  },
+  {
+    id: 5,
+    name: "Tianlala",
+    cuisine: "Milk Tea & Drinks",
+    rating: "4.8",
+    reviews: "1.3k",
+    time: "10-15 min",
+    fee: "Free delivery",
+    tag: "Popular",
+    logo: "/brands/tianlala.png",
+    bg: "#FFEB3B",
+  },
+  {
+    id: 6,
+    name: "Happy Ending",
+    cuisine: "Desserts & Sweets",
+    rating: "4.9",
+    reviews: "1.1k",
+    time: "15-20 min",
+    fee: "SAR 4 delivery",
+    tag: "Top Rated",
+    logo: "/brands/happy-ending.png",
+    bg: "#FFFFFF",
   },
 ];
 
@@ -106,7 +130,7 @@ const Restaurants = () => {
             </span>
 
             <h2 className="text-3xl md:text-5xl font-black tracking-tight text-brand-black mt-3 leading-tight">
-              Riyadh's Most Loved Flavors.{" "}
+              KSA's Most Loved Flavors.{" "}
               <span className="text-transparent bg-clip-text bg-linear-to-r from-brand-orange to-brand-red">
                 Handpicked For You.
               </span>
@@ -149,13 +173,15 @@ const Restaurants = () => {
               viewport={{ once: true, margin: "-50px" }}
               className="group relative bg-white border border-brand-border rounded-3xl overflow-hidden cursor-pointer transition-all duration-300 hover:-translate-y-2 hover:border-brand-orange/30 hover:shadow-2xl hover:shadow-brand-orange/10"
             >
-              <div className="relative h-52 sm:h-56 overflow-hidden">
+              <div
+                className="relative h-52 sm:h-56 overflow-hidden flex items-center justify-center"
+                style={{ backgroundColor: resto.bg }}
+              >
                 <img
-                  src={resto.image}
-                  alt={resto.name}
-                  className="w-full h-full object-cover transform group-hover:scale-110 transition-transform duration-700"
+                  src={resto.logo}
+                  alt={`${resto.name} logo`}
+                  className="max-h-[68%] max-w-[68%] object-contain transform group-hover:scale-110 transition-transform duration-500"
                 />
-                <div className="absolute inset-0 bg-linear-to-t from-black/50 via-black/10 to-transparent opacity-80 group-hover:opacity-90 transition-opacity duration-300" />
 
                 <span
                   className={`absolute top-4 left-4 text-[10px] font-black uppercase tracking-wider px-3 py-1.5 rounded-full shadow-md ${tagStyles[resto.tag]}`}

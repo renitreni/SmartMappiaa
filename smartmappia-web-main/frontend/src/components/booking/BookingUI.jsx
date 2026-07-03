@@ -143,7 +143,9 @@ export function TripRoutePreview({ direction, airportName, homeLabel = 'Your add
   );
 }
 
-export function FareSummary({ fare, showButton, buttonLabel, onButtonClick, busy, buttonDisabled, compact = false }) {
+export function FareSummary({ fare, showButton, buttonLabel, onButtonClick, busy, buttonDisabled, compact = false, hideServiceFee = false }) {
+  const displayTotal = hideServiceFee ? fare.base : fare.total;
+
   if (compact) {
     return (
       <div className="pt-4 mt-1 border-t border-brand-border space-y-2">
@@ -151,14 +153,16 @@ export function FareSummary({ fare, showButton, buttonLabel, onButtonClick, busy
           <span>Base fare</span>
           <span>SAR {fare.base.toFixed(2)}</span>
         </div>
-        <div className="flex justify-between text-sm text-brand-grey">
-          <span>Service fee ({fare.serviceFeePercent}%)</span>
-          <span>SAR {fare.serviceFee.toFixed(2)}</span>
-        </div>
+        {!hideServiceFee && (
+          <div className="flex justify-between text-sm text-brand-grey">
+            <span>Service fee ({fare.serviceFeePercent}%)</span>
+            <span>SAR {fare.serviceFee.toFixed(2)}</span>
+          </div>
+        )}
         <div className="flex items-center justify-between pt-3 border-t border-brand-border gap-4">
           <div>
             <div className="text-xs font-bold text-brand-grey uppercase tracking-wide">Total</div>
-            <div className="text-2xl md:text-3xl font-black text-brand-orange tabular-nums mt-0.5">SAR {fare.total.toFixed(2)}</div>
+            <div className="text-2xl md:text-3xl font-black text-brand-orange tabular-nums mt-0.5">SAR {displayTotal.toFixed(2)}</div>
           </div>
           {showButton && (
             <button
@@ -189,22 +193,24 @@ export function FareSummary({ fare, showButton, buttonLabel, onButtonClick, busy
           <span className="text-brand-grey">Base fare</span>
           <span className="font-medium text-brand-dark">SAR {fare.base.toFixed(2)}</span>
         </div>
-        <div className="flex justify-between text-sm">
-          <span className="text-brand-grey">Service fee ({fare.serviceFeePercent}%)</span>
-          <span className="font-medium text-brand-dark">SAR {fare.serviceFee.toFixed(2)}</span>
-        </div>
+        {!hideServiceFee && (
+          <div className="flex justify-between text-sm">
+            <span className="text-brand-grey">Service fee ({fare.serviceFeePercent}%)</span>
+            <span className="font-medium text-brand-dark">SAR {fare.serviceFee.toFixed(2)}</span>
+          </div>
+        )}
         <div className="flex items-end justify-between pt-3 border-t border-brand-border">
           <div>
             <p className="text-[10px] font-bold text-brand-grey uppercase tracking-widest">Total</p>
             <p className="text-xs text-brand-grey mt-0.5">Fixed price · no surge</p>
           </div>
           <motion.span
-            key={fare.total}
+            key={displayTotal}
             initial={{ opacity: 0, scale: 0.95 }}
             animate={{ opacity: 1, scale: 1 }}
             className="text-3xl font-black text-brand-orange tabular-nums"
           >
-            SAR {fare.total.toFixed(2)}
+            SAR {displayTotal.toFixed(2)}
           </motion.span>
         </div>
       </div>

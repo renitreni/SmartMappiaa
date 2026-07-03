@@ -1,4 +1,6 @@
-import { useState, useRef, useEffect, useMemo } from 'react';
+import { useState, useRef, useEffect, useMemo, useCallback } from 'react';
+
+import { createPortal } from 'react-dom';
 
 import { motion, AnimatePresence } from 'framer-motion';
 
@@ -6,7 +8,7 @@ import { Calendar, ChevronLeft, ChevronRight, ChevronDown, Clock, Check } from '
 
 import BottomDrawer from './BottomDrawer';
 
-import { useIsMobile } from '../lib/useMediaQuery';
+import { usePickerDrawer } from '../lib/useMediaQuery';
 
 
 
@@ -21,6 +23,36 @@ const MONTHS = [
 ];
 
 const MINUTE_STEP = 15;
+
+const PANEL_HEIGHT = 420;
+
+const PANEL_WIDTH = 380;
+
+
+
+function computePopoverPosition(triggerEl) {
+
+  const rect = triggerEl.getBoundingClientRect();
+
+  const width = Math.min(PANEL_WIDTH, window.innerWidth - 32);
+
+  let left = rect.right - width;
+
+  left = Math.max(16, Math.min(left, window.innerWidth - width - 16));
+
+  const spaceBelow = window.innerHeight - rect.bottom;
+
+  const spaceAbove = rect.top;
+
+  const openUpward = spaceBelow < PANEL_HEIGHT && spaceAbove > spaceBelow;
+
+  let top = openUpward ? rect.top - PANEL_HEIGHT - 6 : rect.bottom + 6;
+
+  top = Math.max(8, Math.min(top, window.innerHeight - PANEL_HEIGHT - 8));
+
+  return { top, left, width, openUpward };
+
+}
 
 
 
@@ -644,13 +676,15 @@ export default function DateTimePicker({ value, onChange, minDate, drawerTitle =
 
   const ref = useRef(null);
 
+  const popoverRef = useRef(null);
+
   const triggerRef = useRef(null);
 
-  const isMobile = useIsMobile();
+  const useDrawer = usePickerDrawer();
 
   const [open, setOpen] = useState(false);
 
-  const [openUpward, setOpenUpward] = useState(false);
+  const [popoverStyle, setPopoverStyle] = useState({ top: 0, left: 0, width: PANEL_WIDTH, openUpward: false });
 
   const selected = parseValue(value) || new Date();
 
@@ -708,35 +742,57 @@ export default function DateTimePicker({ value, onChange, minDate, drawerTitle =
 
     setPeriod(d.getHours() >= 12 ? 'pm' : 'am');
 
-
-
-    if (isMobile) return undefined;
-
-
-
-    const rect = triggerRef.current?.getBoundingClientRect();
-
-    if (rect) {
-
-      const spaceBelow = window.innerHeight - rect.bottom;
-
-      setOpenUpward(spaceBelow < 420);
-
-    }
-
     return undefined;
 
-  }, [open, value, isMobile]);
+  }, [open, value]);
+
+
+
+  const updatePopoverPosition = useCallback(() => {
+
+    const trigger = triggerRef.current;
+
+    if (!trigger) return;
+
+    setPopoverStyle(computePopoverPosition(trigger));
+
+  }, []);
 
 
 
   useEffect(() => {
 
-    if (!open || isMobile) return undefined;
+    if (!open || useDrawer) return undefined;
+
+    updatePopoverPosition();
+
+    window.addEventListener('resize', updatePopoverPosition);
+
+    window.addEventListener('scroll', updatePopoverPosition, true);
+
+    return () => {
+
+      window.removeEventListener('resize', updatePopoverPosition);
+
+      window.removeEventListener('scroll', updatePopoverPosition, true);
+
+    };
+
+  }, [open, useDrawer, updatePopoverPosition]);
+
+
+
+  useEffect(() => {
+
+    if (!open || useDrawer) return undefined;
 
     function handleClick(e) {
 
-      if (ref.current && !ref.current.contains(e.target)) setOpen(false);
+      const inTrigger = ref.current?.contains(e.target);
+
+      const inPopover = popoverRef.current?.contains(e.target);
+
+      if (!inTrigger && !inPopover) setOpen(false);
 
     }
 
@@ -758,7 +814,7 @@ export default function DateTimePicker({ value, onChange, minDate, drawerTitle =
 
     };
 
-  }, [open, isMobile]);
+  }, [open, useDrawer]);
 
 
 
@@ -926,7 +982,7 @@ export default function DateTimePicker({ value, onChange, minDate, drawerTitle =
 
   return (
 
-    <div ref={ref} className={`relative ${open && !isMobile ? 'z-50' : 'z-0'}`}>
+    <div ref={ref} className={`relative ${open && !useDrawer ? 'z-50' : 'z-0'}`}>
 
       <button
 
@@ -934,7 +990,13 @@ export default function DateTimePicker({ value, onChange, minDate, drawerTitle =
 
         type="button"
 
-        onClick={() => setOpen(true)}
+        onClick={() => {
+
+          if (!useDrawer) updatePopoverPosition();
+
+          setOpen(true);
+
+        }}
 
         className={`w-full min-w-0 bg-white border rounded-xl px-4 py-3 text-sm transition-all cursor-pointer flex items-center gap-2.5 focus:outline-none ${
 
@@ -980,7 +1042,7 @@ export default function DateTimePicker({ value, onChange, minDate, drawerTitle =
 
 
 
-      {isMobile ? (
+      {useDrawer ? (
 
         <BottomDrawer open={open} onClose={() => setOpen(false)} title={drawerTitle}>
 
@@ -990,35 +1052,53 @@ export default function DateTimePicker({ value, onChange, minDate, drawerTitle =
 
       ) : (
 
-        <AnimatePresence>
+        typeof document !== 'undefined' &&
 
-          {open && (
+        createPortal(
 
-            <motion.div
+          <AnimatePresence>
 
-              initial={{ opacity: 0, y: openUpward ? 6 : -6, scale: 0.98 }}
+            {open && (
 
-              animate={{ opacity: 1, y: 0, scale: 1 }}
+              <motion.div
 
-              exit={{ opacity: 0, y: openUpward ? 6 : -6, scale: 0.98 }}
+                ref={popoverRef}
 
-              transition={{ duration: 0.15, ease: 'easeOut' }}
+                initial={{ opacity: 0, y: popoverStyle.openUpward ? 6 : -6, scale: 0.98 }}
 
-              className={`absolute left-0 right-0 sm:left-auto sm:right-0 sm:w-[min(100vw-2rem,380px)] ${
+                animate={{ opacity: 1, y: 0, scale: 1 }}
 
-                openUpward ? 'bottom-[calc(100%+6px)]' : 'top-[calc(100%+6px)]'
+                exit={{ opacity: 0, y: popoverStyle.openUpward ? 6 : -6, scale: 0.98 }}
 
-              }`}
+                transition={{ duration: 0.15, ease: 'easeOut' }}
 
-            >
+                style={{
 
-              <PickerPanel {...panelProps} />
+                  position: 'fixed',
 
-            </motion.div>
+                  top: popoverStyle.top,
 
-          )}
+                  left: popoverStyle.left,
 
-        </AnimatePresence>
+                  width: popoverStyle.width,
+
+                  zIndex: 9999,
+
+                }}
+
+              >
+
+                <PickerPanel {...panelProps} />
+
+              </motion.div>
+
+            )}
+
+          </AnimatePresence>,
+
+          document.body,
+
+        )
 
       )}
 

@@ -21,7 +21,7 @@ const AboutUs = () => {
           whileInView={{ opacity: 1, x: 0 }}
           viewport={{ once: true }}
         >
-          <h2 className="text-4xl md:text-5xl font-black mb-6 text-brand-black">Empowering <span className="text-brand-orange">Riyadh's</span> Daily Rhythm.</h2>
+          <h2 className="text-4xl md:text-5xl font-black mb-6 text-brand-black">Empowering the <span className="text-brand-orange">Kingdom of Saudi Arabia's</span> Daily Rhythm.</h2>
           <p className="text-brand-grey text-lg leading-relaxed">
             SmartMappia was built on a simple vision: to bridge the gap between busy urban life and seamless service accessibility. We are more than just an app; we are your digital partner in food, delivery, and transport.
           </p>
@@ -34,7 +34,7 @@ const AboutUs = () => {
           className="border border-brand-orange/20 p-8 rounded-3xl bg-brand-warm"
         >
           <div className="text-brand-orange font-bold text-sm uppercase tracking-widest mb-4">Our Mission</div>
-          <p className="italic text-xl text-brand-dark">"To make every transaction in Riyadh effortless, secure, and instant for everyone."</p>
+          <p className="italic text-xl text-brand-dark">"To make every transaction in the Kingdom of Saudi Arabia effortless, secure, and instant for everyone."</p>
         </motion.div>
         
         </div>

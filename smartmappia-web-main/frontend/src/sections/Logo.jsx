@@ -9,6 +9,10 @@ const partners = [
   { id: 5, name: "Shawarma House", logo: "logo5.png" },
   { id: 6, name: "Pizza Hut", logo: "logo6.jpg" },
   { id: 7, name: "Starbucks", logo: "logo7.png" },
+  { id: 8, name: "Tianlala", logo: "brands/tianlala.png" },
+  { id: 9, name: "Ka Inasal", logo: "brands/ka-inasal.png" },
+  { id: 10, name: "Al Wafa", logo: "brands/al-wafa.png" },
+  { id: 11, name: "Happy Ending", logo: "brands/happy-ending.png" },
 ];
 
 const PartnerCard = ({ partner }) => (

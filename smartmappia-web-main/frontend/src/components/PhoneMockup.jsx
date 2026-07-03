@@ -31,6 +31,11 @@ const screens = [
   { id: "shop", label: "Shop", Icon: ShoppingBag },
 ];
 
+const flashingRestaurants = [
+  { name: "Jollibee", tagline: "Langhap-Sarap favorites", logo: "/brands/jollibee.png", bg: "#FFFFFF" },
+  { name: "Taster", tagline: "Comfort food, delivered", logo: "/brands/taster.png", bg: "#FFFFFF" },
+];
+
 const foodRestaurants = [
   {
     name: "Al Baik Express",
@@ -102,23 +107,44 @@ const bottomNavItems = [
 ];
 
 function FoodScreen() {
+  const [flashIndex, setFlashIndex] = useState(0);
+
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setFlashIndex((prev) => (prev + 1) % flashingRestaurants.length);
+    }, 1600);
+    return () => clearInterval(timer);
+  }, []);
+
+  const flash = flashingRestaurants[flashIndex];
+
   return (
     <div className="flex flex-col h-full bg-brand-muted text-brand-dark overflow-hidden">
       <div className="relative h-36 mx-3 mt-1 rounded-2xl overflow-hidden shrink-0 shadow-sm">
-        <img
-          src="https://images.unsplash.com/photo-1504674900247-0877df9cc836?q=80&w=600&auto=format&fit=crop"
-          alt="Delicious food"
-          className="w-full h-full object-cover"
-        />
-        <div className="absolute inset-0 bg-linear-to-r from-brand-black/75 via-brand-black/35 to-transparent" />
-        <div className="absolute inset-0 p-4 flex flex-col justify-end">
+        <AnimatePresence mode="wait">
+          <motion.div
+            key={flash.name}
+            initial={{ opacity: 0, scale: 1.04 }}
+            animate={{ opacity: 1, scale: 1 }}
+            exit={{ opacity: 0, scale: 0.98 }}
+            transition={{ duration: 0.4, ease: "easeInOut" }}
+            className="absolute inset-0 flex items-center justify-center"
+            style={{ backgroundColor: flash.bg }}
+          >
+            <img
+              src={flash.logo}
+              alt={`${flash.name} logo`}
+              className="max-h-[78%] max-w-[62%] object-contain drop-shadow-sm"
+            />
+          </motion.div>
+        </AnimatePresence>
+        <div className="absolute inset-0 bg-linear-to-t from-brand-black/45 via-transparent to-transparent pointer-events-none" />
+        <div className="absolute inset-0 p-4 flex flex-col justify-end pointer-events-none">
           <span className="text-[10px] font-bold uppercase tracking-wider text-white bg-brand-orange px-2 py-0.5 rounded-full mb-1.5 w-fit shadow-sm">
             Free delivery
           </span>
-          <p className="text-base font-black leading-tight text-white">
-            Your next meal,
-            <br />
-            delivered fast
+          <p className="text-sm font-black leading-tight text-white drop-shadow">
+            {flash.name} — {flash.tagline}
           </p>
         </div>
       </div>

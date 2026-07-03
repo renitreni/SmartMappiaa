@@ -19,3 +19,8 @@ export function useMediaQuery(query) {
 export function useIsMobile() {
   return useMediaQuery('(max-width: 767px)');
 }
+
+// Use drawer-style pickers on tablets and narrow laptops where anchored popovers clip or misalign.
+export function usePickerDrawer() {
+  return useMediaQuery('(max-width: 1023px)');
+}
