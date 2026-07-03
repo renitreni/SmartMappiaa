@@ -1,174 +1,418 @@
-import React, { useMemo, useState } from "react";
-import { motion } from "framer-motion";
+import React, { useState } from "react";
+import { motion, AnimatePresence } from "framer-motion";
 import {
   ArrowRight,
   Clock,
   Gift,
+  MapPin,
+  Package,
   Plus,
-  Search,
   ShoppingBag,
   Sparkles,
   Star,
-  Tag,
+  Truck,
 } from "lucide-react";
 import { notifyUnderDevelopment } from "../portal/lib/notify";
 
-const categories = [
-  { id: "all", label: "All" },
-  { id: "electronics", label: "Electronics" },
-  { id: "groceries", label: "Groceries" },
-  { id: "fashion", label: "Fashion" },
-  { id: "pharmacy", label: "Pharmacy" },
-  { id: "beauty", label: "Beauty" },
-  { id: "gifts", label: "Gifts" },
-];
+const CATEGORY_EMOJI = {
+  "Rice & Grains": "🍚",
+  Pantry: "🫙",
+  Snacks: "🍿",
+  Beverages: "🥤",
+  "Fresh Produce": "🥬",
+  Dairy: "🥛",
+  Bakery: "🥖",
+  Household: "🧴",
+  "Personal Care": "🧼",
+  General: "🛒",
+};
 
-const products = [
+const partnerStores = [
   {
-    id: 1,
-    name: "Sony Premium Headphones",
-    category: "electronics",
-    price: 1299,
-    originalPrice: 1499,
-    rating: 4.9,
+    id: "pinas",
+    name: "Pinas Supermarket",
+    shortName: "Pinas",
+    tagline: "Your favorite Filipino goods, delivered fresh",
+    logo: "/brands/pinas-supermarket.png",
+    accent: "#1D5FBF",
+    accentDark: "#0E3E8A",
+    tint: "#EAF1FE",
+    rating: "4.8",
     delivery: "30–45 min",
-    tag: "Best Seller",
-    image:
-      "https://images.unsplash.com/photo-1505740420928-5e560c06d30e?q=80&w=600&auto=format&fit=crop",
+    productCount: "500+",
+    categories: ["Rice & Grains", "Pantry", "Snacks", "Beverages"],
+    products: [
+      { name: "Jasmine Rice 25kg", price: 189, category: "Rice & Grains", unit: "25 kg bag", emoji: "🍚", image: "/products/jasmine-rice.jpg" },
+      { name: "Banana Ketchup", price: 12, category: "Pantry", unit: "320 g bottle", emoji: "🍅", image: "/products/banana-ketchup.jpg" },
+      { name: "Dried Mangoes", price: 28, category: "Snacks", unit: "200 g pack", emoji: "🥭", image: "/products/dried-mangoes.jpg" },
+      { name: "Pancit Canton (10s)", price: 22, category: "Pantry", unit: "10-pack", emoji: "🍜", image: "/products/pancit-canton.jpg" },
+      { name: "Coconut Milk", price: 9, category: "Pantry", unit: "400 ml can", emoji: "🥥", image: "/products/coconut-milk.jpg" },
+      { name: "3-in-1 Coffee", price: 18, category: "Beverages", unit: "10 sachets", emoji: "☕", image: "/products/instant-coffee.jpg" },
+      { name: "Calamansi Juice 1L", price: 15, category: "Beverages", unit: "1 L bottle", emoji: "🍋", image: "/products/calamansi-juice.jpg" },
+      { name: "Ube Halaya Jar", price: 35, category: "Snacks", unit: "450 g jar", emoji: "🍠", image: "/products/ube-halaya.jpg" },
+    ],
   },
   {
-    id: 2,
-    name: "Wireless Earbuds Pro",
-    category: "electronics",
-    price: 149,
-    rating: 4.7,
+    id: "al-wafa",
+    name: "Al Wafa Hypermarket",
+    shortName: "Al Wafa",
+    tagline: "Everyday essentials & fresh groceries",
+    logo: "/brands/al-wafa-hypermarket.png",
+    accent: "#0B7A3E",
+    accentDark: "#065A2D",
+    tint: "#E7F6EE",
+    rating: "4.9",
     delivery: "25–40 min",
-    tag: "Trending",
-    image:
-      "https://images.unsplash.com/photo-1590658268037-6bf12165a8df?q=80&w=600&auto=format&fit=crop",
+    productCount: "800+",
+    categories: ["Fresh Produce", "Dairy", "Pantry", "Bakery"],
+    products: [
+      { name: "Fresh Ajwa Dates", price: 45, category: "Fresh Produce", unit: "500 g box", emoji: "🌴", image: "/products/ajwa-dates.jpg" },
+      { name: "Olive Oil 1L", price: 39, category: "Pantry", unit: "1 L bottle", emoji: "🫒", image: "/products/olive-oil.jpg" },
+      { name: "Basmati Rice 5kg", price: 55, category: "Pantry", unit: "5 kg bag", emoji: "🍚", image: "/products/basmati-rice.jpg" },
+      { name: "Arabic Coffee", price: 32, category: "Pantry", unit: "250 g pack", emoji: "☕", image: "/products/arabic-coffee.jpg" },
+      { name: "Fresh Laban", price: 7, category: "Dairy", unit: "1 L carton", emoji: "🥛", image: "/products/fresh-laban.jpg" },
+      { name: "Mixed Nuts", price: 60, category: "Snacks", unit: "400 g tin", emoji: "🥜", image: "/products/mixed-nuts.jpg" },
+      { name: "Fresh Pita Bread", price: 8, category: "Bakery", unit: "6 pcs pack", emoji: "🫓", image: "/products/pita-bread.jpg" },
+      { name: "Fresh Vegetables Box", price: 38, category: "Fresh Produce", unit: "Mixed box", emoji: "🥗", image: "/products/vegetables-box.jpg" },
+    ],
   },
   {
-    id: 3,
-    name: "Smart Watch Series",
-    category: "electronics",
-    price: 299,
-    rating: 4.8,
-    delivery: "30–45 min",
-    tag: "New",
-    image:
-      "https://images.unsplash.com/photo-1523275335684-37898b6baf30?q=80&w=600&auto=format&fit=crop",
-  },
-  {
-    id: 4,
-    name: "Performance Running Shoes",
-    category: "fashion",
-    price: 189,
-    rating: 4.6,
-    delivery: "35–50 min",
-    image:
-      "https://images.unsplash.com/photo-1542291026-7eec264c27ff?q=80&w=600&auto=format&fit=crop",
-  },
-  {
-    id: 5,
-    name: "Urban Travel Backpack",
-    category: "fashion",
-    price: 79,
-    rating: 4.5,
-    delivery: "25–40 min",
-    image:
-      "https://images.unsplash.com/photo-1553062407-98eeb64c6a62?q=80&w=600&auto=format&fit=crop",
-  },
-  {
-    id: 6,
-    name: "Fresh Essentials Box",
-    category: "groceries",
-    price: 45,
-    rating: 4.8,
-    delivery: "15–25 min",
-    tag: "Fast Delivery",
-    image:
-      "https://images.unsplash.com/photo-1542838132-92c53300491e?q=80&w=600&auto=format&fit=crop",
-  },
-  {
-    id: 7,
-    name: "Luxury Skincare Set",
-    category: "beauty",
-    price: 120,
-    originalPrice: 160,
-    rating: 4.7,
-    delivery: "30–45 min",
-    tag: "Sale",
-    image:
-      "https://images.unsplash.com/photo-1556228578-0d85b1a4d571?q=80&w=600&auto=format&fit=crop",
-  },
-  {
-    id: 8,
-    name: "Premium Gift Hamper",
-    category: "gifts",
-    price: 99,
-    rating: 4.9,
-    delivery: "40–55 min",
-    image:
-      "https://images.unsplash.com/photo-1513885535751-8b9238bd345a?q=80&w=600&auto=format&fit=crop",
+    id: "happy-ending",
+    name: "Happy Ending General Store",
+    shortName: "Happy Ending",
+    tagline: "Your one-stop general store — groceries, snacks & essentials",
+    logo: "/brands/happy-ending.png",
+    accent: "#DC2626",
+    accentDark: "#991B1B",
+    tint: "#FEF3C7",
+    rating: "4.7",
+    delivery: "20–35 min",
+    productCount: "350+",
+    categories: ["Snacks", "Pantry", "Beverages", "Household", "Personal Care"],
+    products: [
+      { name: "BBQ Skewers Pack", price: 18, category: "Snacks", unit: "5 pcs pack", emoji: "🍢", image: "/products/bbq-skewers.jpg" },
+      { name: "Fishball Snack Cup", price: 12, category: "Snacks", unit: "Large cup", emoji: "🍡", image: "/products/fishball-snack.jpg" },
+      { name: "Potato Chips", price: 8, category: "Snacks", unit: "150 g bag", emoji: "🥔", image: "/products/potato-chips.jpg" },
+      { name: "Instant Noodles (5s)", price: 15, category: "Pantry", unit: "5-pack", emoji: "🍜", image: "/products/pancit-canton.jpg" },
+      { name: "Soft Drinks 1.5L", price: 6, category: "Beverages", unit: "1.5 L bottle", emoji: "🥤", image: "/products/calamansi-juice.jpg" },
+      { name: "3-in-1 Coffee", price: 18, category: "Beverages", unit: "10 sachets", emoji: "☕", image: "/products/instant-coffee.jpg" },
+      { name: "Household Cleaner", price: 22, category: "Household", unit: "750 ml bottle", emoji: "🧴", image: "/products/household-cleaner.jpg" },
+      { name: "Toilet Paper (12 roll)", price: 28, category: "Household", unit: "12 rolls", emoji: "🧻", image: "/products/toilet-paper.jpg" },
+    ],
   },
 ];
 
 const stats = [
-  { value: "10k+", label: "Products" },
-  { value: "45 min", label: "Avg. delivery" },
-  { value: "6", label: "Categories" },
+  { value: "3", label: "Partner stores" },
+  { value: "1,500+", label: "Products" },
+  { value: "40 min", label: "Avg. delivery" },
 ];
-
-const tagStyles = {
-  "Best Seller": "bg-brand-orange text-white",
-  Trending: "bg-brand-red text-white",
-  New: "bg-green-500 text-white",
-  Sale: "bg-brand-red text-white",
-  "Fast Delivery": "bg-brand-dark text-white",
-};
-
-const cardVariants = {
-  hidden: { opacity: 0, y: 32 },
-  visible: (index) => ({
-    opacity: 1,
-    y: 0,
-    transition: {
-      duration: 0.45,
-      delay: index * 0.08,
-      ease: "easeOut",
-    },
-  }),
-};
 
 const formatPrice = (value) =>
   value.toLocaleString("en-US", { maximumFractionDigits: 0 });
 
+function ProductThumbnail({ product, store, compact = false }) {
+  const [failed, setFailed] = useState(false);
+  const showImage = product.image && !failed;
+
+  if (showImage) {
+    return (
+      <div className="relative w-full h-full overflow-hidden bg-white">
+        <img
+          src={product.image}
+          alt={product.name}
+          onError={() => setFailed(true)}
+          className={`w-full h-full object-cover transition-transform duration-500 ${
+            compact ? "" : "group-hover/item:scale-105"
+          }`}
+        />
+        {!compact && (
+          <div className="absolute inset-x-0 bottom-0 bg-linear-to-t from-black/55 via-black/20 to-transparent px-3 py-2.5">
+            <p
+              className="text-[9px] font-bold uppercase tracking-wide text-white/90"
+            >
+              {product.category}
+            </p>
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  const categoryEmoji = CATEGORY_EMOJI[product.category] ?? "🛒";
+
+  return (
+    <div
+      className={`relative w-full h-full flex flex-col items-center justify-center overflow-hidden ${
+        compact ? "p-2" : "p-4"
+      }`}
+      style={{
+        background: `linear-gradient(145deg, ${store.tint} 0%, #ffffff 45%, ${store.tint} 100%)`,
+      }}
+    >
+      <div
+        className="absolute inset-0 opacity-[0.07] pointer-events-none"
+        style={{
+          backgroundImage: `radial-gradient(${store.accent} 1.5px, transparent 1.5px)`,
+          backgroundSize: "14px 14px",
+        }}
+      />
+      <div
+        className={`relative flex items-center justify-center rounded-2xl bg-white/90 border shadow-sm ${
+          compact ? "w-10 h-10 text-xl mb-0" : "w-20 h-20 md:w-24 md:h-24 text-4xl md:text-5xl mb-3"
+        }`}
+        style={{ borderColor: `${store.accent}33` }}
+      >
+        <span role="img" aria-label={product.name}>
+          {product.emoji}
+        </span>
+      </div>
+
+      {!compact && (
+        <>
+          <p
+            className="relative text-[10px] font-bold uppercase tracking-wider mb-1"
+            style={{ color: store.accent }}
+          >
+            {product.category}
+          </p>
+          <p className="relative text-xs font-black text-brand-black text-center leading-snug line-clamp-2 px-2">
+            {product.name}
+          </p>
+          <p className="relative text-[10px] text-brand-grey font-medium mt-1">
+            {categoryEmoji} {product.unit}
+          </p>
+        </>
+      )}
+    </div>
+  );
+}
+
+function ProductCard({ product, store }) {
+  return (
+    <div className="group/item flex flex-col rounded-2xl border border-brand-border bg-white overflow-hidden transition-all duration-300 hover:-translate-y-1 hover:border-brand-orange/25 hover:shadow-lg hover:shadow-brand-orange/10">
+      <div className="relative aspect-square overflow-hidden bg-brand-surface">
+        <ProductThumbnail product={product} store={store} />
+        <button
+          type="button"
+          onClick={notifyUnderDevelopment}
+          aria-label={`Add ${product.name} to cart`}
+          className="absolute bottom-2.5 right-2.5 w-9 h-9 rounded-xl text-white flex items-center justify-center shadow-lg opacity-0 translate-y-1 group-hover/item:opacity-100 group-hover/item:translate-y-0 transition-all duration-300 cursor-pointer"
+          style={{ backgroundColor: store.accent }}
+        >
+          <Plus className="w-4 h-4" strokeWidth={2.5} />
+        </button>
+      </div>
+      <div className="p-3.5 flex flex-col flex-1">
+        <p className="text-sm font-black text-brand-black leading-snug line-clamp-2 group-hover/item:text-brand-orange transition-colors">
+          {product.name}
+        </p>
+        <p className="text-[10px] text-brand-grey font-medium mt-1">{product.unit}</p>
+        <div className="flex items-center justify-between mt-auto pt-3">
+          <p className="text-base font-black text-brand-orange">
+            SAR {formatPrice(product.price)}
+          </p>
+          <button
+            type="button"
+            onClick={notifyUnderDevelopment}
+            className="md:hidden w-8 h-8 rounded-lg text-white flex items-center justify-center cursor-pointer"
+            style={{ backgroundColor: store.accent }}
+            aria-label={`Add ${product.name}`}
+          >
+            <Plus className="w-4 h-4" strokeWidth={2.5} />
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function StorePanel({ store, index }) {
+  const featured = store.products.slice(0, 3);
+  const rest = store.products.slice(3);
+
+  return (
+    <motion.article
+      initial={{ opacity: 0, y: 40 }}
+      whileInView={{ opacity: 1, y: 0 }}
+      viewport={{ once: true, margin: "-60px" }}
+      transition={{ duration: 0.55, delay: index * 0.1 }}
+      className="rounded-3xl border border-brand-border bg-white overflow-hidden shadow-sm"
+    >
+      <div
+        className="relative px-6 md:px-8 py-8 md:py-10 overflow-hidden"
+        style={{
+          background: `linear-gradient(135deg, ${store.tint} 0%, #ffffff 55%, ${store.tint} 100%)`,
+        }}
+      >
+        <div
+          className="absolute -top-16 -right-16 w-64 h-64 rounded-full opacity-30 blur-3xl pointer-events-none"
+          style={{ backgroundColor: store.accent }}
+        />
+
+        <div className="relative flex flex-col lg:flex-row lg:items-center lg:justify-between gap-6">
+          <div className="flex items-start sm:items-center gap-4 md:gap-5">
+            <div className="w-20 h-20 md:w-28 md:h-28 rounded-2xl bg-white border border-brand-border shadow-md flex items-center justify-center p-3 shrink-0">
+              <img
+                src={store.logo}
+                alt={`${store.name} logo`}
+                className="max-h-full max-w-full object-contain"
+              />
+            </div>
+            <div className="min-w-0">
+              <div className="flex flex-wrap items-center gap-2 mb-2">
+                <span
+                  className="inline-flex items-center gap-1 text-xs font-black text-white px-2.5 py-1 rounded-full"
+                  style={{ backgroundColor: store.accent }}
+                >
+                  <Star className="w-3.5 h-3.5 fill-white" strokeWidth={0} />
+                  {store.rating}
+                </span>
+                <span className="inline-flex items-center gap-1 text-xs font-bold text-brand-dark bg-white/90 border border-brand-border px-2.5 py-1 rounded-full">
+                  <Clock className="w-3.5 h-3.5" strokeWidth={2.5} />
+                  {store.delivery}
+                </span>
+                <span className="inline-flex items-center gap-1 text-xs font-bold text-brand-dark bg-white/90 border border-brand-border px-2.5 py-1 rounded-full">
+                  <Package className="w-3.5 h-3.5" strokeWidth={2.5} />
+                  {store.productCount} items
+                </span>
+              </div>
+              <h3 className="text-2xl md:text-3xl font-black text-brand-black tracking-tight">
+                {store.name}
+              </h3>
+              <p className="text-brand-grey text-sm md:text-base font-medium mt-1 max-w-lg">
+                {store.tagline}
+              </p>
+              <div className="flex flex-wrap gap-2 mt-3">
+                {store.categories.map((cat) => (
+                  <span
+                    key={cat}
+                    className="text-[10px] font-bold uppercase tracking-wide px-2.5 py-1 rounded-full border"
+                    style={{
+                      color: store.accent,
+                      borderColor: `${store.accent}33`,
+                      backgroundColor: `${store.accent}0D`,
+                    }}
+                  >
+                    {cat}
+                  </span>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          <button
+            type="button"
+            onClick={notifyUnderDevelopment}
+            className="shrink-0 inline-flex items-center justify-center gap-2 text-white font-black text-sm px-7 py-3.5 rounded-xl transition-all duration-300 hover:scale-[1.02] active:scale-95 shadow-lg cursor-pointer w-full lg:w-auto"
+            style={{
+              backgroundColor: store.accent,
+              boxShadow: `0 10px 30px -8px ${store.accent}66`,
+            }}
+          >
+            Shop at {store.shortName}
+            <ArrowRight className="w-4 h-4" strokeWidth={2.5} />
+          </button>
+        </div>
+      </div>
+
+      <div className="px-6 md:px-8 py-6 md:py-8 border-t border-brand-border bg-brand-muted/40">
+        <div className="flex items-center justify-between mb-4">
+          <h4 className="text-sm font-black text-brand-black uppercase tracking-widest">
+            Bestsellers
+          </h4>
+          <button
+            type="button"
+            onClick={notifyUnderDevelopment}
+            className="text-xs font-bold cursor-pointer hover:underline"
+            style={{ color: store.accent }}
+          >
+            View all products
+          </button>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-8">
+          {featured.map((product) => (
+            <div
+              key={product.name}
+              className="flex items-center gap-3 p-3 rounded-2xl bg-white border border-brand-border hover:border-brand-orange/25 hover:shadow-md transition-all duration-300 group/feat"
+            >
+              <div className="w-16 h-16 rounded-xl overflow-hidden shrink-0 border border-brand-border">
+                <ProductThumbnail product={product} store={store} compact />
+              </div>
+              <div className="min-w-0 flex-1">
+                <p className="text-xs font-black text-brand-black line-clamp-2 leading-snug">
+                  {product.name}
+                </p>
+                <p className="text-sm font-black text-brand-orange mt-1">
+                  SAR {formatPrice(product.price)}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={notifyUnderDevelopment}
+                className="w-8 h-8 rounded-lg text-white flex items-center justify-center shrink-0 opacity-70 group-hover/feat:opacity-100 transition-opacity cursor-pointer"
+                style={{ backgroundColor: store.accent }}
+                aria-label={`Add ${product.name}`}
+              >
+                <Plus className="w-4 h-4" strokeWidth={2.5} />
+              </button>
+            </div>
+          ))}
+        </div>
+
+        <h4 className="text-sm font-black text-brand-black uppercase tracking-widest mb-4">
+          More from {store.shortName}
+        </h4>
+        <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-5 gap-4">
+          {rest.map((product) => (
+            <ProductCard key={product.name} product={product} store={store} />
+          ))}
+        </div>
+      </div>
+
+      <div
+        className="px-6 md:px-8 py-4 flex flex-wrap items-center justify-between gap-3 border-t border-brand-border"
+        style={{ backgroundColor: store.tint }}
+      >
+        <div className="flex items-center gap-4 text-xs font-semibold text-brand-dark">
+          <span className="inline-flex items-center gap-1.5">
+            <Truck className="w-4 h-4" style={{ color: store.accent }} strokeWidth={2.25} />
+            Free delivery over SAR 100
+          </span>
+          <span className="inline-flex items-center gap-1.5">
+            <MapPin className="w-4 h-4" style={{ color: store.accent }} strokeWidth={2.25} />
+            Delivered across KSA
+          </span>
+        </div>
+        <button
+          type="button"
+          onClick={notifyUnderDevelopment}
+          className="text-xs font-black cursor-pointer hover:underline"
+          style={{ color: store.accentDark }}
+        >
+          Browse full catalog →
+        </button>
+      </div>
+    </motion.article>
+  );
+}
+
 const Shop = () => {
-  const [activeCategory, setActiveCategory] = useState("all");
-  const [searchQuery, setSearchQuery] = useState("");
+  const [activeStore, setActiveStore] = useState("all");
 
-  const filteredProducts = useMemo(() => {
-    const query = searchQuery.trim().toLowerCase();
-
-    return products.filter((product) => {
-      const matchesCategory =
-        activeCategory === "all" || product.category === activeCategory;
-      const matchesSearch =
-        !query ||
-        product.name.toLowerCase().includes(query) ||
-        product.category.toLowerCase().includes(query);
-
-      return matchesCategory && matchesSearch;
-    });
-  }, [activeCategory, searchQuery]);
+  const visibleStores =
+    activeStore === "all"
+      ? partnerStores
+      : partnerStores.filter((s) => s.id === activeStore);
 
   return (
     <section
       id="shop"
-      className="relative w-full bg-white px-8 md:px-20 py-24 border-t border-brand-border overflow-hidden"
+      className="relative w-full bg-brand-muted px-8 md:px-20 py-24 border-t border-brand-border overflow-hidden"
     >
       <div
-        className="absolute top-0 left-0 w-[480px] h-[480px] bg-brand-orange/5 rounded-full blur-[120px] pointer-events-none"
+        className="absolute top-0 right-0 w-[520px] h-[520px] bg-brand-orange/5 rounded-full blur-[120px] pointer-events-none"
         aria-hidden="true"
       />
 
@@ -187,16 +431,15 @@ const Shop = () => {
             </span>
 
             <h2 className="text-3xl md:text-5xl font-black tracking-tight text-brand-black mt-3 leading-tight">
-              Shop anything.{" "}
+              Groceries from trusted stores.{" "}
               <span className="text-transparent bg-clip-text bg-linear-to-r from-brand-orange to-brand-red">
-                Delivered in minutes.
+                At your doorstep.
               </span>
             </h2>
 
             <p className="text-brand-grey text-sm md:text-base mt-4 font-medium leading-relaxed">
-              Browse thousands of products from top local and international brands —
-              tech, fashion, groceries, and more, all with live GPS tracking to your
-              door.
+              Browse curated products from Pinas Supermarket, Al Wafa Hypermarket, and
+              Happy Ending General Store — order essentials with live delivery tracking.
             </p>
           </motion.div>
 
@@ -221,131 +464,60 @@ const Shop = () => {
         </div>
 
         <motion.div
-          initial={{ opacity: 0, y: 16 }}
+          initial={{ opacity: 0, y: 12 }}
           whileInView={{ opacity: 1, y: 0 }}
           viewport={{ once: true }}
-          transition={{ duration: 0.5, delay: 0.05 }}
-          className="mb-8 space-y-4"
+          className="flex flex-wrap gap-2 mb-8 p-1.5 bg-white border border-brand-border rounded-2xl w-fit shadow-sm"
         >
-          <div className="relative max-w-xl">
-            <Search
-              className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-brand-grey pointer-events-none"
-              strokeWidth={2}
-            />
-            <input
-              type="text"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Search products..."
-              className="w-full pl-12 pr-4 py-3.5 rounded-2xl bg-white border border-brand-border text-brand-dark text-sm placeholder:text-brand-grey focus:outline-none focus:border-brand-orange/50 focus:ring-2 focus:ring-brand-orange/10 transition-all"
-            />
-          </div>
-
-          <div className="flex gap-2 overflow-x-auto pb-1">
-            {categories.map((cat) => (
-              <button
-                key={cat.id}
-                onClick={() => setActiveCategory(cat.id)}
-                className={`shrink-0 px-4 py-2 rounded-full text-sm font-bold transition-all duration-200 cursor-pointer ${
-                  activeCategory === cat.id
-                    ? "bg-linear-to-r from-brand-orange to-brand-red text-white shadow-md shadow-brand-orange/25"
-                    : "bg-white border border-brand-border text-brand-grey hover:text-brand-orange hover:border-brand-orange/30 hover:bg-brand-warm"
-                }`}
-              >
-                {cat.label}
-              </button>
-            ))}
-          </div>
+          <button
+            type="button"
+            onClick={() => setActiveStore("all")}
+            className={`px-5 py-2.5 rounded-xl text-sm font-bold transition-all cursor-pointer ${
+              activeStore === "all"
+                ? "bg-brand-orange text-white shadow-md shadow-brand-orange/25"
+                : "text-brand-grey hover:text-brand-dark hover:bg-brand-surface"
+            }`}
+          >
+            All Stores
+          </button>
+          {partnerStores.map((store) => (
+            <button
+              key={store.id}
+              type="button"
+              onClick={() => setActiveStore(store.id)}
+              className={`px-5 py-2.5 rounded-xl text-sm font-bold transition-all cursor-pointer ${
+                activeStore === store.id
+                  ? "text-white shadow-md"
+                  : "text-brand-grey hover:text-brand-dark hover:bg-brand-surface"
+              }`}
+              style={
+                activeStore === store.id
+                  ? {
+                      backgroundColor: store.accent,
+                      boxShadow: `0 4px 14px -4px ${store.accent}88`,
+                    }
+                  : undefined
+              }
+            >
+              {store.shortName}
+            </button>
+          ))}
         </motion.div>
 
-        {filteredProducts.length > 0 ? (
-          <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-4 md:gap-6">
-            {filteredProducts.map((product, index) => (
-              <motion.article
-                key={product.id}
-                custom={index}
-                variants={cardVariants}
-                initial="hidden"
-                whileInView="visible"
-                viewport={{ once: true, margin: "-40px" }}
-                className="group relative bg-white border border-brand-border rounded-3xl overflow-hidden cursor-pointer transition-all duration-300 hover:-translate-y-1.5 hover:border-brand-orange/30 hover:shadow-xl hover:shadow-brand-orange/10"
-              >
-                <div className="relative aspect-square overflow-hidden bg-brand-surface">
-                  <img
-                    src={product.image}
-                    alt={product.name}
-                    className="w-full h-full object-cover transform group-hover:scale-110 transition-transform duration-700"
-                  />
-                  <div className="absolute inset-0 bg-linear-to-t from-black/40 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
-
-                  {product.tag && (
-                    <span
-                      className={`absolute top-3 left-3 text-[10px] font-black uppercase tracking-wider px-2.5 py-1 rounded-full shadow-md ${
-                        tagStyles[product.tag] ?? "bg-white/95 text-brand-orange"
-                      }`}
-                    >
-                      {product.tag}
-                    </span>
-                  )}
-
-                  <div className="absolute top-3 right-3 flex items-center gap-1 bg-white/95 backdrop-blur-sm text-brand-black text-[10px] font-black px-2 py-1 rounded-full shadow-sm">
-                    <Star
-                      className="w-3 h-3 text-brand-orange fill-brand-orange"
-                      strokeWidth={0}
-                    />
-                    {product.rating}
-                  </div>
-
-                  <button
-                    aria-label={`Add ${product.name} to cart`}
-                    className="absolute bottom-3 right-3 w-9 h-9 rounded-xl bg-brand-orange text-white flex items-center justify-center shadow-lg shadow-brand-orange/30 opacity-0 translate-y-2 group-hover:opacity-100 group-hover:translate-y-0 transition-all duration-300 hover:bg-brand-red cursor-pointer"
-                  >
-                    <Plus className="w-4 h-4" strokeWidth={2.5} />
-                  </button>
-                </div>
-
-                <div className="p-4">
-                  <p className="text-[10px] font-bold uppercase tracking-wider text-brand-grey mb-1">
-                    {product.category}
-                  </p>
-                  <h3 className="text-sm md:text-base font-black text-brand-black tracking-tight leading-snug line-clamp-2 group-hover:text-brand-orange transition-colors min-h-10">
-                    {product.name}
-                  </h3>
-
-                  <div className="flex items-end gap-2 mt-2">
-                    <p className="text-base md:text-lg font-black text-brand-orange">
-                      SAR {formatPrice(product.price)}
-                    </p>
-                    {product.originalPrice && (
-                      <p className="text-xs text-brand-grey line-through mb-0.5">
-                        SAR {formatPrice(product.originalPrice)}
-                      </p>
-                    )}
-                  </div>
-
-                  <div className="flex items-center justify-between mt-3 pt-3 border-t border-brand-border">
-                    <span className="inline-flex items-center gap-1 text-[10px] md:text-xs text-brand-grey font-medium">
-                      <Clock className="w-3 h-3 text-brand-orange" strokeWidth={2.5} />
-                      {product.delivery}
-                    </span>
-                    <span className="inline-flex items-center gap-1 text-xs font-bold text-brand-orange opacity-0 group-hover:opacity-100 transition-opacity duration-300">
-                      View
-                      <ArrowRight className="w-3.5 h-3.5" strokeWidth={2.5} />
-                    </span>
-                  </div>
-                </div>
-              </motion.article>
+        <AnimatePresence mode="wait">
+          <motion.div
+            key={activeStore}
+            initial={{ opacity: 0, y: 16 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -8 }}
+            transition={{ duration: 0.35 }}
+            className="space-y-8"
+          >
+            {visibleStores.map((store, index) => (
+              <StorePanel key={store.id} store={store} index={index} />
             ))}
-          </div>
-        ) : (
-          <div className="text-center py-16 px-6 bg-white rounded-3xl border border-brand-border">
-            <Tag className="w-10 h-10 text-brand-grey/40 mx-auto mb-3" strokeWidth={1.5} />
-            <p className="text-brand-black font-bold">No products found</p>
-            <p className="text-brand-grey text-sm mt-1">
-              Try a different category or search term.
-            </p>
-          </div>
-        )}
+          </motion.div>
+        </AnimatePresence>
 
         <motion.div
           initial={{ opacity: 0, y: 30 }}

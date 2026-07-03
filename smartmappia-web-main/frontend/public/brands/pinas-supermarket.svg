@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 340 320" width="340" height="320" role="img" aria-label="Pinas Supermarket">
+  <defs>
+    <linearGradient id="ps" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#1D5FBF"/>
+      <stop offset="1" stop-color="#0E3E8A"/>
+    </linearGradient>
+  </defs>
+  <circle cx="170" cy="112" r="80" fill="url(#ps)"/>
+  <circle cx="170" cy="112" r="80" fill="none" stroke="#CE1126" stroke-width="7"/>
+  <g fill="#FCD116">
+    <circle cx="170" cy="112" r="18"/>
+    <g>
+      <path d="M170 78 l6 20 -6 -4 -6 4 z"/>
+      <path d="M170 146 l6 -20 -6 4 -6 -4 z"/>
+      <path d="M136 112 l20 6 -4 -6 4 -6 z"/>
+      <path d="M204 112 l-20 6 4 -6 -4 -6 z"/>
+    </g>
+  </g>
+  <path d="M150 96 h44 l-6 30 h-32 z" fill="none" stroke="#fff" stroke-width="5"/>
+  <path d="M150 96 l-6 -10 h-8" fill="none" stroke="#fff" stroke-width="5" stroke-linecap="round"/>
+  <text x="170" y="240" text-anchor="middle" font-family="Segoe UI, Arial, sans-serif" font-weight="800" font-size="46" fill="#0E3E8A" letter-spacing="-1">PINAS</text>
+  <text x="170" y="270" text-anchor="middle" font-family="Segoe UI, Arial, sans-serif" font-weight="700" font-size="19" fill="#CE1126" letter-spacing="3">SUPERMARKET</text>
+</svg>

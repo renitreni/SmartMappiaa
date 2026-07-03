@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 340 320" width="340" height="320" role="img" aria-label="Al Wafa Hypermarket">
+  <defs>
+    <linearGradient id="awh" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#18A558"/>
+      <stop offset="1" stop-color="#0B7A3E"/>
+    </linearGradient>
+  </defs>
+  <circle cx="170" cy="112" r="80" fill="url(#awh)"/>
+  <path d="M128 90 h14 l6 16 h54 l-9 36 h-42 l3 10 h38" fill="none" stroke="#fff" stroke-width="8" stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="156" cy="164" r="7" fill="#fff"/>
+  <circle cx="192" cy="164" r="7" fill="#fff"/>
+  <path d="M206 84 c-14 4 -22 16 -18 30 c14 -2 22 -14 18 -30 z" fill="#BFE9CF"/>
+  <text x="170" y="240" text-anchor="middle" font-family="Segoe UI, Arial, sans-serif" font-weight="800" font-size="42" fill="#0B7A3E" letter-spacing="-1">Al Wafa</text>
+  <text x="170" y="270" text-anchor="middle" font-family="Segoe UI, Arial, sans-serif" font-weight="700" font-size="18" fill="#18A558" letter-spacing="3">HYPERMARKET</text>
+</svg>
