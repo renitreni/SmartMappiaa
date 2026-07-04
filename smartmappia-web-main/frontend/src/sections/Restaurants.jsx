@@ -2,81 +2,7 @@ import React from "react";
 import { motion } from "framer-motion";
 import { Star, Clock, Flame, ArrowRight, Sparkles } from "lucide-react";
 import { notifyUnderDevelopment } from "../portal/lib/notify";
-
-const restaurantData = [
-  {
-    id: 1,
-    name: "Jollibee",
-    cuisine: "Filipino Fast Food",
-    rating: "4.9",
-    reviews: "2.4k",
-    time: "12-15 min",
-    fee: "Free delivery",
-    tag: "Top Rated",
-    logo: "/brands/jollibee.png",
-    bg: "#FFFFFF",
-  },
-  {
-    id: 2,
-    name: "Ka Inasal",
-    cuisine: "Grilled Chicken",
-    rating: "4.8",
-    reviews: "1.8k",
-    time: "15-25 min",
-    fee: "SAR 5 delivery",
-    tag: "Popular",
-    logo: "/brands/ka-inasal.png",
-    bg: "#FFFFFF",
-  },
-  {
-    id: 3,
-    name: "Taster",
-    cuisine: "Comfort Food",
-    rating: "4.7",
-    reviews: "960",
-    time: "20-30 min",
-    fee: "Free delivery",
-    tag: "Trending",
-    logo: "/brands/taster.png",
-    bg: "#FFFFFF",
-  },
-  {
-    id: 4,
-    name: "Kuy's",
-    cuisine: "Filipino Street Eats",
-    rating: "4.6",
-    reviews: "720",
-    time: "10-20 min",
-    fee: "SAR 3 delivery",
-    tag: "New",
-    logo: "/brands/kuys.png",
-    bg: "#FFFFFF",
-  },
-  {
-    id: 5,
-    name: "Tianlala",
-    cuisine: "Milk Tea & Drinks",
-    rating: "4.8",
-    reviews: "1.3k",
-    time: "10-15 min",
-    fee: "Free delivery",
-    tag: "Popular",
-    logo: "/brands/tianlala.png",
-    bg: "#FFEB3B",
-  },
-  {
-    id: 6,
-    name: "Happy Ending",
-    cuisine: "Desserts & Sweets",
-    rating: "4.9",
-    reviews: "1.1k",
-    time: "15-20 min",
-    fee: "SAR 4 delivery",
-    tag: "Top Rated",
-    logo: "/brands/happy-ending.png",
-    bg: "#FFFFFF",
-  },
-];
+import { restaurants as restaurantData } from "../data/restaurants";
 
 const stats = [
   { value: "500+", label: "Partner restaurants" },
@@ -174,14 +100,19 @@ const Restaurants = () => {
               className="group relative bg-white border border-brand-border rounded-3xl overflow-hidden cursor-pointer transition-all duration-300 hover:-translate-y-2 hover:border-brand-orange/30 hover:shadow-2xl hover:shadow-brand-orange/10"
             >
               <div
-                className="relative h-52 sm:h-56 overflow-hidden flex items-center justify-center"
+                className="relative h-52 sm:h-56 overflow-hidden"
                 style={{ backgroundColor: resto.bg }}
               >
                 <img
-                  src={resto.logo}
-                  alt={`${resto.name} logo`}
-                  className="max-h-[68%] max-w-[68%] object-contain transform group-hover:scale-110 transition-transform duration-500"
+                  src={resto.image}
+                  alt={resto.name}
+                  className={`absolute inset-0 w-full h-full transform group-hover:scale-110 transition-transform duration-500 ${
+                    resto.cover ? "object-cover" : "object-contain p-5 sm:p-6"
+                  }`}
                 />
+                {resto.cover && (
+                  <div className="absolute inset-0 bg-linear-to-t from-black/60 via-black/15 to-transparent" />
+                )}
 
                 <span
                   className={`absolute top-4 left-4 text-[10px] font-black uppercase tracking-wider px-3 py-1.5 rounded-full shadow-md ${tagStyles[resto.tag]}`}

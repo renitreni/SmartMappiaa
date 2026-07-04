@@ -25,6 +25,10 @@ const CATEGORY_EMOJI = {
   Household: "🧴",
   "Personal Care": "🧼",
   General: "🛒",
+  "BBQ & Grilled": "🍢",
+  "Fried Snacks": "🍡",
+  "Street Drinks": "🥤",
+  "Combo Meals": "🍱",
 };
 
 const partnerStores = [
@@ -64,40 +68,40 @@ const partnerStores = [
     rating: "4.9",
     delivery: "25–40 min",
     productCount: "800+",
-    categories: ["Fresh Produce", "Dairy", "Pantry", "Bakery"],
+    categories: ["Fresh Produce", "Dairy", "Pantry", "Bakery", "Snacks"],
     products: [
-      { name: "Fresh Ajwa Dates", price: 45, category: "Fresh Produce", unit: "500 g box", emoji: "🌴", image: "/products/ajwa-dates.jpg" },
-      { name: "Olive Oil 1L", price: 39, category: "Pantry", unit: "1 L bottle", emoji: "🫒", image: "/products/olive-oil.jpg" },
-      { name: "Basmati Rice 5kg", price: 55, category: "Pantry", unit: "5 kg bag", emoji: "🍚", image: "/products/basmati-rice.jpg" },
-      { name: "Arabic Coffee", price: 32, category: "Pantry", unit: "250 g pack", emoji: "☕", image: "/products/arabic-coffee.jpg" },
-      { name: "Fresh Laban", price: 7, category: "Dairy", unit: "1 L carton", emoji: "🥛", image: "/products/fresh-laban.jpg" },
-      { name: "Mixed Nuts", price: 60, category: "Snacks", unit: "400 g tin", emoji: "🥜", image: "/products/mixed-nuts.jpg" },
-      { name: "Fresh Pita Bread", price: 8, category: "Bakery", unit: "6 pcs pack", emoji: "🫓", image: "/products/pita-bread.jpg" },
-      { name: "Fresh Vegetables Box", price: 38, category: "Fresh Produce", unit: "Mixed box", emoji: "🥗", image: "/products/vegetables-box.jpg" },
+      { name: "Fresh Ajwa Dates", price: 45, category: "Fresh Produce", unit: "500 g box", emoji: "🌴", image: "/products/al-wafa-dates.jpg" },
+      { name: "Basmati Rice 5kg", price: 55, category: "Pantry", unit: "5 kg bag", emoji: "🍚", image: "/products/al-wafa-rice.jpg" },
+      { name: "Sunflower Oil 1.5L", price: 28, category: "Pantry", unit: "1.5 L bottle", emoji: "🫒", image: "/products/al-wafa-oil.jpg" },
+      { name: "Fresh Laban 1L", price: 7, category: "Dairy", unit: "1 L carton", emoji: "🥛", image: "/products/al-wafa-laban.jpg" },
+      { name: "Arabic Coffee Premium", price: 32, category: "Pantry", unit: "250 g pack", emoji: "☕", image: "/products/al-wafa-coffee.jpg" },
+      { name: "Mixed Nuts Gift Tin", price: 60, category: "Snacks", unit: "400 g tin", emoji: "🥜", image: "/products/al-wafa-nuts.jpg" },
+      { name: "Fresh Pita Bread", price: 8, category: "Bakery", unit: "6 pcs pack", emoji: "🫓", image: "/products/al-wafa-pita.jpg" },
+      { name: "Fresh Vegetables Box", price: 38, category: "Fresh Produce", unit: "Mixed box", emoji: "🥗", image: "/products/al-wafa-vegetables.jpg" },
     ],
   },
   {
     id: "happy-ending",
-    name: "Happy Ending General Store",
+    name: "Happy Ending Street Food",
     shortName: "Happy Ending",
-    tagline: "Your one-stop general store — groceries, snacks & essentials",
+    tagline: "Filipino street food favorites — skewers, fishballs & more",
     logo: "/brands/happy-ending.png",
     accent: "#DC2626",
     accentDark: "#991B1B",
     tint: "#FEF3C7",
     rating: "4.7",
     delivery: "20–35 min",
-    productCount: "350+",
-    categories: ["Snacks", "Pantry", "Beverages", "Household", "Personal Care"],
+    productCount: "40+",
+    categories: ["BBQ & Grilled", "Fried Snacks", "Street Drinks", "Combo Meals"],
     products: [
-      { name: "BBQ Skewers Pack", price: 18, category: "Snacks", unit: "5 pcs pack", emoji: "🍢", image: "/products/bbq-skewers.jpg" },
-      { name: "Fishball Snack Cup", price: 12, category: "Snacks", unit: "Large cup", emoji: "🍡", image: "/products/fishball-snack.jpg" },
-      { name: "Potato Chips", price: 8, category: "Snacks", unit: "150 g bag", emoji: "🥔", image: "/products/potato-chips.jpg" },
-      { name: "Instant Noodles (5s)", price: 15, category: "Pantry", unit: "5-pack", emoji: "🍜", image: "/products/pancit-canton.jpg" },
-      { name: "Soft Drinks 1.5L", price: 6, category: "Beverages", unit: "1.5 L bottle", emoji: "🥤", image: "/products/calamansi-juice.jpg" },
-      { name: "3-in-1 Coffee", price: 18, category: "Beverages", unit: "10 sachets", emoji: "☕", image: "/products/instant-coffee.jpg" },
-      { name: "Household Cleaner", price: 22, category: "Household", unit: "750 ml bottle", emoji: "🧴", image: "/products/household-cleaner.jpg" },
-      { name: "Toilet Paper (12 roll)", price: 28, category: "Household", unit: "12 rolls", emoji: "🧻", image: "/products/toilet-paper.jpg" },
+      { name: "BBQ Pork Skewers (5 pcs)", price: 18, category: "BBQ & Grilled", unit: "5 pcs pack", emoji: "🍢", image: "/products/bbq-skewers.jpg" },
+      { name: "Fishball Snack Cup", price: 12, category: "Fried Snacks", unit: "Large cup", emoji: "🍡", image: "/products/fishball-snack.jpg" },
+      { name: "Kwek-Kwek (6 pcs)", price: 15, category: "Fried Snacks", unit: "6 pcs pack", emoji: "🥚", image: "/products/kwek-kwek.jpg" },
+      { name: "Isaw BBQ Pack (5 pcs)", price: 16, category: "BBQ & Grilled", unit: "5 pcs pack", emoji: "🌭", image: "/products/isaw.jpg" },
+      { name: "Chicken Balls (5 pcs)", price: 14, category: "Fried Snacks", unit: "5 pcs pack", emoji: "🍗", image: "/products/chicken-balls.jpg" },
+      { name: "Squid Ball Cup", price: 13, category: "Fried Snacks", unit: "Large cup", emoji: "🦑", image: "/products/squid-ball.jpg" },
+      { name: "Kikiam Skewers (5 pcs)", price: 14, category: "Fried Snacks", unit: "5 pcs pack", emoji: "🍥", image: "/products/kikiam.jpg" },
+      { name: "Fishball Skewers (5 pcs)", price: 12, category: "Fried Snacks", unit: "5 pcs pack", emoji: "🍡", image: "/products/fishball-skewers.jpg" },
     ],
   },
 ];
@@ -439,7 +443,7 @@ const Shop = () => {
 
             <p className="text-brand-grey text-sm md:text-base mt-4 font-medium leading-relaxed">
               Browse curated products from Pinas Supermarket, Al Wafa Hypermarket, and
-              Happy Ending General Store — order essentials with live delivery tracking.
+              Happy Ending Street Food — order skewers, fishballs & Filipino snacks with live delivery tracking.
             </p>
           </motion.div>
 

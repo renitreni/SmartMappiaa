@@ -2,17 +2,14 @@ import React from 'react';
 import { motion } from 'framer-motion';
 
 const partners = [
-  { id: 1, name: "Al Baik", logo: "logo1.jpg" },
-  { id: 2, name: "Herfy", logo: "logo2.jpg" },
-  { id: 3, name: "Kudu", logo: "logo3.png" },
-  { id: 4, name: "Maestro Pizza", logo: "logo4.jpg" },
-  { id: 5, name: "Shawarma House", logo: "logo5.png" },
-  { id: 6, name: "Pizza Hut", logo: "logo6.jpg" },
-  { id: 7, name: "Starbucks", logo: "logo7.png" },
-  { id: 8, name: "Tianlala", logo: "brands/tianlala.png" },
-  { id: 9, name: "Ka Inasal", logo: "brands/ka-inasal.png" },
-  { id: 10, name: "Al Wafa", logo: "brands/al-wafa.png" },
-  { id: 11, name: "Happy Ending", logo: "brands/happy-ending.png" },
+  { id: 1, name: "Chowking", logo: "brands/chowking.png" },
+  { id: 2, name: "Black Pinoy", logo: "brands/black-pinoy.png" },
+  { id: 3, name: "Sarap Inasal", logo: "brands/sarap-inasal.png" },
+  { id: 4, name: "Happy Ending", logo: "brands/happy-ending.png" },
+  { id: 5, name: "Jollibee", logo: "brands/jollibee.png" },
+  { id: 6, name: "Tianlala", logo: "brands/tianlala.png" },
+  { id: 7, name: "Kuy's", logo: "brands/kuys.png" },
+  { id: 8, name: "Taster", logo: "brands/taster.png" },
 ];
 
 const PartnerCard = ({ partner }) => (
