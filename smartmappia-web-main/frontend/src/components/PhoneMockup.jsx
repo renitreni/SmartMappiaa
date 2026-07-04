@@ -24,6 +24,7 @@ import {
   BatteryFull,
   Phone,
 } from "lucide-react";
+import { restaurants, flashingRestaurants } from "../data/restaurants";
 
 const screens = [
   { id: "food", label: "Food", Icon: UtensilsCrossed },
@@ -31,66 +32,52 @@ const screens = [
   { id: "shop", label: "Shop", Icon: ShoppingBag },
 ];
 
-const flashingRestaurants = [
-  { name: "Jollibee", tagline: "Langhap-Sarap favorites", logo: "/brands/jollibee.png", bg: "#FFFFFF" },
-  { name: "Taster", tagline: "Comfort food, delivered", logo: "/brands/taster.png", bg: "#FFFFFF" },
-];
-
-const foodRestaurants = [
+const shopPartners = [
   {
-    name: "Al Baik Express",
-    cuisine: "Broasted Chicken",
-    rating: "4.9",
-    time: "12 min",
-    tag: "Popular",
-    image:
-      "https://images.unsplash.com/photo-1626082927389-6cd097cdc6ec?q=80&w=400&auto=format&fit=crop",
+    id: "pinas",
+    name: "Pinas Supermarket",
+    shortName: "Pinas",
+    logo: "/brands/pinas-supermarket.png",
+    accent: "#1D5FBF",
+    tint: "#EAF1FE",
   },
   {
-    name: "Shawarma Cartel",
-    cuisine: "Middle Eastern",
-    rating: "4.7",
-    time: "15 min",
-    tag: "Fast",
-    image:
-      "https://images.unsplash.com/photo-1528736235302-52922df5c122?q=80&w=400&auto=format&fit=crop",
+    id: "al-wafa",
+    name: "Al Wafa Hypermarket",
+    shortName: "Al Wafa",
+    logo: "/brands/al-wafa-hypermarket.png",
+    accent: "#0B7A3E",
+    tint: "#E7F6EE",
   },
   {
-    name: "Burger Boutique",
-    cuisine: "Gourmet Burgers",
-    rating: "4.8",
-    time: "18 min",
-    tag: "New",
-    image:
-      "https://images.unsplash.com/photo-1568901346375-23c9450c58cd?q=80&w=400&auto=format&fit=crop",
+    id: "happy-ending",
+    name: "Happy Ending",
+    shortName: "Happy Ending",
+    logo: "/brands/happy-ending.png",
+    accent: "#D97706",
+    tint: "#FEF3C7",
   },
 ];
 
 const shopProducts = [
-  {
-    name: "Wireless Earbuds",
-    price: "149",
-    image:
-      "https://images.unsplash.com/photo-1590658268037-6bf12165a8df?q=80&w=300&auto=format&fit=crop",
-  },
-  {
-    name: "Smart Watch",
-    price: "299",
-    image:
-      "https://images.unsplash.com/photo-1523275335684-37898b6baf30?q=80&w=300&auto=format&fit=crop",
-  },
-  {
-    name: "Running Shoes",
-    price: "189",
-    image:
-      "https://images.unsplash.com/photo-1542291026-7eec264c27ff?q=80&w=300&auto=format&fit=crop",
-  },
-  {
-    name: "Backpack",
-    price: "79",
-    image:
-      "https://images.unsplash.com/photo-1553062407-98eeb64c6a62?q=80&w=300&auto=format&fit=crop",
-  },
+  { name: "BBQ Pork Skewers", price: "18", emoji: "🍢", store: "Happy Ending", tint: "#FEF3C7", image: "/products/bbq-skewers.jpg" },
+  { name: "Fishball Snack Cup", price: "12", emoji: "🍡", store: "Happy Ending", tint: "#FEF3C7", image: "/products/fishball-snack.jpg" },
+  { name: "Kwek-Kwek (6 pcs)", price: "15", emoji: "🥚", store: "Happy Ending", tint: "#FEF3C7", image: "/products/kwek-kwek.jpg" },
+  { name: "Isaw BBQ Pack", price: "16", emoji: "🌭", store: "Happy Ending", tint: "#FEF3C7", image: "/products/isaw.jpg" },
+  { name: "Chicken Balls (5 pcs)", price: "14", emoji: "🍗", store: "Happy Ending", tint: "#FEF3C7", image: "/products/chicken-balls.jpg" },
+  { name: "Squid Ball Cup", price: "13", emoji: "🦑", store: "Happy Ending", tint: "#FEF3C7", image: "/products/squid-ball.jpg" },
+  { name: "Kikiam Skewers", price: "14", emoji: "🍥", store: "Happy Ending", tint: "#FEF3C7", image: "/products/kikiam.jpg" },
+  { name: "Fishball Skewers", price: "12", emoji: "🍡", store: "Happy Ending", tint: "#FEF3C7", image: "/products/fishball-skewers.jpg" },
+  { name: "Jasmine Rice 25kg", price: "189", emoji: "🍚", store: "Pinas", tint: "#EAF1FE", image: "/products/jasmine-rice.jpg" },
+  { name: "Dried Mangoes", price: "28", emoji: "🥭", store: "Pinas", tint: "#EAF1FE", image: "/products/dried-mangoes.jpg" },
+  { name: "Fresh Ajwa Dates", price: "45", emoji: "🌴", store: "Al Wafa", tint: "#E7F6EE", image: "/products/al-wafa-dates.jpg" },
+  { name: "Basmati Rice 5kg", price: "55", emoji: "🍚", store: "Al Wafa", tint: "#E7F6EE", image: "/products/al-wafa-rice.jpg" },
+  { name: "Sunflower Oil 1.5L", price: "28", emoji: "🫒", store: "Al Wafa", tint: "#E7F6EE", image: "/products/al-wafa-oil.jpg" },
+  { name: "Fresh Laban 1L", price: "7", emoji: "🥛", store: "Al Wafa", tint: "#E7F6EE", image: "/products/al-wafa-laban.jpg" },
+  { name: "Arabic Coffee", price: "32", emoji: "☕", store: "Al Wafa", tint: "#E7F6EE", image: "/products/al-wafa-coffee.jpg" },
+  { name: "Mixed Nuts Tin", price: "60", emoji: "🥜", store: "Al Wafa", tint: "#E7F6EE", image: "/products/al-wafa-nuts.jpg" },
+  { name: "Fresh Pita Bread", price: "8", emoji: "🫓", store: "Al Wafa", tint: "#E7F6EE", image: "/products/al-wafa-pita.jpg" },
+  { name: "Vegetables Box", price: "38", emoji: "🥗", store: "Al Wafa", tint: "#E7F6EE", image: "/products/al-wafa-vegetables.jpg" },
 ];
 
 const categories = [
@@ -128,13 +115,15 @@ function FoodScreen() {
             animate={{ opacity: 1, scale: 1 }}
             exit={{ opacity: 0, scale: 0.98 }}
             transition={{ duration: 0.4, ease: "easeInOut" }}
-            className="absolute inset-0 flex items-center justify-center"
+            className="absolute inset-0"
             style={{ backgroundColor: flash.bg }}
           >
             <img
-              src={flash.logo}
-              alt={`${flash.name} logo`}
-              className="max-h-[78%] max-w-[62%] object-contain drop-shadow-sm"
+              src={flash.image}
+              alt={flash.name}
+              className={`absolute inset-0 w-full h-full ${
+                flash.cover ? "object-cover" : "object-contain p-3"
+              }`}
             />
           </motion.div>
         </AnimatePresence>
@@ -189,17 +178,22 @@ function FoodScreen() {
         <p className="text-sm font-black text-brand-black">Popular near you</p>
       </div>
 
-      <div className="flex-1 overflow-hidden px-3 space-y-3 pb-3">
-        {foodRestaurants.map((r) => (
+      <div className="flex-1 overflow-y-auto px-3 space-y-3 pb-3">
+        {restaurants.map((r) => (
           <div
             key={r.name}
             className="flex gap-3 bg-white border border-brand-border rounded-2xl p-2.5 shadow-sm"
           >
-            <img
-              src={r.image}
-              alt={r.name}
-              className="w-20 h-20 rounded-xl object-cover shrink-0"
-            />
+            <div
+              className="relative w-20 h-20 rounded-xl shrink-0 overflow-hidden"
+              style={{ backgroundColor: r.bg }}
+            >
+              <img
+                src={r.image}
+                alt={r.name}
+                className={`w-full h-full ${r.cover ? "object-cover" : "object-contain p-1.5"}`}
+              />
+            </div>
             <div className="flex-1 min-w-0 py-0.5">
               <div className="flex items-center gap-2 mb-0.5">
                 <p className="text-sm font-bold text-brand-black truncate">{r.name}</p>
@@ -215,7 +209,7 @@ function FoodScreen() {
                 </span>
                 <span className="inline-flex items-center gap-1 text-xs text-brand-grey">
                   <Clock className="w-3.5 h-3.5" strokeWidth={2} />
-                  {r.time}
+                  {r.timeShort}
                 </span>
               </div>
             </div>
@@ -248,7 +242,7 @@ function TrackScreen() {
               <Sparkles className="w-4 h-4 text-brand-orange" strokeWidth={2.25} />
               Order on the way!
             </p>
-            <p className="text-xs text-brand-grey mt-0.5">Al Baik Express • #SM-2847</p>
+            <p className="text-xs text-brand-grey mt-0.5">Chowking • #SM-2847</p>
           </div>
           <div className="bg-brand-warm text-brand-orange text-[10px] font-bold px-2.5 py-1 rounded-full flex items-center gap-1 border border-brand-orange/20">
             <span className="w-1.5 h-1.5 rounded-full bg-brand-orange animate-pulse" />
@@ -337,21 +331,28 @@ function TrackScreen() {
 }
 
 function ShopScreen() {
+  const [activePartner, setActivePartner] = useState(shopPartners[0].id);
+  const partner = shopPartners.find((p) => p.id === activePartner) ?? shopPartners[0];
+  const visibleProducts = shopProducts.filter((p) => p.store === partner.shortName);
+
   return (
     <div className="flex flex-col h-full bg-brand-muted text-brand-dark overflow-hidden">
-      <div className="relative h-28 mx-3 mt-1 rounded-2xl overflow-hidden shrink-0 shadow-sm">
+      <div
+        className="relative h-28 mx-3 mt-1 rounded-2xl overflow-hidden shrink-0 shadow-sm flex items-center justify-center"
+        style={{ backgroundColor: partner.tint }}
+      >
         <img
-          src="https://images.unsplash.com/photo-1441986300917-64674bd600d8?q=80&w=600&auto=format&fit=crop"
-          alt="Shop banner"
-          className="w-full h-full object-cover"
+          src={partner.logo}
+          alt={partner.name}
+          className="max-h-[55%] max-w-[55%] object-contain"
         />
-        <div className="absolute inset-0 bg-linear-to-t from-brand-black/80 via-brand-black/30 to-transparent" />
+        <div className="absolute inset-0 bg-linear-to-t from-brand-black/70 via-brand-black/20 to-transparent" />
         <div className="absolute bottom-3 left-4">
-          <p className="text-xs text-brand-orange font-bold flex items-center gap-1">
+          <p className="text-xs font-bold flex items-center gap-1" style={{ color: partner.accent }}>
             <ShoppingBag className="w-3.5 h-3.5" strokeWidth={2.25} />
-            SmartMappia Shop
+            {partner.name}
           </p>
-          <p className="text-base font-black text-white">Trending picks for you</p>
+          <p className="text-base font-black text-white">Partner store picks</p>
         </div>
       </div>
 
@@ -362,35 +363,52 @@ function ShopScreen() {
         </div>
       </div>
 
-      <div className="px-3 mb-3 flex gap-2">
-        {["All", "Tech", "Fashion", "Home"].map((tab, i) => (
-          <span
-            key={tab}
-            className={`text-xs font-bold px-3.5 py-1.5 rounded-full ${
-              i === 0
-                ? "bg-linear-to-r from-brand-orange to-brand-red text-white shadow-md shadow-brand-orange/25"
+      <div className="px-3 mb-3 flex gap-2 overflow-hidden">
+        {shopPartners.map((p) => (
+          <button
+            key={p.id}
+            type="button"
+            onClick={() => setActivePartner(p.id)}
+            className={`text-xs font-bold px-3.5 py-1.5 rounded-full whitespace-nowrap transition-colors ${
+              activePartner === p.id
+                ? "text-white shadow-md shadow-brand-orange/25"
                 : "text-brand-grey bg-white border border-brand-border"
             }`}
+            style={
+              activePartner === p.id
+                ? { backgroundColor: p.accent }
+                : undefined
+            }
           >
-            {tab}
-          </span>
+            {p.shortName}
+          </button>
         ))}
       </div>
 
       <div className="flex-1 overflow-hidden px-3 pb-3">
         <div className="grid grid-cols-2 gap-2.5">
-          {shopProducts.map((p) => (
+          {visibleProducts.map((p) => (
             <div
               key={p.name}
               className="bg-white border border-brand-border rounded-2xl overflow-hidden shadow-sm"
             >
-              <img
-                src={p.image}
-                alt={p.name}
-                className="w-full h-24 object-cover bg-brand-surface"
-              />
+              <div className="w-full h-24 overflow-hidden bg-brand-surface">
+                {p.image ? (
+                  <img src={p.image} alt={p.name} className="w-full h-full object-cover" />
+                ) : (
+                  <div
+                    className="w-full h-full flex items-center justify-center text-4xl"
+                    style={{
+                      background: `linear-gradient(145deg, ${p.tint} 0%, #ffffff 45%, ${p.tint} 100%)`,
+                    }}
+                  >
+                    {p.emoji}
+                  </div>
+                )}
+              </div>
               <div className="p-2.5">
                 <p className="text-xs font-bold text-brand-black truncate">{p.name}</p>
+                <p className="text-[9px] text-brand-grey truncate">{p.store}</p>
                 <div className="flex items-center justify-between mt-1">
                   <p className="text-sm text-brand-orange font-black">SAR {p.price}</p>
                   <span className="w-7 h-7 rounded-lg bg-brand-warm border border-brand-orange/20 flex items-center justify-center">
