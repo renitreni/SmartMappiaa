@@ -61,10 +61,35 @@ function pingAdmin(code) {
   return broadcast('admin-bookings', 'changed', { bookingCode: code });
 }
 
+// --- Food Delivery channels ---
+//   fd-order-<orderCode>  -> the customer tracking one food order
+//   merchant-<merchantId> -> a restaurant's live incoming-orders feed
+//   admin-food            -> shared feed for the admin Food tab
+// Payloads carry only safe public fields (order code, statuses) — never
+// internal UUIDs of other parties or money internals beyond the order's own.
+
+// Notify the customer watching one food order.
+function pushFoodOrderStatus(orderCode, payload) {
+  return broadcast(`fd-order-${orderCode}`, 'status', payload);
+}
+
+// Nudge a restaurant's dashboard (new order, payment update, ...).
+function pushMerchantFeed(merchantId, event, payload) {
+  return broadcast(`merchant-${merchantId}`, event, payload);
+}
+
+// Generic "something changed" ping for the admin Food tab.
+function pingFoodAdmin(orderCode) {
+  return broadcast('admin-food', 'changed', { orderCode });
+}
+
 module.exports = {
   broadcast,
   pushBookingStatus,
   announceAvailableRide,
   announceRequestTaken,
   pingAdmin,
+  pushFoodOrderStatus,
+  pushMerchantFeed,
+  pingFoodAdmin,
 };

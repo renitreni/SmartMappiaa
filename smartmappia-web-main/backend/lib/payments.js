@@ -12,7 +12,7 @@
 // ---------------------------------------------------------------------
 const { supabase } = require('./supabase');
 const { addTrackingEvent } = require('./tracking');
-const { pushBookingStatus, announceAvailableRide, pingAdmin } = require('./realtime');
+const { pushBookingStatus, pingAdmin } = require('./realtime');
 
 // mode is a verification_mode enum value: 'test_auto' | 'admin_manual'.
 async function verifyBookingPayment({ booking, mode, adminId = null, proofId = null, manualReference = null }) {
@@ -74,35 +74,16 @@ async function verifyBookingPayment({ booking, mode, adminId = null, proofId = n
     createdByUserId: adminId,
   });
 
-  // 5. Realtime: confirm to the passenger AND open the ride to drivers.
+  // 5. Realtime: confirm to the passenger, then dispatch Grab-style — the
+  //    nearest online driver gets an exclusive 30s offer (lib/dispatch.js);
+  //    the old broadcast-to-all feed is the fallback when nobody is online.
   pushBookingStatus(booking.booking_code, {
     paymentStatus: 'verified',
     bookingStatus: 'confirmed',
   });
-  const { data: summary } = await supabase
-    .from('bookings')
-    .select(
-      'booking_code, trip_type, airport_terminal, pickup_address, pickup_lat, pickup_lng, ' +
-        'dropoff_address, dropoff_lat, dropoff_lng, pickup_datetime, fare_amount, currency'
-    )
-    .eq('id', booking.id)
-    .single();
-  if (summary) {
-    announceAvailableRide({
-      bookingCode: summary.booking_code,
-      tripType: summary.trip_type,
-      airportTerminal: summary.airport_terminal,
-      pickupAddress: summary.pickup_address,
-      pickupLat: summary.pickup_lat,
-      pickupLng: summary.pickup_lng,
-      dropoffAddress: summary.dropoff_address,
-      dropoffLat: summary.dropoff_lat,
-      dropoffLng: summary.dropoff_lng,
-      pickupDatetime: summary.pickup_datetime,
-      fareAmount: summary.fare_amount,
-      currency: summary.currency,
-    });
-  }
+  // Lazy require: dispatch depends on realtime/geo and payments is loaded early.
+  const { startRideDispatch } = require('./dispatch');
+  startRideDispatch(booking.id);
 
   return { booking: updated };
 }

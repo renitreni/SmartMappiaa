@@ -1,0 +1,828 @@
+// ---------------------------------------------------------------------
+// Admin portal — Food Delivery tab.
+//
+// There are NO restaurant owner accounts: restaurants contact SmartMappia
+// and admins run everything from here —
+//   * restaurant CRUD (create / edit / list-unlist / delete)
+//   * menu import + editing (categories, items, prices, photos)
+//   * order operations: accept (300 SAR credit-gated) / reject / advance,
+//     STC payment verify/reject, rider assignment, cancel + refund
+//   * credit monitoring with reconcile (replenish)
+// ---------------------------------------------------------------------
+import { useCallback, useEffect, useState } from 'react';
+import {
+  Store,
+  ClipboardList,
+  Wallet,
+  Check,
+  X,
+  Bike,
+  Pencil,
+  Plus,
+  Trash2,
+  ShieldX,
+  ShieldCheck,
+  Eye,
+  EyeOff,
+  UtensilsCrossed,
+  ChevronRight,
+} from 'lucide-react';
+import { api } from '../lib/api';
+import { useBroadcast } from '../lib/useBroadcast';
+import { realtimeEnabled } from '../lib/supabaseClient';
+import { fmtSAR, foodStatusMeta, foodPaymentMeta } from '../lib/constants';
+import { Card, Badge, Field, Spinner, btnPrimary, btnGhost, inputClass } from '../components/ui';
+
+const ITEM_TYPES = [
+  { value: 'meal_package', label: 'Meal / package (SAR 5.00 margin)' },
+  { value: 'drink_dessert_addon', label: 'Drink / dessert / add-on (SAR 3.00 margin)' },
+];
+
+const NEXT_STATUS = {
+  accepted: { status: 'preparing', label: 'Start preparing' },
+  preparing: { status: 'ready', label: 'Mark ready' },
+  ready: { status: 'out_for_delivery', label: 'Out for delivery' },
+  out_for_delivery: { status: 'delivered', label: 'Mark delivered' },
+};
+
+function Stat({ label, value, accent = false }) {
+  return (
+    <Card className="p-4">
+      <p className="text-[11px] font-bold text-brand-grey uppercase tracking-wider">{label}</p>
+      <p className={`text-xl font-black tabular-nums mt-1 ${accent ? 'text-brand-orange' : 'text-brand-black'}`}>
+        {value}
+      </p>
+    </Card>
+  );
+}
+
+// --- Restaurant create/edit form ------------------------------------------
+const EMPTY_RESTAURANT = {
+  name: '', cuisine_type: '', description: '', address: '', logo_url: '', lat: '', lng: '', is_active: false,
+};
+
+function RestaurantForm({ initial, onSave, onCancel, busy }) {
+  const [form, setForm] = useState({ ...EMPTY_RESTAURANT, ...initial });
+  const set = (k) => (e) => setForm((f) => ({ ...f, [k]: e.target.value }));
+
+  function submit(e) {
+    e.preventDefault();
+    onSave({
+      name: form.name.trim(),
+      cuisine_type: form.cuisine_type.trim() || null,
+      description: form.description.trim() || null,
+      address: form.address.trim() || null,
+      logo_url: form.logo_url.trim() || null,
+      lat: form.lat === '' || form.lat == null ? null : Number(form.lat),
+      lng: form.lng === '' || form.lng == null ? null : Number(form.lng),
+      is_active: !!form.is_active,
+    });
+  }
+
+  return (
+    <form onSubmit={submit} className="space-y-3">
+      <Field label="Restaurant name">
+        <input value={form.name} onChange={set('name')} className={inputClass} required placeholder="e.g. Shawarma House" />
+      </Field>
+      <div className="grid grid-cols-2 gap-3">
+        <Field label="Cuisine type">
+          <input value={form.cuisine_type || ''} onChange={set('cuisine_type')} className={inputClass} placeholder="e.g. Lebanese" />
+        </Field>
+        <Field label="Logo / photo URL">
+          <input value={form.logo_url || ''} onChange={set('logo_url')} className={inputClass} placeholder="https://..." />
+        </Field>
+      </div>
+      <Field label="Address">
+        <input value={form.address || ''} onChange={set('address')} className={inputClass} placeholder="Street, district, city" />
+      </Field>
+      <div className="grid grid-cols-2 gap-3">
+        <Field label="Latitude (for the 15 km radius)">
+          <input type="number" step="any" value={form.lat ?? ''} onChange={set('lat')} className={inputClass} placeholder="24.7136" />
+        </Field>
+        <Field label="Longitude">
+          <input type="number" step="any" value={form.lng ?? ''} onChange={set('lng')} className={inputClass} placeholder="46.6753" />
+        </Field>
+      </div>
+      <Field label="Description">
+        <input value={form.description || ''} onChange={set('description')} className={inputClass} placeholder="Shown to customers" />
+      </Field>
+      <label className="flex items-center gap-2 text-sm font-bold text-brand-dark cursor-pointer">
+        <input
+          type="checkbox"
+          checked={!!form.is_active}
+          onChange={(e) => setForm((f) => ({ ...f, is_active: e.target.checked }))}
+          className="w-4 h-4 accent-[#FF7E21]"
+        />
+        Listed (visible to customers) — keep off until the menu is imported
+      </label>
+      <div className="flex gap-2 pt-1">
+        <button type="submit" disabled={busy} className={btnPrimary + ' flex-1'}>
+          {busy ? <Spinner className="!border-white/40 !border-t-white" /> : 'Save restaurant'}
+        </button>
+        <button type="button" onClick={onCancel} className={btnGhost}>Cancel</button>
+      </div>
+    </form>
+  );
+}
+
+// --- Menu item form ---------------------------------------------------------
+const EMPTY_ITEM = { name: '', description: '', price: '', item_type: 'meal_package', category_id: '', image_url: '' };
+
+function ItemForm({ initial, categories, onSave, onCancel, busy }) {
+  const [form, setForm] = useState({ ...EMPTY_ITEM, ...initial });
+  const set = (k) => (e) => setForm((f) => ({ ...f, [k]: e.target.value }));
+
+  function submit(e) {
+    e.preventDefault();
+    onSave({
+      name: form.name.trim(),
+      description: (form.description || '').trim() || null,
+      price: Number(form.price),
+      item_type: form.item_type,
+      category_id: form.category_id || null,
+      image_url: (form.image_url || '').trim() || null,
+    });
+  }
+
+  return (
+    <form onSubmit={submit} className="space-y-3">
+      <Field label="Item name">
+        <input value={form.name} onChange={set('name')} className={inputClass} required />
+      </Field>
+      <div className="grid grid-cols-2 gap-3">
+        <Field label="Price (SAR)">
+          <input type="number" min="0.01" step="0.01" value={form.price} onChange={set('price')} className={inputClass} required />
+        </Field>
+        <Field label="Category">
+          <select value={form.category_id || ''} onChange={set('category_id')} className={inputClass}>
+            <option value="">No category</option>
+            {categories.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+          </select>
+        </Field>
+      </div>
+      <Field label="Type (sets the platform margin)">
+        <select value={form.item_type} onChange={set('item_type')} className={inputClass}>
+          {ITEM_TYPES.map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
+        </select>
+      </Field>
+      <Field label="Photo URL">
+        <input value={form.image_url || ''} onChange={set('image_url')} className={inputClass} placeholder="https://..." />
+      </Field>
+      <Field label="Description">
+        <input value={form.description || ''} onChange={set('description')} className={inputClass} placeholder="Optional" />
+      </Field>
+      <div className="flex gap-2 pt-1">
+        <button type="submit" disabled={busy} className={btnPrimary + ' flex-1'}>
+          {busy ? <Spinner className="!border-white/40 !border-t-white" /> : 'Save item'}
+        </button>
+        <button type="button" onClick={onCancel} className={btnGhost}>Cancel</button>
+      </div>
+    </form>
+  );
+}
+
+// --- Menu editor (import + CRUD for one restaurant) --------------------------
+function MenuEditor({ merchant, onClose, onError }) {
+  const [menu, setMenu] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [editingItem, setEditingItem] = useState(null); // null | 'new' | item
+  const [newCategory, setNewCategory] = useState('');
+
+  const load = useCallback(async () => {
+    try {
+      setMenu(await api.adminFoodMerchantMenu(merchant.id));
+    } catch (err) {
+      onError(err.message);
+    }
+  }, [merchant.id, onError]);
+
+  useEffect(() => { load(); }, [load]);
+
+  async function run(fn) {
+    setBusy(true);
+    try {
+      await fn();
+      await load();
+    } catch (err) {
+      onError(err.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const categories = menu?.categories || [];
+  const items = menu?.items || [];
+
+  return (
+    <Card className="p-5">
+      <div className="flex items-center justify-between mb-4">
+        <p className="font-black text-brand-black">Menu — {merchant.name}</p>
+        <button type="button" onClick={onClose} className={btnGhost + ' !py-2 !px-3.5 !text-xs'}>
+          <X className="w-3.5 h-3.5" /> Close
+        </button>
+      </div>
+
+      {!menu && <div className="flex justify-center py-8"><Spinner className="!w-6 !h-6" /></div>}
+
+      {menu && (
+        <div className="space-y-5">
+          {/* Categories */}
+          <div>
+            <p className="text-xs font-bold text-brand-grey uppercase tracking-wider mb-2">Categories</p>
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                if (!newCategory.trim()) return;
+                run(() => api.adminFoodAddCategory(merchant.id, { name: newCategory.trim(), sort_order: categories.length }));
+                setNewCategory('');
+              }}
+              className="flex gap-2 mb-2"
+            >
+              <input value={newCategory} onChange={(e) => setNewCategory(e.target.value)} className={inputClass + ' flex-1 !py-2'} placeholder="New category" />
+              <button type="submit" disabled={busy} className={btnPrimary + ' !px-3 !py-2'}><Plus className="w-4 h-4" /></button>
+            </form>
+            <div className="flex flex-wrap gap-2">
+              {categories.map((cat) => (
+                <span key={cat.id} className="inline-flex items-center gap-1.5 pl-3 pr-1.5 py-1 rounded-full border border-brand-border text-xs font-bold text-brand-dark">
+                  {cat.name}
+                  <button
+                    type="button"
+                    disabled={busy}
+                    onClick={() => {
+                      if (window.confirm(`Delete category "${cat.name}"? Items keep existing without it.`)) {
+                        run(() => api.adminFoodDeleteCategory(cat.id));
+                      }
+                    }}
+                    className="p-0.5 rounded-full text-brand-grey hover:text-red-600 cursor-pointer"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                </span>
+              ))}
+              {categories.length === 0 && <span className="text-xs text-brand-grey">None yet — items can live without one.</span>}
+            </div>
+          </div>
+
+          {/* Items */}
+          <div>
+            <div className="flex items-center justify-between mb-2">
+              <p className="text-xs font-bold text-brand-grey uppercase tracking-wider">Items ({items.length})</p>
+              <button type="button" onClick={() => setEditingItem('new')} className={btnPrimary + ' !py-1.5 !px-3 !text-xs'}>
+                <Plus className="w-3.5 h-3.5" /> Add item
+              </button>
+            </div>
+
+            {editingItem && (
+              <div className="mb-3 p-4 rounded-xl border border-brand-orange/40 bg-brand-warm">
+                <p className="font-bold text-brand-dark text-sm mb-3">
+                  {editingItem === 'new' ? 'New item' : `Edit: ${editingItem.name}`}
+                </p>
+                <ItemForm
+                  initial={editingItem === 'new' ? EMPTY_ITEM : { ...editingItem, price: String(editingItem.price) }}
+                  categories={categories}
+                  busy={busy}
+                  onCancel={() => setEditingItem(null)}
+                  onSave={(payload) =>
+                    run(async () => {
+                      if (editingItem === 'new') await api.adminFoodAddItem(merchant.id, payload);
+                      else await api.adminFoodModerateItem(editingItem.id, payload);
+                      setEditingItem(null);
+                    })
+                  }
+                />
+              </div>
+            )}
+
+            {items.length === 0 && !editingItem && (
+              <p className="text-sm text-brand-grey py-4 text-center">
+                No items yet — import the restaurant's menu here before listing it.
+              </p>
+            )}
+
+            <div className="space-y-2">
+              {items.map((item) => (
+                <div key={item.id} className="flex items-center gap-3 p-3 rounded-xl border border-brand-border">
+                  <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-brand-orange/15 to-brand-red/10 flex items-center justify-center overflow-hidden shrink-0">
+                    {item.image_url ? (
+                      <img src={item.image_url} alt="" className="w-full h-full object-cover" />
+                    ) : (
+                      <UtensilsCrossed className="w-4 h-4 text-brand-orange/50" />
+                    )}
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <p className="font-bold text-brand-dark text-sm truncate">{item.name}</p>
+                    <p className="text-xs text-brand-grey">
+                      {fmtSAR(item.price)} · {item.item_type === 'meal_package' ? 'Meal' : 'Drink/add-on'}
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    disabled={busy}
+                    onClick={() => run(() => api.adminFoodModerateItem(item.id, { is_available: !item.is_available }))}
+                    className={`text-xs font-bold px-2.5 py-1.5 rounded-lg cursor-pointer shrink-0 ${
+                      item.is_available ? 'bg-green-50 text-green-700' : 'bg-brand-surface text-brand-grey'
+                    }`}
+                  >
+                    {item.is_available ? 'Available' : 'Hidden'}
+                  </button>
+                  <button type="button" onClick={() => setEditingItem(item)}
+                    className="p-1.5 rounded-lg text-brand-grey hover:text-brand-dark hover:bg-brand-surface cursor-pointer shrink-0">
+                    <Pencil className="w-4 h-4" />
+                  </button>
+                  <button
+                    type="button"
+                    disabled={busy}
+                    onClick={() => {
+                      if (window.confirm(`Delete "${item.name}"?`)) run(() => api.adminFoodDeleteItem(item.id));
+                    }}
+                    className="p-1.5 rounded-lg text-brand-grey hover:text-red-600 hover:bg-red-50 cursor-pointer shrink-0"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+    </Card>
+  );
+}
+
+// --- Merchants section --------------------------------------------------------
+function MerchantsSection({ onError }) {
+  const [merchants, setMerchants] = useState(null);
+  const [busyId, setBusyId] = useState(null);
+  const [editing, setEditing] = useState(null); // null | 'new' | merchant
+  const [menuFor, setMenuFor] = useState(null); // merchant whose menu is open
+
+  const load = useCallback(async () => {
+    try {
+      setMerchants((await api.adminFoodMerchants()).merchants || []);
+    } catch (err) {
+      onError(err.message);
+    }
+  }, [onError]);
+
+  useEffect(() => { load(); }, [load]);
+
+  async function run(id, fn) {
+    setBusyId(id);
+    try {
+      await fn();
+      await load();
+    } catch (err) {
+      onError(err.message);
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  function reconcile(m) {
+    const raw = window.prompt(
+      `Reconcile ${m.name}: amount (SAR) the restaurant settled?\nCredit used: ${fmtSAR(m.creditUsed)} of ${fmtSAR(m.creditLimit)}.`
+    );
+    if (!raw) return;
+    const amount = Number(raw);
+    if (!Number.isFinite(amount) || amount <= 0) return onError('Please enter a valid positive amount.');
+    run(m.id, () => api.adminFoodCredit(m.id, { amount }));
+  }
+
+  if (merchants === null) return <div className="flex justify-center py-12"><Spinner className="!w-7 !h-7" /></div>;
+
+  if (menuFor) {
+    return <MenuEditor merchant={menuFor} onClose={() => setMenuFor(null)} onError={onError} />;
+  }
+
+  return (
+    <div className="space-y-3">
+      {editing ? (
+        <Card className="p-5">
+          <p className="font-black text-brand-black mb-4">
+            {editing === 'new' ? 'Add restaurant' : `Edit: ${editing.name}`}
+          </p>
+          <RestaurantForm
+            initial={
+              editing === 'new'
+                ? EMPTY_RESTAURANT
+                : {
+                    name: editing.name,
+                    cuisine_type: editing.cuisineType,
+                    description: editing.description,
+                    address: editing.address,
+                    logo_url: editing.logoUrl,
+                    lat: editing.lat,
+                    lng: editing.lng,
+                    is_active: editing.isActive,
+                  }
+            }
+            busy={busyId === 'form'}
+            onCancel={() => setEditing(null)}
+            onSave={(payload) =>
+              run('form', async () => {
+                if (editing === 'new') await api.adminFoodCreateMerchant(payload);
+                else await api.adminFoodUpdateMerchant(editing.id, payload);
+                setEditing(null);
+              })
+            }
+          />
+        </Card>
+      ) : (
+        <button type="button" onClick={() => setEditing('new')} className={btnPrimary + ' w-full !py-3'}>
+          <Plus className="w-4 h-4" /> Add restaurant
+        </button>
+      )}
+
+      <Card className="p-0 overflow-hidden">
+        <div className="px-4 py-3 border-b border-brand-border">
+          <span className="font-black text-brand-black text-sm">Restaurants ({merchants.length})</span>
+        </div>
+        {merchants.length === 0 && (
+          <p className="p-8 text-center text-sm text-brand-grey">
+            No restaurants yet. When one contacts SmartMappia, add it here and import its menu.
+          </p>
+        )}
+        <div className="divide-y divide-brand-border">
+          {merchants.map((m) => {
+            const pct = Math.min(100, Math.round((m.creditUsed / m.creditLimit) * 100));
+            const barColor = pct >= 100 ? 'bg-red-500' : pct >= 80 ? 'bg-amber-500' : 'bg-brand-orange';
+            return (
+              <div key={m.id} className="p-4">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <div className="min-w-0 flex-1">
+                    <p className="font-bold text-brand-dark truncate">
+                      {m.name}
+                      <span className="text-xs text-brand-grey font-medium ml-2">{m.cuisineType || ''}</span>
+                    </p>
+                    <p className="text-xs text-brand-grey truncate">{m.address || 'No address'}</p>
+                  </div>
+                  <Badge tone={m.isActive ? 'green' : 'grey'}>{m.isActive ? 'Listed' : 'Unlisted'}</Badge>
+                  {m.status === 'suspended' && <Badge tone="red">Suspended</Badge>}
+                </div>
+
+                <div className="mt-3 flex items-center gap-3">
+                  <div className="flex-1">
+                    <div className="h-2 rounded-full bg-brand-surface overflow-hidden">
+                      <div className={`h-full rounded-full ${barColor}`} style={{ width: `${pct}%` }} />
+                    </div>
+                    <p className="text-[11px] text-brand-grey mt-1 tabular-nums">
+                      Credit {fmtSAR(m.creditUsed)} / {fmtSAR(m.creditLimit)} ({pct}%)
+                    </p>
+                  </div>
+                </div>
+
+                <div className="mt-2 flex gap-1.5 flex-wrap">
+                  <button type="button" disabled={busyId === m.id} onClick={() => setMenuFor(m)}
+                    className={btnGhost + ' !py-1.5 !px-2.5 !text-xs'}>
+                    <UtensilsCrossed className="w-3.5 h-3.5" /> Menu
+                  </button>
+                  <button type="button" disabled={busyId === m.id} onClick={() => setEditing(m)}
+                    className={btnGhost + ' !py-1.5 !px-2.5 !text-xs'}>
+                    <Pencil className="w-3.5 h-3.5" /> Edit
+                  </button>
+                  <button
+                    type="button"
+                    disabled={busyId === m.id}
+                    onClick={() => run(m.id, () => api.adminFoodUpdateMerchant(m.id, { is_active: !m.isActive }))}
+                    className={btnGhost + ' !py-1.5 !px-2.5 !text-xs'}
+                    title={m.isActive ? 'Hide from customers' : 'Make visible to customers'}
+                  >
+                    {m.isActive ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                    {m.isActive ? 'Unlist' : 'List'}
+                  </button>
+                  <button type="button" disabled={busyId === m.id} onClick={() => reconcile(m)}
+                    className={btnGhost + ' !py-1.5 !px-2.5 !text-xs'}>
+                    <Wallet className="w-3.5 h-3.5" /> Reconcile
+                  </button>
+                  {m.status === 'suspended' ? (
+                    <button type="button" disabled={busyId === m.id}
+                      onClick={() => run(m.id, () => api.adminFoodReactivate(m.id))}
+                      className={btnGhost + ' !py-1.5 !px-2.5 !text-xs !text-green-700 !border-green-200'}>
+                      <ShieldCheck className="w-3.5 h-3.5" /> Reactivate
+                    </button>
+                  ) : (
+                    <button type="button" disabled={busyId === m.id}
+                      onClick={() => {
+                        const reason = window.prompt(`Suspend ${m.name}? Reason (optional):`);
+                        if (reason === null) return;
+                        run(m.id, () => api.adminFoodSuspend(m.id, reason || undefined));
+                      }}
+                      className={btnGhost + ' !py-1.5 !px-2.5 !text-xs !text-red-600 !border-red-200'}>
+                      <ShieldX className="w-3.5 h-3.5" /> Suspend
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    disabled={busyId === m.id}
+                    onClick={() => {
+                      if (window.confirm(`Delete ${m.name}? Restaurants with order history can only be unlisted.`)) {
+                        run(m.id, () => api.adminFoodDeleteMerchant(m.id));
+                      }
+                    }}
+                    className="p-1.5 rounded-lg text-brand-grey hover:text-red-600 hover:bg-red-50 cursor-pointer"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </Card>
+    </div>
+  );
+}
+
+// --- Orders section --------------------------------------------------------------
+function OrdersSection({ onError }) {
+  const [orders, setOrders] = useState(null);
+  const [drivers, setDrivers] = useState([]);
+  const [filter, setFilter] = useState('action');
+  const [busyCode, setBusyCode] = useState(null);
+  const [assigning, setAssigning] = useState(null);
+  const [driverId, setDriverId] = useState('');
+
+  const load = useCallback(async () => {
+    try {
+      setOrders((await api.adminFoodOrders()).orders || []);
+    } catch (err) {
+      onError(err.message);
+    }
+  }, [onError]);
+
+  useEffect(() => { load(); }, [load]);
+  useEffect(() => {
+    api.adminDrivers().then((r) => setDrivers((r.drivers || []).filter((d) => d.driver_approved))).catch(() => {});
+  }, []);
+  useBroadcast('admin-food', { changed: () => load() }, realtimeEnabled);
+
+  async function run(code, fn) {
+    setBusyCode(code);
+    try {
+      await fn();
+      await load();
+    } catch (err) {
+      onError(err.message);
+      await load(); // e.g. a 403 credit block — refresh the true state
+    } finally {
+      setBusyCode(null);
+    }
+  }
+
+  const LIVE = ['pending', 'accepted', 'preparing', 'ready', 'out_for_delivery'];
+  const needsAction = (o) =>
+    o.paymentStatus === 'awaiting' ||
+    o.status === 'pending' ||
+    (o.paymentStatus === 'paid' && ['cancelled', 'rejected'].includes(o.status));
+  const filtered = (orders || []).filter((o) => {
+    if (filter === 'action') return needsAction(o);
+    if (filter === 'live') return LIVE.includes(o.status);
+    return true;
+  });
+
+  return (
+    <div className="space-y-3">
+      <div className="flex gap-2 flex-wrap">
+        {[
+          { id: 'action', label: 'Needs action' },
+          { id: 'live', label: 'Live' },
+          { id: 'all', label: 'All' },
+        ].map((f) => (
+          <button key={f.id} type="button" onClick={() => setFilter(f.id)}
+            className={`px-4 py-2 rounded-xl text-sm font-bold border transition-colors cursor-pointer ${
+              filter === f.id ? 'bg-brand-black text-white border-brand-black' : 'bg-white text-brand-grey border-brand-border'
+            }`}>
+            {f.label}
+          </button>
+        ))}
+      </div>
+
+      {orders === null && <div className="flex justify-center py-12"><Spinner className="!w-7 !h-7" /></div>}
+      {orders !== null && filtered.length === 0 && (
+        <Card className="p-8 text-center">
+          <ClipboardList className="w-8 h-8 text-brand-grey/40 mx-auto mb-2" />
+          <p className="text-sm text-brand-grey">
+            {filter === 'action' ? 'Nothing needs your action right now.' : 'No orders here yet.'}
+          </p>
+        </Card>
+      )}
+
+      {filtered.map((o) => {
+        const status = foodStatusMeta(o.status);
+        const pay = foodPaymentMeta(o.paymentStatus);
+        const next = NEXT_STATUS[o.status];
+        const canAssignRider = o.paymentStatus === 'paid' && ['accepted', 'preparing', 'ready', 'out_for_delivery'].includes(o.status);
+        const refundable = o.paymentStatus === 'paid' && ['cancelled', 'rejected'].includes(o.status);
+        const cancellable = !['delivered', 'cancelled', 'rejected'].includes(o.status);
+        const busy = busyCode === o.orderCode;
+        return (
+          <Card key={o.orderCode} className="p-4">
+            <div className="flex items-center justify-between gap-3 flex-wrap">
+              <div className="min-w-0">
+                <p className="font-mono font-bold text-brand-dark">{o.orderCode}</p>
+                <p className="text-xs text-brand-grey truncate">
+                  {o.merchantName || 'Restaurant'} · {o.customerName || 'Customer'} · {new Date(o.createdAt).toLocaleString()}
+                </p>
+              </div>
+              <div className="flex items-center gap-1.5 flex-wrap">
+                <Badge tone={status.tone}>{status.label}</Badge>
+                <Badge tone={pay.tone}>{pay.label}</Badge>
+                {o.paymentMethod === 'cash' && <Badge tone="grey">Cash</Badge>}
+                <span className="font-black text-brand-orange tabular-nums ml-1">{fmtSAR(o.total)}</span>
+              </div>
+            </div>
+
+            {(o.items || []).length > 0 && (
+              <p className="text-xs text-brand-grey mt-2 truncate">
+                {o.items.map((i) => `${i.quantity} × ${i.name_snapshot}`).join(', ')}
+              </p>
+            )}
+            {o.riderName && (
+              <p className="text-xs text-brand-grey mt-1 flex items-center gap-1">
+                <Bike className="w-3 h-3 text-brand-orange" /> Rider: <span className="font-bold text-brand-dark">{o.riderName}</span>
+              </p>
+            )}
+            {refundable && (
+              <p className="text-xs font-bold text-amber-700 mt-2">
+                Refund due — process it within a few hours (max one day), then mark refunded.
+              </p>
+            )}
+
+            <div className="mt-3 flex items-center gap-2 flex-wrap">
+              {/* Payment reconciliation */}
+              {o.paymentStatus === 'awaiting' && (
+                <>
+                  <button type="button" disabled={busy}
+                    onClick={() => run(o.orderCode, () => api.adminFoodVerifyPayment(o.orderCode))}
+                    className={btnPrimary + ' !py-2 !px-3.5 !text-xs'}>
+                    <Check className="w-3.5 h-3.5" /> Verify payment
+                  </button>
+                  <button type="button" disabled={busy}
+                    onClick={() => {
+                      const reason = window.prompt('Reason for rejecting this payment?');
+                      if (!reason) return;
+                      run(o.orderCode, () => api.adminFoodRejectPayment(o.orderCode, reason));
+                    }}
+                    className={btnGhost + ' !py-2 !px-3.5 !text-xs !text-red-600 !border-red-200'}>
+                    <X className="w-3.5 h-3.5" /> Reject payment
+                  </button>
+                </>
+              )}
+
+              {/* Restaurant-side ops (admins run the restaurants) */}
+              {o.status === 'pending' && (
+                <>
+                  <button type="button" disabled={busy}
+                    onClick={() => run(o.orderCode, () => api.adminFoodAcceptOrder(o.orderCode))}
+                    className={btnPrimary + ' !py-2 !px-3.5 !text-xs'}
+                    title="Charges the order margin to the restaurant credit (blocked at 300 SAR)">
+                    <Check className="w-3.5 h-3.5" /> Accept order
+                  </button>
+                  <button type="button" disabled={busy}
+                    onClick={() => {
+                      const reason = window.prompt('Reason for rejecting this order? (optional)');
+                      if (reason === null) return;
+                      run(o.orderCode, () => api.adminFoodRejectOrder(o.orderCode, reason || undefined));
+                    }}
+                    className={btnGhost + ' !py-2 !px-3.5 !text-xs !text-red-600 !border-red-200'}>
+                    <X className="w-3.5 h-3.5" /> Reject order
+                  </button>
+                </>
+              )}
+              {next && (
+                <button type="button" disabled={busy}
+                  onClick={() => run(o.orderCode, () => api.adminFoodOrderStatus(o.orderCode, next.status))}
+                  className={btnGhost + ' !py-2 !px-3.5 !text-xs'}>
+                  {next.label} <ChevronRight className="w-3.5 h-3.5" />
+                </button>
+              )}
+
+              {/* Rider */}
+              {canAssignRider && assigning !== o.orderCode && (
+                <button type="button" onClick={() => { setAssigning(o.orderCode); setDriverId(''); }}
+                  className={btnGhost + ' !py-2 !px-3.5 !text-xs'}>
+                  <Bike className="w-3.5 h-3.5" /> {o.riderName ? 'Change rider' : 'Assign rider'}
+                </button>
+              )}
+
+              {/* Rider proof photos (mandatory pickup + delivery shots) */}
+              {(o.hasPickupPhoto || o.hasDeliveryPhoto) && (
+                <button type="button" disabled={busy}
+                  onClick={() => run(o.orderCode, async () => {
+                    const photos = await api.adminFoodOrderPhotos(o.orderCode);
+                    if (photos.pickup) window.open(photos.pickup, '_blank', 'noopener');
+                    if (photos.delivery) window.open(photos.delivery, '_blank', 'noopener');
+                  })}
+                  className={btnGhost + ' !py-2 !px-3.5 !text-xs'}>
+                  View proof photos
+                </button>
+              )}
+
+              {/* Support */}
+              {cancellable && (
+                <button type="button" disabled={busy}
+                  onClick={() => {
+                    const reason = window.prompt('Cancel this order? Reason (optional):');
+                    if (reason === null) return;
+                    run(o.orderCode, () => api.adminFoodCancelOrder(o.orderCode, reason || undefined));
+                  }}
+                  className={btnGhost + ' !py-2 !px-3.5 !text-xs !text-red-600 !border-red-200'}>
+                  Cancel order
+                </button>
+              )}
+              {refundable && (
+                <button type="button" disabled={busy}
+                  onClick={() => {
+                    if (window.confirm('Confirm the money was returned to the customer?')) {
+                      run(o.orderCode, () => api.adminFoodRefund(o.orderCode));
+                    }
+                  }}
+                  className={btnPrimary + ' !py-2 !px-3.5 !text-xs'}>
+                  Mark refunded
+                </button>
+              )}
+              {busy && <Spinner className="!w-4 !h-4" />}
+            </div>
+
+            {assigning === o.orderCode && (
+              <div className="mt-3 flex gap-2 items-center flex-wrap">
+                <select value={driverId} onChange={(e) => setDriverId(e.target.value)} className={inputClass + ' !w-auto flex-1 min-w-[200px] !py-2'}>
+                  <option value="">Choose an approved driver</option>
+                  {drivers.map((d) => (
+                    <option key={d.id} value={d.id}>{d.full_name || d.email}</option>
+                  ))}
+                </select>
+                <button type="button" disabled={!driverId || busy}
+                  onClick={() => run(o.orderCode, async () => {
+                    await api.adminFoodAssignDriver(o.orderCode, driverId);
+                    setAssigning(null);
+                  })}
+                  className={btnPrimary + ' !py-2 !px-3.5 !text-xs'}>
+                  Assign
+                </button>
+                <button type="button" onClick={() => setAssigning(null)} className={btnGhost + ' !py-2 !px-3.5 !text-xs'}>
+                  Cancel
+                </button>
+                {drivers.length === 0 && (
+                  <p className="text-xs text-brand-grey w-full">
+                    No approved drivers yet — riders are normally offered the job automatically; this is the manual fallback.
+                  </p>
+                )}
+              </div>
+            )}
+          </Card>
+        );
+      })}
+    </div>
+  );
+}
+
+// --- Tab root ------------------------------------------------------------------
+export default function FoodAdmin() {
+  const [overview, setOverview] = useState(null);
+  const [error, setError] = useState(null);
+  const onError = useCallback((msg) => setError(msg), []);
+
+  useEffect(() => {
+    api.adminFoodOverview().then(setOverview).catch((e) => setError(e.message));
+  }, []);
+
+  return (
+    <div className="space-y-5">
+      {error && (
+        <div className="p-3 rounded-xl bg-red-50 border border-red-200 text-red-700 text-sm font-medium flex items-center justify-between gap-3">
+          <span>{error}</span>
+          <button type="button" onClick={() => setError(null)} className="shrink-0 cursor-pointer"><X className="w-4 h-4" /></button>
+        </div>
+      )}
+
+      {!overview ? (
+        <div className="flex justify-center py-8"><Spinner className="!w-7 !h-7" /></div>
+      ) : (
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+          <Stat label="Orders today" value={overview.todayOrders} />
+          <Stat label="Total orders" value={overview.totalOrders} />
+          <Stat label="Platform revenue" value={fmtSAR(overview.revenue)} accent />
+          <Stat label="Restaurants" value={overview.merchants} />
+          <Stat label="Suspended" value={overview.suspendedMerchants} />
+          <Stat label="Payments to verify" value={overview.paymentsAwaitingReview} accent />
+        </div>
+      )}
+
+      <div className="grid grid-cols-1 xl:grid-cols-2 gap-5 items-start">
+        <div className="space-y-3">
+          <p className="font-black text-brand-black flex items-center gap-2">
+            <Store className="w-4 h-4 text-brand-orange" /> Restaurants (admin-run)
+          </p>
+          <MerchantsSection onError={onError} />
+        </div>
+        <div className="space-y-3">
+          <p className="font-black text-brand-black flex items-center gap-2">
+            <ClipboardList className="w-4 h-4 text-brand-orange" /> Orders
+          </p>
+          <OrdersSection onError={onError} />
+        </div>
+      </div>
+    </div>
+  );
+}

@@ -1,0 +1,166 @@
+erDiagram
+    AUTH_USERS ||--|| PROFILES : "1:1 (auth identity)"
+    PROFILES ||--o{ BOOKINGS : "books (user_id)"
+    PROFILES ||--o{ BOOKINGS : "drives (assigned_driver_id)"
+    PROFILES ||--o{ PAYMENT_PROOFS : "uploads"
+    PROFILES ||--o{ PAYMENT_PROOFS : "reviews (admin)"
+    PROFILES ||--o{ PAYMENTS : "verifies (admin)"
+    PROFILES ||--o{ TRACKING_EVENTS : "creates"
+    PROFILES ||--o{ DRIVER_LOCATIONS : "pings"
+    PROFILES ||--o{ LEDGER_ENTRIES : "earns (driver)"
+    PROFILES ||--o{ DRIVER_DOCUMENTS : "submits"
+    PROFILES ||--o{ DRIVER_DOCUMENTS : "reviews (admin)"
+    PROFILES ||--o{ DEVICE_PUSH_TOKENS : "registers"
+    PROFILES ||--o{ NOTIFICATION_EVENTS : "receives"
+
+    BOOKINGS ||--o{ PAYMENT_PROOFS : "has"
+    BOOKINGS ||--o{ PAYMENTS : "has"
+    BOOKINGS ||--o{ TRACKING_EVENTS : "logs"
+    BOOKINGS ||--o{ LEDGER_ENTRIES : "settles"
+    BOOKINGS ||--o{ WEBHOOK_EVENTS : "referenced by"
+    BOOKINGS ||--o{ NOTIFICATION_EVENTS : "triggers"
+
+    PROFILES {
+        uuid id PK "FK auth.users (cascade)"
+        user_role role "default passenger"
+        text full_name
+        text mobile_number
+        text whatsapp_number
+        text email
+        boolean driver_approved "default true (pilot)"
+        date date_of_birth
+        text gender
+        text national_id
+        text vehicle_type
+        text vehicle_plate
+        driver_verification_status driver_verification_status "NEW default none"
+        timestamptz created_at
+        timestamptz updated_at
+    }
+
+    BOOKINGS {
+        uuid id PK
+        text booking_code UK "default gen_booking_code()"
+        uuid user_id FK "profiles (set null)"
+        trip_type trip_type "NOT NULL"
+        order_type order_type "NEW default pick_drop"
+        text airport_terminal
+        text pickup_address
+        double pickup_lat
+        double pickup_lng
+        text dropoff_address
+        double dropoff_lat
+        double dropoff_lng
+        timestamptz pickup_datetime
+        int passenger_count "default 1"
+        int luggage_count "default 0"
+        numeric fare_amount "NOT NULL"
+        text currency "default SAR"
+        payment_method payment_method
+        payment_status payment_status
+        booking_status booking_status
+        verification_mode verification_mode
+        uuid assigned_driver_id FK "profiles (set null)"
+        driver_ride_status driver_ride_status
+        timestamptz created_at
+        timestamptz updated_at
+    }
+
+    PAYMENT_PROOFS {
+        uuid id PK
+        uuid booking_id FK "bookings (cascade)"
+        uuid uploaded_by_user_id FK "profiles (set null)"
+        text file_url "NOT NULL"
+        text file_hash
+        proof_status status "default uploaded"
+        verification_mode verification_mode
+        uuid admin_reviewer_id FK "profiles (set null)"
+        timestamptz created_at
+    }
+
+    PAYMENTS {
+        uuid id PK
+        uuid booking_id FK "bookings (cascade)"
+        payment_provider provider "default stcpay_manual"
+        numeric amount "NOT NULL"
+        text currency "default SAR"
+        payment_status status
+        uuid verified_by_admin_id FK "profiles (set null)"
+        boolean verified_by_system
+        text gateway_payment_id "NEW unique"
+        jsonb gateway_raw "NEW"
+        timestamptz created_at
+    }
+
+    TRACKING_EVENTS {
+        uuid id PK
+        uuid booking_id FK "bookings (cascade)"
+        text event_type "NOT NULL"
+        text title
+        text message
+        uuid created_by_user_id FK "profiles (set null)"
+        timestamptz created_at
+    }
+
+    DRIVER_LOCATIONS {
+        uuid id PK
+        uuid driver_id FK "profiles (cascade)"
+        double lat "NOT NULL"
+        double lng "NOT NULL"
+        double accuracy_meters
+        timestamptz recorded_at
+    }
+
+    LEDGER_ENTRIES {
+        uuid id PK
+        uuid booking_id FK "bookings (cascade)"
+        uuid driver_id FK "profiles (set null)"
+        numeric gross_fare "NOT NULL"
+        numeric platform_commission
+        numeric driver_net
+        numeric platform_net
+        payout_status payout_status "default pending"
+        timestamptz created_at
+    }
+
+    DRIVER_DOCUMENTS {
+        uuid id PK "NEW"
+        uuid driver_id FK "profiles (cascade)"
+        driver_doc_type doc_type "NOT NULL"
+        text storage_path "NOT NULL"
+        text file_hash
+        date expiry_date
+        driver_doc_status status "default pending"
+        uuid reviewed_by_admin_id FK "profiles (set null)"
+        timestamptz created_at
+    }
+
+    WEBHOOK_EVENTS {
+        uuid id PK "NEW"
+        text provider
+        text event_type
+        text gateway_payment_id
+        uuid booking_id FK "bookings (set null)"
+        boolean signature_verified
+        jsonb payload
+        timestamptz created_at
+    }
+
+    DEVICE_PUSH_TOKENS {
+        uuid id PK "NEW"
+        uuid user_id FK "profiles (cascade)"
+        text token "NOT NULL"
+        text platform "android/ios/web"
+        timestamptz last_seen_at
+        timestamptz created_at
+    }
+
+    NOTIFICATION_EVENTS {
+        uuid id PK "NEW"
+        uuid user_id FK "profiles (set null)"
+        uuid booking_id FK "bookings (set null)"
+        text type
+        text channel
+        timestamptz sent_at
+        timestamptz created_at
+    }

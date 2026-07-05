@@ -6,6 +6,7 @@ import {
   LayoutDashboard,
   ClipboardList,
   Users,
+  UtensilsCrossed,
   BarChart3,
   RefreshCw,
   LogOut,
@@ -117,6 +118,7 @@ export const ADMIN_NAV = [
   { id: 'overview', label: 'Overview', icon: LayoutDashboard },
   { id: 'bookings', label: 'Bookings', icon: ClipboardList },
   { id: 'drivers', label: 'Drivers', icon: Users },
+  { id: 'food', label: 'Food', icon: UtensilsCrossed },
   { id: 'reports', label: 'Reports', icon: BarChart3 },
 ];
 
@@ -132,6 +134,10 @@ const PAGE_COPY = {
   drivers: {
     title: 'Drivers',
     subtitle: 'Approve new drivers and manage fleet access.',
+  },
+  food: {
+    title: 'Food Delivery',
+    subtitle: 'Merchants, credit limits, order payments, and riders.',
   },
   reports: {
     title: 'Reports',
