@@ -665,15 +665,19 @@ async function verifyPayment(req, res) {
     }
 
     // Promote the awaiting proof row (if any) to paid, then mark the order.
-    await supabase
+    // When a proof row exists it becomes THE payment record, so tell
+    // markOrderPaid not to insert a second (duplicate) paid row.
+    const { data: promoted } = await supabase
       .from('order_payments')
       .update({ status: 'paid' })
       .eq('order_id', order.id)
-      .eq('status', 'awaiting');
+      .eq('status', 'awaiting')
+      .select('id');
     await markOrderPaid(order, {
       provider: order.payment_method,
       transactionId: order.gateway_transaction_id,
       actorId: req.adminId,
+      skipPaymentRow: !!(promoted && promoted.length),
     });
 
     return res.json({ orderCode: order.order_code, paymentStatus: 'paid' });

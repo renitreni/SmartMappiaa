@@ -419,28 +419,34 @@ async function createPayUploadUrl(req, res) {
 // Mark an order paid + record the confirmation. Shared by the test-mode
 // auto-verify, the admin manual verify, and the Tap webhook — all paths
 // stay idempotent because order_payments.gateway_transaction_id is unique.
-async function markOrderPaid(order, { provider, transactionId = null, raw = null, actorId = null }) {
-  const { data: payment, error: payErr } = await supabase
-    .from('order_payments')
-    .insert({
-      order_id: order.id,
-      provider,
-      amount: order.total,
-      status: 'paid',
-      gateway_transaction_id: transactionId,
-      gateway_raw: raw,
-    })
-    .select('id')
-    .single();
-  if (payErr) {
-    // 23505 = unique violation on gateway_transaction_id: already confirmed.
-    if (payErr.code === '23505') return { alreadyPaid: true };
-    throw payErr;
+async function markOrderPaid(order, { provider, transactionId = null, raw = null, actorId = null, skipPaymentRow = false }) {
+  // skipPaymentRow: the caller already has a paid order_payments row (admin
+  // verify promotes the awaiting proof row) — don't insert a duplicate.
+  let paymentId = null;
+  if (!skipPaymentRow) {
+    const { data: payment, error: payErr } = await supabase
+      .from('order_payments')
+      .insert({
+        order_id: order.id,
+        provider,
+        amount: order.total,
+        status: 'paid',
+        gateway_transaction_id: transactionId,
+        gateway_raw: raw,
+      })
+      .select('id')
+      .single();
+    if (payErr) {
+      // 23505 = unique violation on gateway_transaction_id: already confirmed.
+      if (payErr.code === '23505') return { alreadyPaid: true };
+      throw payErr;
+    }
+    paymentId = payment.id;
   }
 
   await supabase.from('orders').update({
     payment_status: 'paid',
-    gateway_transaction_id: transactionId,
+    ...(transactionId != null ? { gateway_transaction_id: transactionId } : {}),
   }).eq('id', order.id);
 
   logFoodEvent({
@@ -472,7 +478,7 @@ async function markOrderPaid(order, { provider, transactionId = null, raw = null
     const { startFoodDispatch } = require('../../lib/dispatch');
     startFoodDispatch(order.id);
   }
-  return { paymentId: payment.id };
+  return { paymentId };
 }
 
 async function recordPayment(req, res) {
@@ -608,8 +614,16 @@ async function createTapCharge(req, res) {
 
 async function tapWebhook(req, res) {
   try {
+    // Tap is a deferred/placeholder path. With no gateway configured, NO
+    // legitimate Tap webhook can arrive — so reject rather than trust an
+    // unsigned request. (Otherwise an unsigned "CAPTURED" POST with a known
+    // order code would mark that order paid, bypassing payment.) Mirrors
+    // createTapCharge's 503 while TAP_* is unset.
+    if (!config.tap.webhookSecret) {
+      return res.status(503).json({ error: 'Tap Payments is not configured' });
+    }
     // The signed webhook is the source of truth for Tap payments.
-    if (config.tap.webhookSecret) {
+    {
       const signature = req.get('hashstring') || '';
       const payload = JSON.stringify(req.body || {});
       const expected = crypto
