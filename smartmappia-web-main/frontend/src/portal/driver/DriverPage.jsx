@@ -46,6 +46,8 @@ import { realtimeEnabled } from '../lib/supabaseClient';
 
 import DriverVerification from './DriverVerification';
 
+import DriverDispatch from './DriverDispatch';
+
 import { whatsappLink } from '../lib/constants';
 import { notifyAlert } from '../lib/notify';
 
@@ -982,6 +984,14 @@ export default function DriverPage() {
           </div>
 
         )}
+
+        {/* Grab-style dispatch: exclusive 30s offers + food deliveries. */}
+        <DriverDispatch
+          online={online}
+          driverId={profile?.id}
+          coords={coords}
+          onRideAccepted={loadActive}
+        />
 
 
 

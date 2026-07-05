@@ -1,7 +1,9 @@
 const express = require('express');
 const router = express.Router();
 const { requireAuth } = require('../middleware/auth');
+const { validateBody } = require('../lib/validate');
 const { proofLimiter, lookupLimiter } = require('../middleware/rateLimiters');
+const { rateRideDriver } = require('../controllers/ratingsController');
 const {
   createBooking,
   getBookingByCode,
@@ -21,6 +23,17 @@ router.get('/:bookingCode', lookupLimiter, getBookingByCode);
 
 // POST /api/bookings/:bookingCode/cancel -> owner cancels the trip
 router.post('/:bookingCode/cancel', requireAuth, cancelBooking);
+
+// POST /api/bookings/:code/rate-driver -> 1-5 stars after a completed trip
+router.post(
+  '/:code/rate-driver',
+  requireAuth,
+  validateBody({
+    stars: { type: 'integer', required: true, min: 1, max: 5 },
+    comment: { type: 'string', maxLength: 500, nullable: true },
+  }),
+  rateRideDriver
+);
 
 // --- Payments (increments 1 & 2) ---
 // GET  /api/bookings/:bookingCode/payment-instructions -> how to pay (STC Pay)

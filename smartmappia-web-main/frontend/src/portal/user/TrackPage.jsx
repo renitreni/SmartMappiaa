@@ -17,8 +17,10 @@ import { statusMeta, whatsappLink, CANCELLABLE } from '../lib/constants';
 import { fetchRoute } from '../lib/osrm';
 import { movementFrom, bearingDeg, resolveCoordsFromAddress } from '../lib/geo';
 import { notifyAlert } from '../lib/notify';
+import { useAuth } from '../lib/AuthProvider';
 import { PortalShell, Card, Badge, Spinner, btnGhost } from '../components/ui';
 import RideMap from '../components/RideMap';
+import RateDriver from '../components/RateDriver';
 
 // Round a coord to ~100m so the OSRM route only refetches on real movement.
 const r3 = (x) => (x == null ? '' : Math.round(x * 1000) / 1000);
@@ -27,6 +29,7 @@ const ACTIVE = ['accepted', 'on_the_way', 'arrived', 'started'];
 
 export default function TrackPage() {
   const { code } = useParams();
+  const { session } = useAuth(); // rating requires a signed-in owner
   const [data, setData] = useState(null);
   const [live, setLive] = useState({ driverLocation: null, etaMinutes: null });
   const [route, setRoute] = useState(null);
@@ -291,6 +294,12 @@ export default function TrackPage() {
             <Card className="p-4 text-center text-sm text-brand-grey">
               {waiting ? 'No driver yet — waiting for one to accept your trip.' : '—'}
             </Card>
+          )}
+
+          {/* Trip finished: rate the driver (1-5 stars). Owner accounts only —
+              guest bookings have no account to rate from. */}
+          {data.bookingStatus === 'completed' && data.driver && session && (
+            <RateDriver kind="ride" code={code} driverName={data.driver.name} />
           )}
 
           {/* Trip details */}
