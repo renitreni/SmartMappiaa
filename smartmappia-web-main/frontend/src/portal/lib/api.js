@@ -102,4 +102,69 @@ export const api = {
   // --- notifications (device push tokens) ---
   registerPushToken: (body) => request('/api/notifications/register', { method: 'POST', body, silent: true }),
   unregisterPushToken: (token) => request('/api/notifications/unregister', { method: 'POST', body: { token }, silent: true }),
+
+  // --- food delivery: customer ---
+  foodRestaurants: (params = '') => request(`/api/food/restaurants${params}`, { silent: true }),
+  foodRestaurant: (id) => request(`/api/food/restaurants/${id}`, { silent: true }),
+  foodCart: (merchantId) => request(`/api/food/cart?merchant_id=${encodeURIComponent(merchantId)}`, { silent: true }),
+  foodCartAdd: (body) => request('/api/food/cart/items', { method: 'POST', body }),
+  foodCartUpdate: (id, quantity) => request(`/api/food/cart/items/${id}`, { method: 'PATCH', body: { quantity } }),
+  foodCartRemove: (id) => request(`/api/food/cart/items/${id}`, { method: 'DELETE' }),
+  // Checkout: the backend recomputes all money and enforces the 30 SAR
+  // minimum + 15 km radius; a 422 carries failure_reason for the UI.
+  foodCheckout: (body, idempotencyKey) =>
+    request('/api/food/orders', { method: 'POST', body, headers: idempotencyKey ? { 'Idempotency-Key': idempotencyKey } : {}, silent: true }),
+  foodOrders: () => request('/api/food/orders'),
+  foodOrder: (code) => request(`/api/food/orders/${code}`, { silent: true }), // polled on tracking
+  foodPaymentInfo: (code) => request(`/api/food/orders/${code}/pay`),
+  foodPaySignedUrl: (code, body) => request(`/api/food/orders/${code}/pay/signed-url`, { method: 'POST', body }),
+  foodRecordPayment: (code, body) => request(`/api/food/orders/${code}/pay`, { method: 'POST', body }),
+  foodTapCharge: (code) => request(`/api/food/orders/${code}/tap-charge`, { method: 'POST' }),
+  foodEvent: (body) => request('/api/food/events', { method: 'POST', body, silent: true }),
+
+  // --- food delivery: driver dispatch (Grab-style offers + deliveries) ---
+  driverOffers: () => request('/api/driver/offers', { silent: true }), // polled while online
+  driverOfferAccept: (id) => request(`/api/driver/offers/${id}/accept`, { method: 'POST', silent: true }),
+  driverOfferDecline: (id) => request(`/api/driver/offers/${id}/decline`, { method: 'POST', silent: true }),
+  driverDeliveries: () => request('/api/driver/deliveries', { silent: true }),
+  driverOpenDeliveries: (lat, lng) => {
+    const q = lat != null && lng != null ? `?lat=${lat}&lng=${lng}` : '';
+    return request(`/api/driver/deliveries/available${q}`, { silent: true }); // polled feed
+  },
+  driverClaimDelivery: (code) => request(`/api/driver/deliveries/${code}/claim`, { method: 'POST' }),
+  // Photo proof is mandatory: upload first, then send the path with the status.
+  driverDeliveryPhotoUrl: (code, body) => request(`/api/driver/deliveries/${code}/photo-url`, { method: 'POST', body }),
+  driverDeliveryStatus: (code, status, photo_path) =>
+    request(`/api/driver/deliveries/${code}/status`, { method: 'POST', body: { status, photo_path } }),
+
+  // --- driver ratings (1-5 stars after a delivered order / completed trip) ---
+  rateFoodDriver: (code, body) => request(`/api/food/orders/${code}/rate-driver`, { method: 'POST', body, silent: true }),
+  rateRideDriver: (code, body) => request(`/api/bookings/${code}/rate-driver`, { method: 'POST', body, silent: true }),
+
+  // --- food delivery: admin (admins run the restaurants — no owner accounts) ---
+  adminFoodOverview: () => request('/api/admin/food/overview'),
+  adminFoodMerchants: () => request('/api/admin/food/merchants'),
+  adminFoodCreateMerchant: (body) => request('/api/admin/food/merchants', { method: 'POST', body }),
+  adminFoodUpdateMerchant: (id, body) => request(`/api/admin/food/merchants/${id}`, { method: 'PATCH', body }),
+  adminFoodDeleteMerchant: (id) => request(`/api/admin/food/merchants/${id}`, { method: 'DELETE' }),
+  adminFoodSuspend: (id, reason) => request(`/api/admin/food/merchants/${id}/suspend`, { method: 'POST', body: { reason } }),
+  adminFoodReactivate: (id) => request(`/api/admin/food/merchants/${id}/reactivate`, { method: 'POST' }),
+  adminFoodCredit: (id, body) => request(`/api/admin/food/merchants/${id}/credit`, { method: 'POST', body }),
+  adminFoodMerchantMenu: (id) => request(`/api/admin/food/merchants/${id}/menu`),
+  adminFoodAddCategory: (id, body) => request(`/api/admin/food/merchants/${id}/menu/categories`, { method: 'POST', body }),
+  adminFoodUpdateCategory: (catId, body) => request(`/api/admin/food/categories/${catId}`, { method: 'PATCH', body }),
+  adminFoodDeleteCategory: (catId) => request(`/api/admin/food/categories/${catId}`, { method: 'DELETE' }),
+  adminFoodAddItem: (id, body) => request(`/api/admin/food/merchants/${id}/menu/items`, { method: 'POST', body }),
+  adminFoodModerateItem: (id, body) => request(`/api/admin/food/items/${id}`, { method: 'PATCH', body }),
+  adminFoodDeleteItem: (id) => request(`/api/admin/food/items/${id}`, { method: 'DELETE' }),
+  adminFoodOrders: (query = '') => request(`/api/admin/food/orders${query}`),
+  adminFoodAcceptOrder: (code) => request(`/api/admin/food/orders/${code}/accept`, { method: 'POST', silent: true }),
+  adminFoodRejectOrder: (code, reason) => request(`/api/admin/food/orders/${code}/reject`, { method: 'POST', body: { reason } }),
+  adminFoodOrderStatus: (code, status) => request(`/api/admin/food/orders/${code}/status`, { method: 'PATCH', body: { status } }),
+  adminFoodVerifyPayment: (code) => request(`/api/admin/food/orders/${code}/verify-payment`, { method: 'POST' }),
+  adminFoodRejectPayment: (code, reason) => request(`/api/admin/food/orders/${code}/reject-payment`, { method: 'POST', body: { reason } }),
+  adminFoodCancelOrder: (code, reason) => request(`/api/admin/food/orders/${code}/cancel`, { method: 'POST', body: { reason } }),
+  adminFoodRefund: (code) => request(`/api/admin/food/orders/${code}/refund`, { method: 'POST' }),
+  adminFoodOrderPhotos: (code) => request(`/api/admin/food/orders/${code}/photos`),
+  adminFoodAssignDriver: (code, driver_id) => request(`/api/admin/food/orders/${code}/assign-driver`, { method: 'POST', body: { driver_id } }),
 };

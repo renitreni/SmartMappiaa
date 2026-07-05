@@ -11,6 +11,7 @@ import { statusMeta } from '../lib/constants';
 import { Card, Badge, Spinner, btnPrimary } from '../components/ui';
 import AdminLayout from './AdminLayout';
 import Dashboard from './Dashboard';
+import FoodAdmin from './FoodAdmin';
 
 const FILTERS = [
   { id: 'review', label: 'Needs review', q: '?payment_status=proof_uploaded' },
@@ -694,6 +695,7 @@ export default function AdminPage() {
       {tab === 'overview' && <Dashboard key={`o${tick}`} onNavigate={setTab} />}
       {tab === 'bookings' && <BookingsView key={`b${tick}`} />}
       {tab === 'drivers' && <DriversView key={`d${tick}`} />}
+      {tab === 'food' && <FoodAdmin key={`f${tick}`} />}
       {tab === 'reports' && <ReportsView key={`r${tick}`} />}
     </AdminLayout>
   );

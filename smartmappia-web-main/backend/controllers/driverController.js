@@ -18,6 +18,7 @@ const {
   pushBookingStatus,
   announceRequestTaken,
   pingAdmin,
+  pushFoodOrderStatus,
 } = require('../lib/realtime');
 
 // driver_ride_status value -> resulting booking_status + human title.
@@ -181,6 +182,27 @@ async function updateDriverLocation(req, res) {
       pushBookingStatus(r.booking_code, {
         driverLocation: { lat: Number(lat), lng: Number(lng), at },
         etaMinutes: etaMinutes(distanceKm),
+      });
+    });
+
+    // Same for any food delivery this driver is carrying — the customer's
+    // tracking map moves the rider pin on every ping (Grab-style).
+    const { data: activeDeliveries } = await supabase
+      .from('deliveries')
+      .select('order_id, orders!inner ( order_code, status, delivery_lat, delivery_lng )')
+      .eq('driver_id', req.driverId)
+      .in('orders.status', ['accepted', 'preparing', 'ready', 'out_for_delivery']);
+
+    (activeDeliveries || []).forEach((d) => {
+      const o = d.orders;
+      const distanceKm = haversineKm(
+        { lat: Number(lat), lng: Number(lng) },
+        { lat: o.delivery_lat, lng: o.delivery_lng }
+      );
+      pushFoodOrderStatus(o.order_code, {
+        status: o.status,
+        riderLocation: { lat: Number(lat), lng: Number(lng), at },
+        riderEtaMinutes: etaMinutes(distanceKm),
       });
     });
 

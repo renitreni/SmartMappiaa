@@ -3,15 +3,15 @@
 // ---------------------------------------------------------------------
 
 // Where each role lands after signing in (admins always go to their dashboard).
-// Passengers land on their booking portal (/book), not the marketing homepage —
-// honor an explicit non-root `next` (e.g. a page they were bounced from) first.
+// Users land on the multi-service hub (/home) — Pick & Drop and Food Delivery
+// are equal citizens — honoring an explicit non-root `next` first.
 export function roleHome(role, next = '/') {
   if (role === 'admin') return '/admin';
   if (role === 'driver') return '/driver';
   // Passengers: honor an explicit `next`, but never follow a stale one into an
   // admin/driver-only area (e.g. ?next=/admin left over after switching accounts).
   const safeNext = next && next !== '/' && !next.startsWith('/admin') && !next.startsWith('/driver');
-  return safeNext ? next : '/book';
+  return safeNext ? next : '/home';
 }
 
 // Fare model (mirrors backend lib/fare.js): flat base + 3.75% service fee.
@@ -86,3 +86,62 @@ export const CANCELLABLE = [
   'driver_on_the_way',
   'arrived',
 ];
+
+// --- Food Delivery ---------------------------------------------------
+
+// Business rules mirrored from backend lib/foodMoney.js for DISPLAY ONLY —
+// the server re-validates all of them at checkout/accept.
+export const FOOD_MIN_ORDER = 30;
+export const FOOD_DELIVERY_FEE = 10;
+export const FOOD_RADIUS_KM = 15;
+export const MERCHANT_CREDIT_LIMIT = 300;
+export const MERCHANT_CREDIT_ALERT = 240; // 80% of the 300 SAR limit
+
+// Currency shown as `SAR 30.00` consistently across the food screens.
+export function fmtSAR(amount) {
+  return `SAR ${Number(amount ?? 0).toFixed(2)}`;
+}
+
+// Human-friendly labels + colors for food order statuses.
+export const FOOD_ORDER_STATUS = {
+  pending: { label: 'Pending', tone: 'amber' },
+  accepted: { label: 'Accepted', tone: 'blue' },
+  preparing: { label: 'Preparing', tone: 'blue' },
+  ready: { label: 'Ready', tone: 'blue' },
+  out_for_delivery: { label: 'Out for delivery', tone: 'blue' },
+  delivered: { label: 'Delivered', tone: 'green' },
+  cancelled: { label: 'Cancelled', tone: 'red' },
+  rejected: { label: 'Rejected', tone: 'red' },
+};
+
+export const FOOD_PAYMENT_STATUS = {
+  awaiting: { label: 'Awaiting payment', tone: 'amber' },
+  paid: { label: 'Paid', tone: 'green' },
+  failed: { label: 'Payment failed', tone: 'red' },
+  refunded: { label: 'Refunded', tone: 'grey' },
+};
+
+export function foodStatusMeta(status) {
+  return FOOD_ORDER_STATUS[status] || { label: status || 'Unknown', tone: 'grey' };
+}
+
+export function foodPaymentMeta(status) {
+  return FOOD_PAYMENT_STATUS[status] || { label: status || 'Unknown', tone: 'grey' };
+}
+
+// The fulfillment ladder shown on the tracking stepper. `desc` is the
+// notification-style line shown under the currently active step.
+export const FOOD_TRACK_STEPS = [
+  { id: 'pending', label: 'Order placed', desc: 'Waiting for the restaurant to confirm your order.' },
+  { id: 'accepted', label: 'Confirmed', desc: 'The restaurant confirmed your order.' },
+  { id: 'preparing', label: 'Preparing', desc: 'The restaurant is preparing your order.' },
+  { id: 'ready', label: 'Ready', desc: 'Your order is ready and waiting for the rider.' },
+  { id: 'out_for_delivery', label: 'Out for delivery', desc: 'Your rider picked up the order and is on the way to you.' },
+  { id: 'delivered', label: 'Delivered', desc: 'Enjoy your meal.' },
+];
+
+export const FOOD_PAYMENT_METHODS = {
+  stcpay: 'STC Pay',
+  tap: 'Card (Tap)',
+  cash: 'Cash on delivery',
+};

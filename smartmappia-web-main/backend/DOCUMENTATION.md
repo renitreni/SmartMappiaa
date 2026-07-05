@@ -1,5 +1,14 @@
 # Smart Mappia — Backend Guide
 
+> **Recent additions (1 July 2026), now LIVE at `api.smartmappia.com`:** driver verification
+> (KYC) endpoints — `/api/driver/documents*` and admin `/api/admin/drivers/:id/documents*`
+> (auto-approves once all required docs are verified; approval gate re-enabled); notification
+> device-token endpoints — `/api/notifications/*`; an OSRM routing proxy — `/api/osrm/*` (private
+> self-hosted OSRM); and per-endpoint rate limiting (`middleware/rateLimiters.js`) + `trust proxy`.
+> See [../docs/production/PICK_AND_DROP.md](../docs/production/PICK_AND_DROP.md),
+> [../docs/production/ANDROID_APP_GUIDE.md](../docs/production/ANDROID_APP_GUIDE.md), and
+> [../docs/production/DEPLOYMENT_LOG.md](../docs/production/DEPLOYMENT_LOG.md).
+
 Hey 👋 — this is the field guide to the Smart Mappia backend. It powers the Airport
 Pick & Drop service: booking a ride, paying by STC Pay, matching a nearby driver
 Grab-style, and tracking the trip live.

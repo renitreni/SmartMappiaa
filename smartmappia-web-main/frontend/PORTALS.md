@@ -1,5 +1,12 @@
 # Smart Mappia — Pick & Drop Portals (Frontend)
 
+> **Recent additions (1 July 2026), now LIVE at `smartmappia.com`:** the driver **verification
+> (KYC)** screen (`src/portal/driver/DriverVerification.jsx`) shown to unapproved drivers, and the
+> admin **document review** panel in the Drivers tab (`AdminPage.jsx`). Company/contact info is
+> centralized in `src/config/company.js`. Online payment (Tap) is behind `VITE_TAP_ENABLED` (off).
+> The same build is wrapped as the Android app — see
+> [../docs/production/ANDROID_APP_GUIDE.md](../docs/production/ANDROID_APP_GUIDE.md).
+
 Welcome 👋 — this is the frontend half of Smart Mappia: a Grab-style Pick & Drop experience
 bolted onto the existing React + Vite marketing site. There are three people in this story —
 the **rider**, the **driver**, and the **admin** — and this doc walks through how each of them

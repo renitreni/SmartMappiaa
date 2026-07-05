@@ -1,256 +1,119 @@
 # Smart Mappia — Backend
 
-Hey 👋 — this is the backend for Smart Mappia's Airport Pick & Drop. It handles booking a
-ride, paying by STC Pay, matching a nearby driver Grab-style, and tracking the trip live.
+This is the backend for Smart Mappia's Airport **Pick & Drop**. It handles booking a ride, paying by
+STC Pay, matching a nearby driver Grab-style, tracking the trip live, driver verification (KYC), and
+notification plumbing.
 
-It's **Node.js + Express** (plain JavaScript, no build step) on **Supabase** (Postgres + Auth
-+ private Storage). The same app runs on your laptop (`server.js`) and as a Vercel serverless
-function (`api/index.js`).
+**Node.js + Express** (plain JavaScript, no build step) on **Supabase** (Postgres + Auth + private
+Storage + Realtime). Runs the same on your laptop (`server.js`) and on the production VPS via PM2.
 
-> This README is the quick start. For the deep dive — architecture, the full API, the data
-> model, and the go-live checklist — see **[DOCUMENTATION.md](DOCUMENTATION.md)**. The frontend
-> portals are documented in **[../frontend/PORTALS.md](../frontend/PORTALS.md)**.
+> Quick start below. Deep dive (architecture, data model, go-live): **[DOCUMENTATION.md](DOCUMENTATION.md)**.
+> Frontend portals: **[../frontend/PORTALS.md](../frontend/PORTALS.md)**. Production feature doc:
+> **[../docs/production/PICK_AND_DROP.md](../docs/production/PICK_AND_DROP.md)**. How prod was deployed:
+> **[../docs/production/DEPLOYMENT_LOG.md](../docs/production/DEPLOYMENT_LOG.md)**.
+
+**Live:** API at `https://api.smartmappia.com` (behind Nginx + HTTPS, PM2 process `smartmappia-api`).
 
 ---
 
 ## What's built
 
-**Auth**
-- `POST /api/auth/sync` — after a Supabase login, creates/updates the user's profile and role
+**Auth** (Supabase JWT)
+- `POST /api/auth/signup` — create the account (email pre-confirmed)
+- `POST /api/auth/sync` — after login, upsert the profile + role (admin only via `ADMIN_EMAILS`)
 
-**Passenger**
-- `POST /api/bookings` — create a booking (requires sign-in; fare snapshot + booking code)
-- `GET  /api/bookings/:code` — booking summary
-- `POST /api/bookings/:code/cancel` — cancel (owner only)
-- `GET  /api/bookings/:code/payment-instructions` — STC Pay details + the fare breakdown
-- `POST /api/bookings/:code/payment-proof/signed-url` — get a signed upload URL
-- `POST /api/bookings/:code/payment-proof` — record the uploaded proof (auto-verifies in test mode)
+**Passenger / booking**
+- `POST /api/bookings` — create (requires sign-in; fare snapshot + booking code)
+- `GET  /api/bookings/:code` — booking summary · `POST /api/bookings/:code/cancel` — owner cancels
+- `GET  /api/bookings/:code/payment-instructions` — STC Pay details + fare
+- `POST /api/bookings/:code/payment-proof/signed-url` + `POST /api/bookings/:code/payment-proof`
 - `GET  /api/tracking/:code` — public live tracking (timeline, ETAs, driver position)
 
-**Admin**
-- `GET  /api/admin/bookings` and `/:code` — list / detail (with signed proof URLs)
-- `POST /api/admin/bookings/:code/verify-payment` · `/reject-payment` · `/assign-driver`
-- `GET  /api/admin/drivers` and `POST /api/admin/drivers/:id/approval` — approve/revoke drivers
-
 **Driver**
-- `GET  /api/driver/available` — the open feed of nearby unclaimed rides (approved drivers)
-- `POST /api/driver/rides/:code/accept` — atomically claim a ride
-- `POST /api/driver/location` — share live GPS
-- `GET  /api/driver/rides` — your assigned rides
-- `POST /api/driver/rides/:code/status` — advance the ride (completion writes the payout)
+- `GET  /api/driver/available` · `POST /api/driver/rides/:code/accept` · `POST /api/driver/location`
+- `GET  /api/driver/rides` · `POST /api/driver/rides/:code/status`
+- **KYC:** `POST /api/driver/documents/signed-url` · `POST /api/driver/documents` · `GET /api/driver/documents`
+
+**Admin** (`requireAdmin`)
+- `GET /api/admin/stats` · `/reports` · `/bookings` · `/bookings/:code`
+- `POST /api/admin/bookings/:code/verify-payment` · `/reject-payment` · `/assign-driver`
+- `GET /api/admin/drivers` · `POST /api/admin/drivers/:id/approval`
+- **KYC review:** `GET /api/admin/drivers/:id/documents` · `POST /api/admin/drivers/:id/documents/:docId/review`
+
+**Notifications**
+- `POST /api/notifications/register` · `/unregister` · `GET /api/notifications` (device push tokens + log)
+
+**Routing (OSRM proxy)**
+- `GET /api/osrm/route/v1/driving/...` — proxies the private self-hosted OSRM (localhost:5000)
 
 ### How auth works
-
-Real accounts via **Supabase Auth** (email + password). The frontend signs the user in and
-sends the access token as `Authorization: Bearer <jwt>`; the backend verifies it and reads the
-role from the `profiles` table.
-
+Supabase Auth (email + password). The frontend sends `Authorization: Bearer <jwt>`; the backend
+verifies it and reads the role from `profiles`.
 - **Passengers** must be signed in to book.
-- **Drivers** can sign up immediately but stay *pending* until an admin approves them — only
-  then can they see the feed or accept rides.
-- **Admins** aren't a signup option. Any account whose email is in `ADMIN_EMAILS` becomes an
-  admin automatically on sign-in.
-<<<<<<< HEAD
-=======
-- An **admin also passes the driver guards** (`requireDriver` / `requireApprovedDriver`). This
-  backs the admin "View" switch, which lets an admin try the user and driver screens without
-  logging out. It's a testing convenience — see the admin-preview note in `DOCUMENTATION.md`.
->>>>>>> 0e76961b6c844daa651302735be3f95582c61c86
-
-*(The old `x-admin-key` / `x-driver-key` shared-secret headers are gone — JWT replaced them.)*
+- **Drivers** sign up but stay unapproved until they pass **document verification** (KYC) and an
+  admin approves — only then can they see the feed or accept rides.
+- **Admins** aren't a signup option; role is granted only to emails in `ADMIN_EMAILS` (or an
+  existing admin profile). Never self-elevated via the request body.
+- An **admin also passes the driver guards** (admin "View as" preview convenience).
 
 ---
 
-## Get it running
+## Get it running (local)
 
-### 1. Set up the database (once)
+1. **Database** — in Supabase SQL Editor run migrations in order:
+   `0001, 0002, 0003, 0005, 0006, 0007, 0008` (**skip `0004`** — pilot-only auto-approve).
+2. **Storage** — create two **private** buckets: `payment-proofs` and `driver-docs`.
+3. **Env** — `cp .env.example .env`, then fill `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`,
+   `ADMIN_EMAILS`, `SMART_MAPPIA_STCPAY_NUMBER`. Keep `AUTO_VERIFY_STCPAY_TEST_MODE=true` for local
+   testing; **`false` in production**.
+4. **Run** — `npm install && npm run dev` → `http://localhost:4000`.
+5. **Accounts** — `npm run seed:admin` (or `seed:accounts` for admin + ***REMOVED*** + ***REMOVED***).
+   For custom admins: `ADMIN_SEED_EMAIL=you@x.com ADMIN_SEED_PASSWORD=... npm run seed:admin`.
 
-<<<<<<< HEAD
-In your Supabase project, open **SQL Editor → New query**, then run these two files in order:
-
-1. `0001_init_smart_mappia.sql` — all the tables, statuses, and security rules
-2. `0002_auth_driver_approval.sql` — adds the driver-approval flag
-=======
-In your Supabase project, open **SQL Editor → New query**, then run these three files from
-`migrations/` in order:
-
-1. `migrations/0001_init_smart_mappia.sql` — all the tables, statuses, and security rules
-2. `migrations/0002_auth_driver_approval.sql` — adds the driver-approval flag
-3. `migrations/0003_profile_registration_fields.sql` — sign-up extras (date of birth, vehicle, etc.)
-
-Run `npm run check:migrations` afterwards to confirm all three are applied.
->>>>>>> 0e76961b6c844daa651302735be3f95582c61c86
-
-### 2. A few Supabase switches
-
-- **Storage** — create a **private** bucket named `payment-proofs` (Storage → New bucket,
-  "Public" off). Proof images upload straight from the browser to this bucket via a signed URL;
-  they never touch the server.
-- **Auth** — for a frictionless MVP, turn **off** "Confirm email" (Auth → Providers → Email) so
-  new signups get a session right away.
-
-### 3. Configure your environment
-
-```bash
-cp .env.example .env
-```
-
-Then fill in:
-
-- `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` (Dashboard → Project Settings → API)
-- `ADMIN_EMAILS` — comma-separated emails that should be admins (e.g. `you@example.com`)
-- `SMART_MAPPIA_STCPAY_NUMBER` — the number passengers send money to
-
-Leave `AUTO_VERIFY_STCPAY_TEST_MODE=true` while you're testing (it auto-verifies payments).
-**Flip it to `false` before going live** — see the go-live section in DOCUMENTATION.md.
-
-### 4. Install and run
-
-```bash
-npm install
-npm run dev
-```
-
-You should see `Smart Mappia API running on http://localhost:4000`.
-
-<<<<<<< HEAD
-### 5. Create the admin account
-
-```bash
-npm run seed:admin
-```
-
-This creates a ready-to-use admin (default `admin123@smartmappia.com` / `admin123`, set by
-`ADMIN_SEED_EMAIL` / `ADMIN_SEED_PASSWORD`) with its email pre-confirmed, and marks the profile
-as admin. It's idempotent — re-running just resets the password. Then sign in at `/login` with
-those credentials.
-
-> These are **test credentials** — change them before production, and keep the email in sync
-> with `ADMIN_EMAILS`.
-=======
-### 5. Create the test accounts
-
-```bash
-npm run seed:accounts
-```
-
-This creates three ready-to-use logins, each with its email pre-confirmed:
-
-| Role | Email | Password |
-|---|---|---|
-| Admin | `admin123@smartmappia.com` | `admin123` |
-| User (passenger) | `***REMOVED***@smartmappia.com` | `***REMOVED***` |
-| Driver (pre-approved) | `***REMOVED***@smartmappia.com` | `***REMOVED***` |
-
-It's idempotent — re-running resets each account to its correct role and password, which is the
-quickest way to fix a profile that got stuck on the wrong role. (`npm run seed:admin` still works
-if you only want the admin.) Sign in at `/login` with any of them.
-
-> These are **test credentials** — change them before production, and keep the admin email in
-> sync with `ADMIN_EMAILS`.
->>>>>>> 0e76961b6c844daa651302735be3f95582c61c86
+Health check: `curl http://localhost:4000/api/health`.
 
 ---
 
-## Kick the tires
+## Production (VPS)
 
-Health check (no auth needed):
+Deployed on a Hostinger VPS: Node + PM2 behind Nginx + Certbot (HTTPS), with self-hosted OSRM in
+Docker. `app.set('trust proxy', 1)` is on so rate limits key on the real client IP. Full runbook +
+exact commands: **[../docs/production/DEPLOYMENT_LOG.md](../docs/production/DEPLOYMENT_LOG.md)**.
 
+Redeploy after a change:
 ```bash
-curl http://localhost:4000/api/health
+cd /opt/SmartMappiaa && git pull
+cd smartmappia-web-main/backend && npm install --omit=dev && pm2 restart smartmappia-api
 ```
-
-Public live tracking, once a booking exists (no auth needed):
-
-```bash
-curl http://localhost:4000/api/tracking/SM-7K3PQ9TM
-```
-
-Creating a booking now needs a signed-in user, so the easiest way to exercise the full flow
-(sign up → book → pay → approve a driver → accept → track) is through the frontend app. If you
-want to hit `POST /api/bookings` directly with curl, include a real Supabase access token:
-
-```bash
-curl -X POST http://localhost:4000/api/bookings \
-  -H "Content-Type: application/json" \
-  -H "Authorization: Bearer <your-supabase-access-token>" \
-  -d '{
-    "trip_type": "house_to_airport",
-    "pickup_address": "Al Olaya, Riyadh",
-    "dropoff_address": "King Khalid International Airport, Terminal 1",
-    "pickup_datetime": "2026-06-20T08:00:00Z",
-    "passenger_name": "Test Passenger",
-    "passenger_whatsapp": "+9665XXXXXXXX"
-  }'
-```
-
-You'll get back a `bookingCode` like `SM-7K3PQ9TM` and the path to the next step.
 
 ---
 
-## Deploy to Vercel
-
-Push this folder to a Git repo, import it in Vercel, and add the **same env vars** in the Vercel
-dashboard (the platform provides env there — `dotenv` is a no-op). `vercel.json` already routes
-every request to the Express app. The frontend deploys separately.
+## Security notes
+- Per-endpoint **rate limiting** (`middleware/rateLimiters.js`) on top of a global cap.
+- **RLS** enabled on every table; the backend uses the `service_role` key (bypasses RLS) — keep it
+  server-only, never in `VITE_*`.
+- `.env` is gitignored; never commit secrets.
+- Before public launch: turn off `AUTO_VERIFY_STCPAY_TEST_MODE`, remove test accounts, rotate seed
+  passwords. See [../docs/production/LAUNCH_CHECKLIST.md](../docs/production/LAUNCH_CHECKLIST.md).
 
 ---
 
 ## Project structure
-
 ```
-smart-mappia-backend/
-├── api/index.js                  # Vercel entrypoint (exports the Express app)
-├── controllers/
-│   ├── authController.js          # profile sync + automatic-admin rule
-│   ├── bookingsController.js      # create, summary, cancel
-│   ├── paymentsController.js      # instructions + proof upload/record
-│   ├── trackingController.js      # public timeline, ETAs, live driver position
-│   ├── adminController.js         # bookings, verify/reject, assign + approve drivers
-│   └── driverController.js        # available feed, accept, location, status updates
-├── middleware/
-│   └── auth.js                    # verify Supabase JWT -> role + driver approval
-├── lib/
-│   ├── supabase.js                # service-role client (server only)
-│   ├── config.js                  # all env-driven config in one place
-│   ├── fare.js                    # fare snapshot (SAR 100 base + 3.75% service fee = 103.75)
-│   ├── storage.js                 # signed upload/download URLs for proofs
-│   ├── tracking.js                # tracking_events helper
-│   ├── payments.js                # verify/reject state machine (shared)
-│   ├── ledger.js                  # commission/payout math + ledger write
-│   ├── realtime.js                # Supabase Realtime broadcast helpers
-│   └── geo.js                     # distance + ETA (nearest-driver matching)
-├── routes/
-│   ├── health.js  auth.js  bookings.js  tracking.js  admin.js  driver.js
-├── app.js                         # Express app (middleware + routes)
-├── server.js                      # local runner (app.listen)
-├── vercel.json   package.json   .env.example
-<<<<<<< HEAD
-├── 0001_init_smart_mappia.sql     # base schema
-└── 0002_auth_driver_approval.sql  # driver-approval flag
-=======
-└── migrations/
-    ├── 0001_init_smart_mappia.sql            # base schema
-    ├── 0002_auth_driver_approval.sql         # driver-approval flag
-    ├── 0003_profile_registration_fields.sql  # sign-up extra fields
-    └── utilities/profile-roles.sql           # inspect/fix a stuck role
->>>>>>> 0e76961b6c844daa651302735be3f95582c61c86
+backend/
+├── controllers/  authController, bookingsController, paymentsController, trackingController,
+│                 adminController, driverController, driverDocsController, notificationsController
+├── middleware/   auth.js (JWT->role), rateLimiters.js
+├── lib/          supabase, config, fare, storage, tracking, payments, ledger, realtime, geo, notifications
+├── routes/       health, auth, bookings, tracking, admin, driver, notifications, osrm
+├── app.js        server.js   vercel.json   package.json   .env.example
+└── migrations/   0001..0008 (+ 0004 PILOT — do not run in prod)
 ```
 
 ---
 
-## Where things stand
-
-The core booking → pay → match → track → payout loop is all built, plus real auth (Supabase
-JWT), the Grab-style driver self-accept, live tracking, and the driver-approval workflow.
-
-Still on the wishlist:
-
-- **Moyasar card payments** (`payment_method = 'moyasar'`) + webhook verification — the
-  schema/enums are ready, the handlers aren't.
-- **Atomic writes** — wrap the multi-table verify/complete steps in Postgres functions (RPCs).
-- **Proof anti-reuse** — reject a re-used `file_hash` (the column exists and is indexed).
-- **Automated tests** — it's syntax-checked and smoke-tested by hand for now.
-
-See [DOCUMENTATION.md](DOCUMENTATION.md) for the full picture and the production go-live guide.
-```
+## Still on the wishlist
+- **Tap Payments** backend (create-charge + webhook) — schema/enums ready (0006), handlers not built.
+- **Native push send** — token collection is built; the FCM sender worker is not.
+- **Atomic writes** — wrap multi-table verify/complete in Postgres RPCs.
+- **Automated tests** — syntax-checked + smoke-tested by hand for now.
