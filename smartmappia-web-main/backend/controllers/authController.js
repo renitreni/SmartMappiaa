@@ -17,6 +17,10 @@ const {
   buildProfileUpsert,
 } = require('../lib/profileSchema');
 
+// Roles a user may pick for themselves at signup. Admin is env-list only.
+// The merchant role is NOT self-service: restaurants contact SmartMappia and
+// an admin creates the restaurant + links the owner's account (which grants
+// the merchant role) — see POST /api/admin/food/merchants/:id/owner.
 const SELF_ROLES = ['passenger', 'driver'];
 
 // POST /api/auth/signup  (public)

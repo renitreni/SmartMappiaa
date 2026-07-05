@@ -1,0 +1,262 @@
+// ---------------------------------------------------------------------
+// Food Delivery — checkout: /food/checkout?m=<merchantId>
+// Step 1: delivery address (with device location for the 15 km rule) +
+//         order summary. Placing the order calls the backend, which
+//         recomputes all money and enforces the 30 SAR minimum (422).
+// Step 2: payment (shared PaymentPanel) -> /food/track/:code.
+// ---------------------------------------------------------------------
+import { useEffect, useMemo, useState } from 'react';
+import { useNavigate, useSearchParams, Link } from 'react-router-dom';
+import { MapPin, LocateFixed, AlertCircle, ArrowRight, Smartphone, Banknote, CreditCard } from 'lucide-react';
+import { api } from '../lib/api';
+import { fmtSAR, FOOD_RADIUS_KM } from '../lib/constants';
+import { PortalShell, Card, Field, Spinner, btnPrimary, btnGhost, inputClass } from '../components/ui';
+import PaymentPanel from './PaymentPanel';
+
+// Payment options shown at checkout. Card (Tap) ships later — placeholder.
+const PAY_METHODS = [
+  { id: 'stcpay', label: 'STC Pay', hint: 'Transfer + upload the screenshot', icon: Smartphone, disabled: false },
+  { id: 'cash', label: 'Cash on delivery', hint: 'Pay the rider at your door', icon: Banknote, disabled: false },
+  { id: 'card', label: 'Card', hint: 'Coming soon', icon: CreditCard, disabled: true },
+];
+
+export default function FoodCheckoutPage() {
+  const navigate = useNavigate();
+  const [params] = useSearchParams();
+  const merchantId = params.get('m');
+
+  const [cart, setCart] = useState(null);
+  const [loadErr, setLoadErr] = useState(null);
+  const [address, setAddress] = useState('');
+  const [coords, setCoords] = useState(null); // { lat, lng }
+  const [locating, setLocating] = useState(false);
+  const [method, setMethod] = useState('stcpay');
+  const [error, setError] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [placedCode, setPlacedCode] = useState(null); // set -> payment step
+  // One key per checkout attempt set: a network retry can't double-order.
+  const idempotencyKey = useMemo(() => crypto.randomUUID(), []);
+
+  useEffect(() => {
+    if (!merchantId) return;
+    api.foodCart(merchantId).then(setCart).catch((e) => setLoadErr(e.message));
+  }, [merchantId]);
+
+  function useMyLocation() {
+    if (!navigator.geolocation) return setError('Location is not available in this browser.');
+    setLocating(true);
+    setError(null);
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        setCoords({ lat: pos.coords.latitude, lng: pos.coords.longitude });
+        setLocating(false);
+      },
+      () => {
+        setError('Could not get your location. Please allow location access and try again.');
+        setLocating(false);
+      },
+      { enableHighAccuracy: true, timeout: 10000 }
+    );
+  }
+
+  async function placeOrder() {
+    if (!address.trim()) return setError('Please enter your delivery address.');
+    if (!coords) return setError('Please tap "Use my location" so we can check the delivery radius.');
+
+    setError(null);
+    setBusy(true);
+    try {
+      const order = await api.foodCheckout(
+        {
+          merchant_id: merchantId,
+          delivery_address: address.trim(),
+          delivery_lat: coords.lat,
+          delivery_lng: coords.lng,
+          payment_method: method,
+        },
+        idempotencyKey
+      );
+      // Cash on delivery: nothing to pay online — straight to live tracking.
+      if (method === 'cash') {
+        navigate(`/food/track/${order.orderCode}`);
+        return;
+      }
+      setPlacedCode(order.orderCode);
+    } catch (err) {
+      // The backend speaks in failure_reason for the designed error states.
+      setError(err.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (!merchantId) {
+    return (
+      <PortalShell title="Checkout" onBack={() => navigate('/food')}>
+        <Card className="p-10 text-center max-w-md mx-auto">
+          <p className="font-bold text-brand-dark">Nothing to check out</p>
+          <p className="text-sm text-brand-grey mt-1 mb-4">Start from a restaurant menu.</p>
+          <Link to="/food" className={btnPrimary}>Browse restaurants</Link>
+        </Card>
+      </PortalShell>
+    );
+  }
+
+  // Step 2 — the order exists; collect the payment.
+  if (placedCode) {
+    return (
+      <PortalShell title="Payment" subtitle={placedCode} onBack={() => navigate(`/food/track/${placedCode}`)}>
+        <div className="max-w-xl mx-auto space-y-4">
+          <PaymentPanel code={placedCode} onPaid={() => navigate(`/food/track/${placedCode}`)} />
+          <button
+            type="button"
+            onClick={() => navigate(`/food/track/${placedCode}`)}
+            className={btnGhost + ' w-full'}
+          >
+            Pay later — track my order <ArrowRight className="w-4 h-4" />
+          </button>
+        </div>
+      </PortalShell>
+    );
+  }
+
+  const items = cart?.items || [];
+
+  return (
+    <PortalShell title="Checkout" onBack={() => navigate(`/food/cart?m=${merchantId}`)}>
+      <div className="max-w-xl mx-auto space-y-4">
+        {loadErr && (
+          <div className="p-3 rounded-xl bg-red-50 border border-red-200 text-red-700 text-sm font-medium">{loadErr}</div>
+        )}
+        {!cart && !loadErr && (
+          <div className="flex justify-center py-20"><Spinner className="!w-8 !h-8" /></div>
+        )}
+
+        {cart && items.length === 0 && (
+          <Card className="p-10 text-center">
+            <p className="font-bold text-brand-dark">Your cart is empty</p>
+            <p className="text-sm text-brand-grey mt-1 mb-4">Add items before checking out.</p>
+            <Link to={`/food/r/${merchantId}`} className={btnPrimary}>Back to the menu</Link>
+          </Card>
+        )}
+
+        {cart && items.length > 0 && (
+          <>
+            {/* Guard rail: the cart page is the primary gate, but deep links land here too. */}
+            {!cart.meetsMinimum && (
+              <div className="p-4 rounded-xl bg-amber-50 border border-amber-300 flex items-start gap-3">
+                <AlertCircle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
+                <div className="text-sm">
+                  <p className="font-bold text-amber-800">
+                    Add {fmtSAR(cart.shortfall)} more to reach the {fmtSAR(cart.minOrder)} minimum.
+                  </p>
+                  <Link to={`/food/r/${merchantId}`} className="text-amber-700 underline font-medium">
+                    Back to the menu
+                  </Link>
+                </div>
+              </div>
+            )}
+
+            {error && (
+              <div className="p-3 rounded-xl bg-red-50 border border-red-200 text-red-700 text-sm font-medium">{error}</div>
+            )}
+
+            {/* Delivery address */}
+            <Card className="p-5 space-y-3">
+              <p className="font-black text-brand-black flex items-center gap-2">
+                <MapPin className="w-4 h-4 text-brand-orange" /> Delivery address
+              </p>
+              <Field label="Address">
+                <input
+                  value={address}
+                  onChange={(e) => setAddress(e.target.value)}
+                  placeholder="Building, street, district, city"
+                  className={inputClass}
+                />
+              </Field>
+              <button type="button" onClick={useMyLocation} disabled={locating} className={btnGhost + ' w-full'}>
+                {locating ? <Spinner /> : <LocateFixed className="w-4 h-4" />}
+                {coords ? 'Location captured — update it' : 'Use my location'}
+              </button>
+              <p className="text-xs text-brand-grey">
+                Your location confirms you are within the {FOOD_RADIUS_KM} km delivery radius
+                ({fmtSAR(cart.deliveryFee)} flat fee).
+              </p>
+            </Card>
+
+            {/* Payment method */}
+            <Card className="p-5">
+              <p className="font-black text-brand-black mb-3">How would you like to pay?</p>
+              <div className="space-y-2">
+                {PAY_METHODS.map(({ id, label, hint, icon: Icon, disabled }) => (
+                  <button
+                    key={id}
+                    type="button"
+                    disabled={disabled}
+                    onClick={() => setMethod(id)}
+                    className={`w-full flex items-center gap-3 p-3.5 rounded-xl border-2 text-left transition-colors ${
+                      disabled
+                        ? 'border-brand-border opacity-50 cursor-not-allowed'
+                        : method === id
+                          ? 'border-brand-orange bg-brand-warm cursor-pointer'
+                          : 'border-brand-border hover:border-brand-orange/40 cursor-pointer'
+                    }`}
+                  >
+                    <div className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${
+                      method === id && !disabled ? 'bg-brand-orange text-white' : 'bg-brand-surface text-brand-grey'
+                    }`}>
+                      <Icon className="w-5 h-5" />
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <p className="font-bold text-brand-dark text-sm">{label}</p>
+                      <p className="text-xs text-brand-grey">{hint}</p>
+                    </div>
+                    <span className={`w-4 h-4 rounded-full border-2 shrink-0 ${
+                      method === id && !disabled ? 'border-brand-orange bg-brand-orange' : 'border-brand-border'
+                    }`} />
+                  </button>
+                ))}
+              </div>
+            </Card>
+
+            {/* Order summary */}
+            <Card className="p-5">
+              <p className="font-black text-brand-black mb-3">Order summary</p>
+              <div className="space-y-1.5 text-sm">
+                {items.map((line) => (
+                  <div key={line.id} className="flex justify-between gap-3">
+                    <span className="text-brand-dark truncate">{line.quantity} × {line.name}</span>
+                    <span className="tabular-nums font-medium shrink-0">{fmtSAR(line.lineTotal)}</span>
+                  </div>
+                ))}
+              </div>
+              <div className="mt-4 pt-3 border-t border-brand-border space-y-1.5 text-sm">
+                <div className="flex justify-between"><span className="text-brand-grey">Subtotal</span><span className="font-bold tabular-nums">{fmtSAR(cart.subtotal)}</span></div>
+                <div className="flex justify-between"><span className="text-brand-grey">Delivery fee</span><span className="font-bold tabular-nums">{fmtSAR(cart.deliveryFee)}</span></div>
+                <div className="flex justify-between pt-1.5 border-t border-brand-border">
+                  <span className="font-bold text-brand-dark">Total</span>
+                  <span className="font-black text-brand-orange tabular-nums">{fmtSAR(cart.subtotal + cart.deliveryFee)}</span>
+                </div>
+              </div>
+            </Card>
+
+            <button
+              type="button"
+              onClick={placeOrder}
+              disabled={busy || !cart.meetsMinimum}
+              className={btnPrimary + ' w-full !py-4'}
+            >
+              {busy ? (
+                <Spinner className="!border-white/40 !border-t-white" />
+              ) : method === 'cash' ? (
+                <>Place order — pay cash on delivery <ArrowRight className="w-4 h-4" /></>
+              ) : (
+                <>Place order & continue to payment <ArrowRight className="w-4 h-4" /></>
+              )}
+            </button>
+          </>
+        )}
+      </div>
+    </PortalShell>
+  );
+}

@@ -75,6 +75,42 @@ const config = {
     commissionRate: toNumber(process.env.PLATFORM_COMMISSION_RATE, 0.2),
     manualPaymentFee: toNumber(process.env.MANUAL_PAYMENT_FEE, 0),
   },
+
+  // Food Delivery business rules (docs/food-delivery/FOOD_DELIVERY_PRD.md §7).
+  // These are HARD rules enforced server-side in lib/foodMoney.js and the
+  // merchant accept flow — never trust client-sent money.
+  food: {
+    minOrderSar: toNumber(process.env.FOOD_MIN_ORDER, 30),
+    deliveryFeeSar: toNumber(process.env.FOOD_DELIVERY_FEE, 10), // promo: first 3 months
+    radiusKm: toNumber(process.env.FOOD_RADIUS_KM, 15),
+    // Per-item platform margin by menu_items.item_type.
+    margins: {
+      meal_package: toNumber(process.env.FOOD_MARGIN_MEAL, 5),
+      drink_dessert_addon: toNumber(process.env.FOOD_MARGIN_DRINK, 3),
+    },
+    merchantCreditLimit: toNumber(process.env.MERCHANT_CREDIT_LIMIT, 300),
+    creditAlertPct: toNumber(process.env.CREDIT_ALERT_PCT, 0.8), // 80% => 240 SAR
+  },
+
+  // Grab-style dispatch (shared by Pick & Drop rides and food deliveries):
+  // the nearest online driver gets an exclusive offer for offerSeconds; on
+  // decline/timeout it cascades to the next. Drivers count as "online" when
+  // their last GPS ping is fresher than driverFreshMinutes.
+  dispatch: {
+    offerSeconds: toNumber(process.env.DISPATCH_OFFER_SECONDS, 30),
+    driverFreshMinutes: toNumber(process.env.DISPATCH_DRIVER_FRESH_MINUTES, 3),
+    sweepMs: toNumber(process.env.DISPATCH_SWEEP_MS, 5000),
+  },
+
+  // Tap Payments (deferred online path — PLACEHOLDER until go-live: keep
+  // these unset and every Tap endpoint answers "not configured" while the
+  // manual STC Pay path stays the live one).
+  tap: {
+    secretKey: process.env.TAP_SECRET_KEY || '',
+    publicKey: process.env.TAP_PUBLIC_KEY || '',
+    webhookSecret: process.env.TAP_WEBHOOK_SECRET || '',
+    merchantId: process.env.TAP_MERCHANT_ID || '',
+  },
 };
 
 module.exports = { config };

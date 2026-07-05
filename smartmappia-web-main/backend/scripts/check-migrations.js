@@ -32,6 +32,60 @@ const CHECKS = [
     },
     sqlFile: '0003_profile_registration_fields.sql',
   },
+  {
+    id: '0009',
+    name: 'food delivery core (merchants + menus)',
+    run: async () => {
+      const { error } = await supabase.from('menu_items').select('id, item_type').limit(0);
+      return error ? error.message : null;
+    },
+    sqlFile: '0009_food_delivery_core.sql',
+  },
+  {
+    id: '0010',
+    name: 'food delivery carts + orders',
+    run: async () => {
+      const { error } = await supabase.from('orders').select('order_code, platform_margin_total').limit(0);
+      return error ? error.message : null;
+    },
+    sqlFile: '0010_food_delivery_orders.sql',
+  },
+  {
+    id: '0011',
+    name: 'merchant credit ledger',
+    run: async () => {
+      const { error } = await supabase.from('merchant_credit_ledger').select('balance_after').limit(0);
+      return error ? error.message : null;
+    },
+    sqlFile: '0011_food_delivery_credit.sql',
+  },
+  {
+    id: '0012',
+    name: 'food delivery extras (analytics + audit logs)',
+    run: async () => {
+      const { error } = await supabase.from('audit_logs').select('action').limit(0);
+      return error ? error.message : null;
+    },
+    sqlFile: '0012_food_delivery_extras.sql',
+  },
+  {
+    id: '0013',
+    name: 'dispatch offers + merchant vetting',
+    run: async () => {
+      const { error } = await supabase.from('dispatch_offers').select('expires_at').limit(0);
+      return error ? error.message : null;
+    },
+    sqlFile: '0013_dispatch_and_merchant_vetting.sql',
+  },
+  {
+    id: '0014',
+    name: 'driver star ratings',
+    run: async () => {
+      const { error } = await supabase.from('driver_ratings').select('stars').limit(0);
+      return error ? error.message : null;
+    },
+    sqlFile: '0014_driver_ratings.sql',
+  },
 ];
 
 async function main() {

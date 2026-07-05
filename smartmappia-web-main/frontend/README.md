@@ -1,52 +1,57 @@
-<<<<<<< HEAD
-# React + Vite
-
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
-
-Currently, two official plugins are available:
-
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
-
-## React Compiler
-
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
-
-## Expanding the ESLint configuration
-
-If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and [`typescript-eslint`](https://typescript-eslint.io) in your project.
-=======
 # Smart Mappia — Frontend
 
-The React app for Smart Mappia's Airport Pick & Drop: the marketing site plus the rider, driver, and
-admin portals. Built with **React 19 + Vite** and Tailwind, using Supabase for auth/realtime/uploads
-and Leaflet (OpenStreetMap) for the maps.
+The React app for Smart Mappia's Airport **Pick & Drop**: the marketing site plus the rider, driver,
+and admin portals. **React 19 + Vite + Tailwind**, using Supabase for auth/realtime/uploads and
+Leaflet (CARTO/OpenStreetMap tiles) for maps. The same build is wrapped with **Capacitor** to ship
+the Android app — see [../docs/production/ANDROID_APP_GUIDE.md](../docs/production/ANDROID_APP_GUIDE.md).
+
+**Live:** https://smartmappia.com (talks to `https://api.smartmappia.com`).
 
 ## Run it
-
 ```bash
 npm install
-cp .env.example .env     # fill in VITE_API_BASE, VITE_SUPABASE_URL, VITE_SUPABASE_ANON_KEY
+cp .env.example .env     # fill VITE_API_BASE, VITE_SUPABASE_URL, VITE_SUPABASE_ANON_KEY
 npm run dev              # http://localhost:5173
 ```
-
-Start the backend separately (`cd ../backend && npm run dev`) so the app has an API to talk to.
-
-> The frontend only ever uses the Supabase **anon/public** key. The service-role key stays in the
-> backend.
+Start the backend separately (`cd ../backend && npm run dev`). The frontend only ever uses the
+Supabase **anon/public** key — the service-role key stays in the backend.
 
 ## Build
-
 ```bash
 npm run build           # static files land in dist/
 npm run preview         # serve the build locally to check it
 ```
 
-## Where to read more
+### Environment (`.env`, compiled in at build time — rebuild after changes)
+```
+VITE_API_BASE=https://api.smartmappia.com
+VITE_SUPABASE_URL=<supabase url>
+VITE_SUPABASE_ANON_KEY=<anon key>                       # never the service_role key
+VITE_OSRM_BASE=https://api.smartmappia.com/api/osrm/route/v1/driving
+VITE_TAP_ENABLED=false                                   # "Pay online (coming soon)" until Tap is live
+```
 
-- **[PORTALS.md](PORTALS.md)** — the routes, the roles, how a ride flows, the map/route, the admin
-  preview, and the full file map.
-- **[../docs/PILOT.md](../docs/PILOT.md)** — stand the whole thing up and run a pilot, including
-  hosting it on your own server.
+## What's in here
+- **Marketing site** + **rider**, **driver**, and **admin** portals (`src/portal/`), gated by role.
+- **Booking** (login-gated), **manual STC Pay** proof upload, **live tracking** (Supabase Realtime),
+  **driver ride flow**.
+- **Driver KYC**: `src/portal/driver/DriverVerification.jsx` — unapproved drivers upload documents,
+  see status, re-upload rejected ones.
+- **Admin**: `src/portal/admin/AdminPage.jsx` — payment verify/reject + Drivers tab with per-driver
+  **document review** (View/Verify/Reject; auto-approves once all required docs are verified).
+- **Company/contact info** centralized in `src/config/company.js` (used by Footer + legal modals).
+- Online payment (Tap) is behind `VITE_TAP_ENABLED` — off by default (manual STC Pay is the path).
+
+## Production notes
+- Built on the VPS and served as static files by Nginx (apex + www), HTTPS via Certbot.
+- Rebuild + it's live: `git pull && npm run build` (see
+  [../docs/production/DEPLOYMENT_LOG.md](../docs/production/DEPLOYMENT_LOG.md)).
+- Note: Vite 8 uses the rolldown bundler with a native binary — if `npm install` fails on a fresh
+  Linux box with a "native binding" error, `rm -rf node_modules package-lock.json && npm install`.
+
+## Where to read more
+- **[PORTALS.md](PORTALS.md)** — routes, roles, ride flow, map/route, admin preview, file map.
+- **[../docs/production/ANDROID_APP_GUIDE.md](../docs/production/ANDROID_APP_GUIDE.md)** — the Capacitor
+  Android app (build, native geolocation/push, payments, full API reference).
+- **[../docs/production/PICK_AND_DROP.md](../docs/production/PICK_AND_DROP.md)** — feature source of truth.
 - **[../backend/README.md](../backend/README.md)** — the API side.
->>>>>>> 0e76961b6c844daa651302735be3f95582c61c86

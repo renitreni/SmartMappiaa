@@ -1,0 +1,363 @@
+// ---------------------------------------------------------------------
+// Driver dispatch UI (Grab-style), mounted inside DriverPage.
+//   1. Exclusive offer card: when this driver is the nearest online one,
+//      a food delivery / ride offer appears with a live 30-second
+//      countdown and Accept / Decline. On timeout it silently moves to
+//      the next driver (the backend cascade).
+//   2. My deliveries: the food orders this driver is carrying, with
+//      Picked up -> Delivered actions and customer contact.
+//   3. Open deliveries: jobs whose cascade exhausted — first come, first
+//      served (accepting is still atomic server-side).
+// ---------------------------------------------------------------------
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { Bike, Check, X, MapPin, Phone, MessageCircle, Store, Timer, Camera, Banknote } from 'lucide-react';
+import { api } from '../lib/api';
+import { useBroadcast } from '../lib/useBroadcast';
+import { realtimeEnabled, uploadProofFile } from '../lib/supabaseClient';
+import { fmtSAR, whatsappLink } from '../lib/constants';
+import { notifyAlert } from '../lib/notify';
+import { Card, Badge, Spinner, btnPrimary, btnGhost, fileInputClass } from '../components/ui';
+
+const OFFERS_POLL_MS = 5000;
+const POOL_POLL_MS = 15000;
+
+function Countdown({ expiresAt }) {
+  const [left, setLeft] = useState(() => Math.max(0, Math.round((new Date(expiresAt) - Date.now()) / 1000)));
+  useEffect(() => {
+    const t = setInterval(() => {
+      setLeft(Math.max(0, Math.round((new Date(expiresAt) - Date.now()) / 1000)));
+    }, 250);
+    return () => clearInterval(t);
+  }, [expiresAt]);
+  return (
+    <div className={`flex items-center gap-1.5 font-black tabular-nums text-lg ${left <= 10 ? 'text-red-600' : 'text-brand-orange'}`}>
+      <Timer className="w-5 h-5" />
+      {left}s
+    </div>
+  );
+}
+
+function OfferCard({ offer, busy, onAccept, onDecline }) {
+  const isFood = offer.kind === 'food';
+  return (
+    <Card className="p-4 border-2 border-brand-orange/60 shadow-lg shadow-brand-orange/10 mb-4">
+      <div className="flex items-center justify-between gap-2 mb-3">
+        <Badge tone="amber">
+          {isFood ? <Bike className="w-3.5 h-3.5" /> : null}
+          {isFood ? 'New delivery offer' : 'New ride offer'}
+        </Badge>
+        <Countdown expiresAt={offer.expiresAt} />
+      </div>
+
+      {isFood && offer.food && (
+        <div className="space-y-1 text-sm">
+          <p className="font-black text-brand-black flex items-center gap-1.5">
+            <Store className="w-4 h-4 text-brand-orange shrink-0" /> {offer.food.merchantName || 'Restaurant'}
+          </p>
+          {offer.food.pickupAddress && (
+            <p className="text-brand-grey text-xs truncate">Pick up: {offer.food.pickupAddress}</p>
+          )}
+          <p className="text-brand-grey text-xs truncate">Deliver to: {offer.food.dropoffAddress}</p>
+          <p className="text-xs">
+            <span className="text-brand-grey">Order value:</span>{' '}
+            <span className="font-bold text-brand-dark">{fmtSAR(offer.food.total)}</span>
+            {offer.distanceKm != null && (
+              <span className="text-brand-grey"> · {offer.distanceKm} km away</span>
+            )}
+          </p>
+        </div>
+      )}
+      {!isFood && offer.ride && (
+        <div className="space-y-1 text-sm">
+          <p className="font-black text-brand-black">Airport transfer · {fmtSAR(offer.ride.fareAmount)}</p>
+          <p className="text-brand-grey text-xs truncate">From: {offer.ride.pickupAddress}</p>
+          <p className="text-brand-grey text-xs truncate">To: {offer.ride.dropoffAddress}</p>
+          {offer.distanceKm != null && (
+            <p className="text-xs text-brand-grey">{offer.distanceKm} km from you</p>
+          )}
+        </div>
+      )}
+
+      <div className="flex gap-2 mt-4">
+        <button type="button" disabled={busy} onClick={() => onAccept(offer)} className={btnPrimary + ' flex-1 !py-3'}>
+          {busy ? <Spinner className="!border-white/40 !border-t-white" /> : <><Check className="w-4 h-4" /> Accept</>}
+        </button>
+        <button
+          type="button"
+          disabled={busy}
+          onClick={() => onDecline(offer)}
+          className={btnGhost + ' !py-3 !text-red-600 !border-red-200 hover:!bg-red-50'}
+        >
+          <X className="w-4 h-4" /> Pass
+        </button>
+      </div>
+    </Card>
+  );
+}
+
+function DeliveryCard({ delivery, busy, onStatus }) {
+  const enRoute = delivery.orderStatus === 'out_for_delivery';
+  const [photo, setPhoto] = useState(null);
+  const nextStatus = enRoute ? 'delivered' : 'picked_up';
+
+  return (
+    <Card className="p-4 mb-3">
+      <div className="flex items-center justify-between gap-2">
+        <p className="font-mono font-bold text-brand-dark">{delivery.orderCode}</p>
+        <Badge tone={enRoute ? 'blue' : 'amber'}>
+          {enRoute ? 'Delivering' : 'Waiting at restaurant'}
+        </Badge>
+      </div>
+      <div className="mt-2 space-y-1 text-sm">
+        <p className="text-brand-dark flex items-start gap-1.5">
+          <Store className="w-4 h-4 text-brand-orange shrink-0 mt-0.5" />
+          <span>
+            <span className="font-bold">{delivery.merchant?.name || 'Restaurant'}</span>
+            {delivery.merchant?.address && <span className="text-brand-grey"> · {delivery.merchant.address}</span>}
+          </span>
+        </p>
+        <p className="text-brand-dark flex items-start gap-1.5">
+          <MapPin className="w-4 h-4 text-brand-orange shrink-0 mt-0.5" />
+          <span>
+            <span className="font-bold">{delivery.customer?.name || 'Customer'}</span>
+            <span className="text-brand-grey"> · {delivery.dropoffAddress}</span>
+          </span>
+        </p>
+      </div>
+
+      {/* Cash on delivery: the amount the rider must collect at the door. */}
+      {delivery.collectCash != null && (
+        <div className="mt-2 p-2.5 rounded-xl bg-amber-50 border border-amber-200 text-xs font-bold text-amber-800 flex items-center gap-1.5">
+          <Banknote className="w-4 h-4 shrink-0" />
+          Collect {fmtSAR(delivery.collectCash)} in cash from the customer.
+        </div>
+      )}
+
+      <div className="flex items-center gap-2 mt-3">
+        {delivery.customer?.mobile && (
+          <a href={`tel:${delivery.customer.mobile}`} className={btnGhost + ' !py-2 !px-3 !text-xs'}>
+            <Phone className="w-3.5 h-3.5" /> Call
+          </a>
+        )}
+        {whatsappLink(delivery.customer?.whatsapp || delivery.customer?.mobile) && (
+          <a
+            href={whatsappLink(delivery.customer?.whatsapp || delivery.customer?.mobile, `Hi, I am delivering your Smart Mappia order ${delivery.orderCode}.`)}
+            target="_blank"
+            rel="noreferrer"
+            className={btnGhost + ' !py-2 !px-3 !text-xs !text-green-700 !border-green-200'}
+          >
+            <MessageCircle className="w-3.5 h-3.5" /> WhatsApp
+          </a>
+        )}
+      </div>
+
+      {/* Mandatory photo proof, then the status button unlocks. */}
+      <div className="mt-3 pt-3 border-t border-brand-border">
+        <p className="text-xs font-bold text-brand-dark mb-1.5 flex items-center gap-1.5">
+          <Camera className="w-3.5 h-3.5 text-brand-orange" />
+          {enRoute
+            ? 'Take a photo of the handover to confirm delivery'
+            : 'Take a photo of the order at the restaurant'}
+        </p>
+        <input
+          type="file"
+          accept="image/*"
+          capture="environment"
+          onChange={(e) => setPhoto(e.target.files?.[0] || null)}
+          className={fileInputClass + ' !py-2 !text-xs'}
+        />
+        <button
+          type="button"
+          disabled={busy || !photo}
+          onClick={() => onStatus(delivery, nextStatus, photo)}
+          className={btnPrimary + ' w-full mt-2 !py-2.5 !text-xs'}
+          title={!photo ? 'A photo is required first' : undefined}
+        >
+          {busy ? (
+            <Spinner className="!w-4 !h-4 !border-white/40 !border-t-white" />
+          ) : enRoute ? (
+            'Photo taken — mark delivered'
+          ) : (
+            'Photo taken — on the way to the customer'
+          )}
+        </button>
+      </div>
+    </Card>
+  );
+}
+
+export default function DriverDispatch({ online, driverId, coords, onRideAccepted }) {
+  const [offers, setOffers] = useState([]);
+  const [deliveries, setDeliveries] = useState([]);
+  const [pool, setPool] = useState([]);
+  const [busyId, setBusyId] = useState(null);
+  const [error, setError] = useState(null);
+  const coordsRef = useRef(coords);
+  coordsRef.current = coords;
+
+  const loadOffers = useCallback(async () => {
+    try {
+      setOffers((await api.driverOffers()).offers || []);
+    } catch { /* polled */ }
+  }, []);
+
+  const loadDeliveries = useCallback(async () => {
+    try {
+      setDeliveries((await api.driverDeliveries()).active || []);
+    } catch { /* polled */ }
+  }, []);
+
+  const loadPool = useCallback(async () => {
+    const c = coordsRef.current;
+    try {
+      setPool((await api.driverOpenDeliveries(c?.lat, c?.lng)).deliveries || []);
+    } catch { /* polled */ }
+  }, []);
+
+  // Instant pings on this driver's private channel; polling as fallback.
+  useBroadcast(
+    `driver-${driverId}`,
+    {
+      new_offer: () => { notifyAlert('New delivery offer — 30 seconds to respond', { icon: 'info' }); loadOffers(); },
+      offer_expired: () => loadOffers(),
+    },
+    realtimeEnabled && online && !!driverId
+  );
+
+  useEffect(() => {
+    if (!online) { setOffers([]); setPool([]); return undefined; }
+    loadOffers();
+    loadDeliveries();
+    loadPool();
+    const a = setInterval(loadOffers, OFFERS_POLL_MS);
+    const b = setInterval(loadPool, POOL_POLL_MS);
+    return () => { clearInterval(a); clearInterval(b); };
+  }, [online, loadOffers, loadDeliveries, loadPool]);
+
+  async function acceptOffer(offer) {
+    setBusyId(offer.id);
+    setError(null);
+    try {
+      const res = await api.driverOfferAccept(offer.id);
+      setOffers((list) => list.filter((o) => o.id !== offer.id));
+      if (res.kind === 'food') await loadDeliveries();
+      else onRideAccepted?.();
+    } catch (err) {
+      setError(err.message);
+      loadOffers();
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  async function declineOffer(offer) {
+    setBusyId(offer.id);
+    try {
+      await api.driverOfferDecline(offer.id);
+      setOffers((list) => list.filter((o) => o.id !== offer.id));
+    } catch { /* it likely expired */ } finally {
+      setBusyId(null);
+      loadOffers();
+    }
+  }
+
+  async function claimFromPool(delivery) {
+    setBusyId(delivery.orderCode);
+    setError(null);
+    try {
+      await api.driverClaimDelivery(delivery.orderCode);
+      await Promise.all([loadDeliveries(), loadPool()]);
+    } catch (err) {
+      setError(err.message);
+      loadPool();
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  async function updateStatus(delivery, status, photoFile) {
+    setBusyId(delivery.orderCode);
+    setError(null);
+    try {
+      // 1. Upload the mandatory proof photo straight to private Storage.
+      const kind = status === 'picked_up' ? 'pickup' : 'delivery';
+      const signed = await api.driverDeliveryPhotoUrl(delivery.orderCode, {
+        kind,
+        file_name: photoFile.name,
+        mime_type: photoFile.type || 'image/jpeg',
+      });
+      await uploadProofFile(signed.bucket, signed.path, signed.token, photoFile);
+      // 2. Advance the status carrying the photo path (server rejects without it).
+      await api.driverDeliveryStatus(delivery.orderCode, status, signed.path);
+      await loadDeliveries();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  const hasContent = offers.length > 0 || deliveries.length > 0 || (online && pool.length > 0);
+  if (!hasContent && !error) return null;
+
+  return (
+    <div className="mb-4">
+      {error && (
+        <div className="mb-3 p-3 rounded-2xl bg-red-50 border border-red-200 text-red-700 text-sm font-medium">
+          {error}
+        </div>
+      )}
+
+      {/* Exclusive 30s offers */}
+      {offers.map((offer) => (
+        <OfferCard
+          key={offer.id}
+          offer={offer}
+          busy={busyId === offer.id}
+          onAccept={acceptOffer}
+          onDecline={declineOffer}
+        />
+      ))}
+
+      {/* Active food deliveries */}
+      {deliveries.length > 0 && (
+        <>
+          <p className="font-black text-brand-black text-sm mb-2 flex items-center gap-1.5">
+            <Bike className="w-4 h-4 text-brand-orange" /> My deliveries
+          </p>
+          {deliveries.map((d) => (
+            <DeliveryCard key={d.orderCode} delivery={d} busy={busyId === d.orderCode} onStatus={updateStatus} />
+          ))}
+        </>
+      )}
+
+      {/* Open pool (cascade exhausted — anyone can take it) */}
+      {online && pool.length > 0 && (
+        <>
+          <p className="font-black text-brand-black text-sm mb-2 mt-4 flex items-center gap-1.5">
+            <Bike className="w-4 h-4 text-brand-orange" /> Open deliveries
+          </p>
+          {pool.map((d) => (
+            <Card key={d.orderCode} className="p-4 mb-3 flex items-center gap-3">
+              <div className="min-w-0 flex-1">
+                <p className="font-bold text-brand-dark truncate">{d.merchant?.name || 'Restaurant'}</p>
+                <p className="text-xs text-brand-grey truncate">
+                  To: {d.dropoffAddress}
+                  {d.distanceKm != null && ` · ${d.distanceKm} km from you`}
+                </p>
+              </div>
+              <button
+                type="button"
+                disabled={busyId === d.orderCode}
+                onClick={() => claimFromPool(d)}
+                className={btnPrimary + ' !py-2 !px-4 !text-xs shrink-0'}
+              >
+                {busyId === d.orderCode ? <Spinner className="!w-4 !h-4 !border-white/40 !border-t-white" /> : 'Take it'}
+              </button>
+            </Card>
+          ))}
+        </>
+      )}
+    </div>
+  );
+}

@@ -24,4 +24,16 @@ module.exports = {
   driverAcceptLimiter: make(20),
   // Driver location pings (~5/min in normal use) — headroom, block floods.
   locationLimiter: make(30),
+
+  // --- Food Delivery ---
+  // Restaurant browse/search — generous, but stops scraping floods.
+  foodSearchLimiter: make(60),
+  // Checkout (order creation) — a human places at most a few orders/minute.
+  foodCheckoutLimiter: make(10),
+  // Payment proof/charge endpoints — same posture as proofLimiter.
+  foodPayLimiter: make(10),
+  // Merchant accept/reject/status — limit race/retry amplification.
+  merchantOrderLimiter: make(30),
+  // Client analytics events — cheap writes, but cap the firehose.
+  foodEventsLimiter: make(60),
 };
