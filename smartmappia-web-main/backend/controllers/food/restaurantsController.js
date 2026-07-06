@@ -12,24 +12,56 @@ const { config } = require('../../lib/config');
 const { logFoodEvent } = require('../../lib/foodEvents');
 
 const PUBLIC_MERCHANT_FIELDS =
-  'id, name, cuisine_type, description, logo_url, address, lat, lng, service_radius_km';
+  'id, name, cuisine_type, description, logo_url, address, lat, lng, service_radius_km, is_featured, badge';
+
+// Real restaurant ratings, aggregated from the `ratings` table (food_rating).
+// Returns Map(merchant_id -> { rating, reviewCount }); empty until customers
+// actually review — the homepage simply hides stars when there are none.
+async function ratingsForMerchants(merchantIds) {
+  const out = new Map();
+  if (!merchantIds.length) return out;
+  const { data, error } = await supabase
+    .from('ratings')
+    .select('merchant_id, food_rating')
+    .in('merchant_id', merchantIds);
+  if (error) {
+    console.error('ratingsForMerchants error:', error);
+    return out;
+  }
+  const agg = new Map();
+  for (const r of data || []) {
+    const e = agg.get(r.merchant_id) || { sum: 0, n: 0 };
+    e.sum += Number(r.food_rating) || 0;
+    e.n += 1;
+    agg.set(r.merchant_id, e);
+  }
+  for (const [mid, e] of agg) {
+    out.set(mid, { rating: Math.round((e.sum / e.n) * 10) / 10, reviewCount: e.n });
+  }
+  return out;
+}
 
 async function listRestaurants(req, res) {
   try {
     const q = (req.query.q || '').toString().trim();
     const cuisine = (req.query.cuisine || '').toString().trim();
+    const featuredOnly = String(req.query.featured || '') === 'true';
 
     let query = supabase
       .from('merchants')
       .select(PUBLIC_MERCHANT_FIELDS)
       .eq('is_active', true)
       .eq('status', 'active')
+      // Featured restaurants lead the grid (drives the homepage section),
+      // then alphabetical.
+      .order('is_featured', { ascending: false })
       .order('name')
       .limit(100);
 
     // Escape LIKE wildcards so user input can't turn into a pattern.
     if (q) query = query.ilike('name', `%${q.replace(/[%_]/g, '\\$&')}%`);
     if (cuisine) query = query.eq('cuisine_type', cuisine);
+    if (featuredOnly) query = query.eq('is_featured', true);
 
     const { data, error } = await query;
     if (error) {
@@ -45,8 +77,13 @@ async function listRestaurants(req, res) {
       .eq('status', 'active')
       .not('cuisine_type', 'is', null);
 
+    const ratingMap = await ratingsForMerchants((data || []).map((m) => m.id));
+
     return res.json({
-      restaurants: data || [],
+      restaurants: (data || []).map((m) => {
+        const r = ratingMap.get(m.id);
+        return { ...m, rating: r ? r.rating : null, reviewCount: r ? r.reviewCount : 0 };
+      }),
       cuisines: [...new Set((cuisines || []).map((c) => c.cuisine_type).filter(Boolean))].sort(),
       deliveryFee: config.food.deliveryFeeSar,
       minOrder: config.food.minOrderSar,

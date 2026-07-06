@@ -86,6 +86,15 @@ const CHECKS = [
     },
     sqlFile: '0014_driver_ratings.sql',
   },
+  {
+    id: '0015',
+    name: 'merchant homepage presentation (featured + badge)',
+    run: async () => {
+      const { error } = await supabase.from('merchants').select('is_featured, badge').limit(0);
+      return error ? error.message : null;
+    },
+    sqlFile: '0015_merchant_homepage_presentation.sql',
+  },
 ];
 
 async function main() {

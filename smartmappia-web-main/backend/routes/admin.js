@@ -47,6 +47,8 @@ const ADMIN_MERCHANT_FIELDS = {
   lat: { type: 'number', min: -90, max: 90, nullable: true },
   lng: { type: 'number', min: -180, max: 180, nullable: true },
   is_active: { type: 'boolean' }, // listing on/off (vetting gate)
+  is_featured: { type: 'boolean' }, // leads the public homepage grid
+  badge: { type: 'string', enum: ['top_rated', 'popular', 'new', 'trending'], nullable: true },
 };
 const ADMIN_ITEM_FIELDS = {
   category_id: { type: 'string', maxLength: 60, nullable: true },

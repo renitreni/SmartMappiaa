@@ -58,8 +58,19 @@ function Stat({ label, value, accent = false }) {
 
 // --- Restaurant create/edit form ------------------------------------------
 const EMPTY_RESTAURANT = {
-  name: '', cuisine_type: '', description: '', address: '', logo_url: '', lat: '', lng: '', is_active: false,
+  name: '', cuisine_type: '', description: '', address: '', logo_url: '', lat: '', lng: '',
+  is_active: false, is_featured: false, badge: '',
 };
+
+// Marketing badges shown on the public homepage card (must match the DB
+// merchants_badge_chk constraint + the backend route enum).
+const BADGE_OPTIONS = [
+  { value: '', label: 'No badge' },
+  { value: 'top_rated', label: 'Top Rated' },
+  { value: 'popular', label: 'Popular' },
+  { value: 'new', label: 'New' },
+  { value: 'trending', label: 'Trending' },
+];
 
 function RestaurantForm({ initial, onSave, onCancel, busy }) {
   const [form, setForm] = useState({ ...EMPTY_RESTAURANT, ...initial });
@@ -76,6 +87,8 @@ function RestaurantForm({ initial, onSave, onCancel, busy }) {
       lat: form.lat === '' || form.lat == null ? null : Number(form.lat),
       lng: form.lng === '' || form.lng == null ? null : Number(form.lng),
       is_active: !!form.is_active,
+      is_featured: !!form.is_featured,
+      badge: form.badge || null,
     });
   }
 
@@ -106,6 +119,11 @@ function RestaurantForm({ initial, onSave, onCancel, busy }) {
       <Field label="Description">
         <input value={form.description || ''} onChange={set('description')} className={inputClass} placeholder="Shown to customers" />
       </Field>
+      <Field label="Homepage badge (optional)">
+        <select value={form.badge || ''} onChange={set('badge')} className={inputClass}>
+          {BADGE_OPTIONS.map((b) => <option key={b.value} value={b.value}>{b.label}</option>)}
+        </select>
+      </Field>
       <label className="flex items-center gap-2 text-sm font-bold text-brand-dark cursor-pointer">
         <input
           type="checkbox"
@@ -114,6 +132,15 @@ function RestaurantForm({ initial, onSave, onCancel, busy }) {
           className="w-4 h-4 accent-[#FF7E21]"
         />
         Listed (visible to customers) — keep off until the menu is imported
+      </label>
+      <label className="flex items-center gap-2 text-sm font-bold text-brand-dark cursor-pointer">
+        <input
+          type="checkbox"
+          checked={!!form.is_featured}
+          onChange={(e) => setForm((f) => ({ ...f, is_featured: e.target.checked }))}
+          className="w-4 h-4 accent-[#FF7E21]"
+        />
+        Feature on the homepage — leads the "Most Loved Flavors" grid
       </label>
       <div className="flex gap-2 pt-1">
         <button type="submit" disabled={busy} className={btnPrimary + ' flex-1'}>
@@ -414,6 +441,8 @@ function MerchantsSection({ onError }) {
                     lat: editing.lat,
                     lng: editing.lng,
                     is_active: editing.isActive,
+                    is_featured: editing.isFeatured,
+                    badge: editing.badge || '',
                   }
             }
             busy={busyId === 'form'}
