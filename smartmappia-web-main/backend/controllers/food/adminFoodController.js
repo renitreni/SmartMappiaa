@@ -88,7 +88,7 @@ async function listMerchants(req, res) {
       .from('merchants')
       .select(
         'id, name, cuisine_type, description, logo_url, address, lat, lng, is_active, status, ' +
-          'credit_limit, credit_used, created_at'
+          'credit_limit, credit_used, is_featured, badge, created_at'
       )
       .order('created_at', { ascending: false });
     if (error) {
@@ -109,6 +109,8 @@ async function listMerchants(req, res) {
         status: m.status,
         creditLimit: Number(m.credit_limit),
         creditUsed: round2(Number(m.credit_used)),
+        isFeatured: m.is_featured,
+        badge: m.badge,
         createdAt: m.created_at,
       })),
     });
@@ -128,7 +130,7 @@ async function loadMerchant(id) {
 
 const ADMIN_MERCHANT_SELECT =
   'id, name, cuisine_type, description, logo_url, address, lat, lng, ' +
-  'is_active, status, credit_limit, credit_used, owner_id, created_at';
+  'is_active, status, credit_limit, credit_used, is_featured, badge, owner_id, created_at';
 
 async function createMerchant(req, res) {
   try {
