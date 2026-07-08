@@ -95,6 +95,18 @@ const CHECKS = [
     },
     sqlFile: '0015_merchant_homepage_presentation.sql',
   },
+  {
+    id: '0016',
+    name: 'food audit hardening (indexes, deliveries.status enum, money checks)',
+    // Light check: 0016 adds indexes / CHECK constraints / an enum conversion, none of
+    // which PostgREST can introspect. This just confirms deliveries is reachable; the
+    // migration self-reports via NOTICE in the Supabase SQL editor when it runs.
+    run: async () => {
+      const { error } = await supabase.from('deliveries').select('status').limit(0);
+      return error ? error.message : null;
+    },
+    sqlFile: '0016_food_audit_hardening.sql',
+  },
 ];
 
 async function main() {
