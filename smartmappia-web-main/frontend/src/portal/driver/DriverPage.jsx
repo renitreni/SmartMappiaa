@@ -617,6 +617,11 @@ export default function DriverPage() {
 
   const [online, setOnline] = useState(false);
 
+  // A rider carrying an active food delivery must keep sending GPS even when
+  // they haven't toggled "online" for ride offers — otherwise the customer's
+  // live tracking map has no pin. DriverDispatch reports this up.
+  const [hasActiveDelivery, setHasActiveDelivery] = useState(false);
+
   const [available, setAvailable] = useState([]);
 
   const [activeRide, setActiveRide] = useState(null);
@@ -633,7 +638,10 @@ export default function DriverPage() {
 
 
 
-  const { coords, error: geoError } = useGeolocation({ watch: true, enabled: online });
+  // Keep GPS on whenever the rider has live work — an active ride (Pick & Drop)
+  // OR an active food delivery — so the customer/passenger map is fed even when
+  // they aren't toggled "online" for new offers.
+  const { coords, error: geoError } = useGeolocation({ watch: true, enabled: online || hasActiveDelivery || !!activeRide });
 
   const coordsRef = useRef(coords);
 
@@ -701,7 +709,7 @@ export default function DriverPage() {
 
   useEffect(() => {
 
-    if (!online || !driverApproved) return undefined;
+    if ((!online && !hasActiveDelivery && !activeRide) || !driverApproved) return undefined;
 
     let stop = false;
 
@@ -711,7 +719,7 @@ export default function DriverPage() {
 
       if (c) { try { await api.driverLocation({ lat: c.lat, lng: c.lng, accuracy: c.accuracy }); } catch { /* ignore */ } }
 
-      if (!activeRide && !stop) loadAvailable();
+      if (online && !activeRide && !stop) loadAvailable();
 
     };
 
@@ -721,7 +729,7 @@ export default function DriverPage() {
 
     return () => { stop = true; clearInterval(id); };
 
-  }, [online, driverApproved, activeRide, loadAvailable]);
+  }, [online, hasActiveDelivery, driverApproved, activeRide, loadAvailable]);
 
 
 
@@ -975,14 +983,14 @@ export default function DriverPage() {
 
 
 
-        {geoError && online && !coords && (
-
+        {(geoError || ((hasActiveDelivery || activeRide) && !coords)) && (online || hasActiveDelivery || activeRide) && (
           <div className="mb-4 p-3 rounded-2xl bg-amber-50 border border-amber-200 text-amber-800 text-sm">
-
-            {geoError}
-
+            <span className="font-bold">Location access is needed.</span>{' '}
+            {hasActiveDelivery || activeRide
+              ? 'Please allow location / turn on GPS for this site so your customer can track you live on the map.'
+              : 'Please turn on location so we can match you to nearby jobs.'}
+            {geoError ? ` (${geoError})` : ''}
           </div>
-
         )}
 
         {/* Grab-style dispatch: exclusive 30s offers + food deliveries. */}
@@ -991,6 +999,7 @@ export default function DriverPage() {
           driverId={profile?.id}
           coords={coords}
           onRideAccepted={loadActive}
+          onActiveDeliveryChange={setHasActiveDelivery}
         />
 
 

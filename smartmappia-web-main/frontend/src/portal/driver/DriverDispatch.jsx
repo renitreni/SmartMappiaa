@@ -186,7 +186,7 @@ function DeliveryCard({ delivery, busy, onStatus }) {
   );
 }
 
-export default function DriverDispatch({ online, driverId, coords, onRideAccepted }) {
+export default function DriverDispatch({ online, driverId, coords, onRideAccepted, onActiveDeliveryChange }) {
   const [offers, setOffers] = useState([]);
   const [deliveries, setDeliveries] = useState([]);
   const [pool, setPool] = useState([]);
@@ -224,15 +224,30 @@ export default function DriverDispatch({ online, driverId, coords, onRideAccepte
     realtimeEnabled && online && !!driverId
   );
 
+  // Active deliveries load regardless of the online toggle: a rider must be able
+  // to see and finish a delivery — and keep the customer's live map fed with GPS
+  // (see onActiveDeliveryChange below) — even after going "offline" for new offers.
+  useEffect(() => {
+    loadDeliveries();
+    const d = setInterval(loadDeliveries, 15000);
+    return () => clearInterval(d);
+  }, [loadDeliveries]);
+
+  // Offers + open pool are only relevant while online.
   useEffect(() => {
     if (!online) { setOffers([]); setPool([]); return undefined; }
     loadOffers();
-    loadDeliveries();
     loadPool();
     const a = setInterval(loadOffers, OFFERS_POLL_MS);
     const b = setInterval(loadPool, POOL_POLL_MS);
     return () => { clearInterval(a); clearInterval(b); };
-  }, [online, loadOffers, loadDeliveries, loadPool]);
+  }, [online, loadOffers, loadPool]);
+
+  // Tell the parent (DriverPage) so it keeps GPS pinging while a delivery is
+  // active, even when the rider isn't "online" — that's what feeds the pin.
+  useEffect(() => {
+    onActiveDeliveryChange?.(deliveries.length > 0);
+  }, [deliveries.length, onActiveDeliveryChange]);
 
   async function acceptOffer(offer) {
     setBusyId(offer.id);
