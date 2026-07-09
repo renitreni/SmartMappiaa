@@ -94,6 +94,14 @@ function buildMerchantImagePath(merchantId, kind, originalName) {
   return `${safeId}/${safeKind}-${Date.now()}-${rand}${ext}`;
 }
 
+function buildMerchantLogoPath(merchantId, originalName) {
+  return buildMerchantImagePath(merchantId, 'logo', originalName);
+}
+
+function buildMenuItemImagePath(merchantId, originalName) {
+  return buildMerchantImagePath(merchantId, 'item', originalName);
+}
+
 async function createMerchantImageUploadUrl(path) {
   const { data, error } = await supabase.storage
     .from(config.merchantImages.bucket)
@@ -117,6 +125,13 @@ module.exports = {
   createDriverDocUploadUrl,
   createDriverDocDownloadUrl,
   buildMerchantImagePath,
+  buildMerchantLogoPath,
+  buildMenuItemImagePath,
   createMerchantImageUploadUrl,
   merchantImagePublicUrl,
+  // Back-compat aliases used by the merchant portal controller.
+  createMerchantMediaUploadUrl: createMerchantImageUploadUrl,
+  getMerchantMediaPublicUrl: merchantImagePublicUrl,
+  createMerchantLogoUploadUrl: createMerchantImageUploadUrl,
+  getMerchantLogoPublicUrl: merchantImagePublicUrl,
 };

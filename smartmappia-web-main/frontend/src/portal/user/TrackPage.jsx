@@ -9,8 +9,9 @@
 // ---------------------------------------------------------------------
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { MessageCircle, X, MapPin, Flag, Navigation, Clock, RefreshCw, Car } from 'lucide-react';
+import { MessageCircle, X, MapPin, Flag, Navigation, Clock, RefreshCw, Car, Heart, Download } from 'lucide-react';
 import { api } from '../lib/api';
+import { downloadRideInvoice } from '../lib/invoice';
 import { useBroadcast } from '../lib/useBroadcast';
 import { realtimeEnabled } from '../lib/supabaseClient';
 import { statusMeta, whatsappLink, CANCELLABLE } from '../lib/constants';
@@ -29,7 +30,7 @@ const ACTIVE = ['accepted', 'on_the_way', 'arrived', 'started'];
 
 export default function TrackPage() {
   const { code } = useParams();
-  const { session } = useAuth(); // rating requires a signed-in owner
+  const { session, profile, user } = useAuth(); // rating requires a signed-in owner
   const [data, setData] = useState(null);
   const [live, setLive] = useState({ driverLocation: null, etaMinutes: null });
   const [route, setRoute] = useState(null);
@@ -293,6 +294,42 @@ export default function TrackPage() {
           ) : (
             <Card className="p-4 text-center text-sm text-brand-grey">
               {waiting ? 'No driver yet — waiting for one to accept your trip.' : '—'}
+            </Card>
+          )}
+
+          {/* Trip completed: warm thank-you + downloadable PDF invoice (spec §6). */}
+          {data.bookingStatus === 'completed' && (
+            <Card className="p-5 text-center bg-gradient-to-br from-brand-orange/10 to-white border-brand-orange/30">
+              <div className="w-12 h-12 rounded-full bg-brand-orange/15 text-brand-orange flex items-center justify-center mx-auto mb-2">
+                <Heart className="w-6 h-6" />
+              </div>
+              <p className="font-black text-brand-black">Thank you for riding with Smart Mappia!</p>
+              <p className="text-xs text-brand-grey mt-1 mb-4">
+                We hope you had a great trip. Your invoice is ready to download.
+              </p>
+              <button
+                type="button"
+                onClick={() =>
+                  downloadRideInvoice({
+                    booking: {
+                      booking_code: data.bookingCode || code,
+                      trip_type: data.tripType,
+                      pickup_address: data.pickupAddress,
+                      dropoff_address: data.dropoffAddress,
+                      pickup_datetime: data.pickupDatetime,
+                      created_at: data.createdAt,
+                      fare_amount: data.fareAmount,
+                      currency: data.currency,
+                      payment_status: data.paymentStatus,
+                      payment_method: 'STC Pay',
+                    },
+                    customerName: profile?.fullName || user?.email || 'Smart Mappia customer',
+                  })
+                }
+                className="w-full inline-flex items-center justify-center gap-2 bg-brand-orange hover:bg-brand-orange/90 text-white font-black py-3 rounded-xl transition-all shadow-lg shadow-brand-orange/20 text-sm cursor-pointer"
+              >
+                <Download className="w-4 h-4" /> Download invoice (PDF)
+              </button>
             </Card>
           )}
 

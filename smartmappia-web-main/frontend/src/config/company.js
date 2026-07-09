@@ -15,7 +15,8 @@ export const COMPANY = {
 
   // Phone / WhatsApp
   phoneDisplay: '0561766883',
-  whatsappDisplay: '+966561766883',
+  phoneTel: '+966561766883',
+  whatsappDisplay: '0561766883',
   whatsappUrl: 'https://wa.me/966561766883',
 
   // Address

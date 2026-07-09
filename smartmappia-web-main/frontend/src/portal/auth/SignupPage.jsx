@@ -1,6 +1,7 @@
 // ---------------------------------------------------------------------
-// Create an account as a Rider (passenger) or Driver. Role is sent to the
-// backend on first sign-in; admins are granted only via the env allow-list.
+// Create an account as a User (passenger) or Driver. Restaurant owners
+// cannot self-register — they contact Smart Mappia and admins provision
+// their account after partnership approval.
 // ---------------------------------------------------------------------
 import { useState, useRef, useEffect } from 'react';
 import { useNavigate, useSearchParams, Link } from 'react-router-dom';
@@ -9,6 +10,7 @@ import {
   UserPlus,
   User,
   Car,
+  Store,
   MailCheck,
   ArrowLeft,
   ArrowRight,
@@ -17,10 +19,13 @@ import {
   IdCard,
   Check,
   ChevronDown,
+  MessageCircle,
+  Phone,
 } from 'lucide-react';
 import { useAuth } from '../lib/AuthProvider';
 import { roleHome } from '../lib/constants';
-import { Field, btnPrimary, Spinner } from '../components/ui';
+import { Field, btnPrimary, btnGhost, Spinner } from '../components/ui';
+import { COMPANY } from '../../config/company';
 
 const STEPS = ['Account type', 'Personal info', 'Create login'];
 
@@ -340,6 +345,98 @@ function RoleCard({ active, onClick, icon: Icon, title, description }) {
   );
 }
 
+// Restaurant partnerships are admin-provisioned — this card routes owners to contact us.
+function PartnerCard({ onClick }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="w-full text-left p-4 rounded-2xl border-2 border-brand-border bg-white hover:border-brand-orange/50 hover:bg-brand-warm/40 transition-all cursor-pointer group"
+    >
+      <div className="flex items-start gap-3">
+        <span className="flex items-center justify-center w-11 h-11 rounded-xl shrink-0 bg-brand-surface text-brand-grey group-hover:bg-brand-orange group-hover:text-white transition-colors">
+          <Store className="w-5 h-5" />
+        </span>
+        <div className="min-w-0 flex-1">
+          <p className="font-black text-brand-black">Restaurant partner</p>
+          <p className="text-sm text-brand-grey mt-0.5 leading-relaxed">
+            List your restaurant on Smart Mappia. Contact us — we&apos;ll create your account after approval.
+          </p>
+          <p className="text-xs font-bold text-brand-orange mt-2 flex items-center gap-1">
+            Contact Smart Mappia <ArrowRight className="w-3.5 h-3.5" />
+          </p>
+        </div>
+      </div>
+    </button>
+  );
+}
+
+function PartnerContactPanel() {
+  const whatsappMsg = encodeURIComponent(
+    'Hi Smart Mappia, I would like to partner my restaurant on your food delivery platform.'
+  );
+  const whatsappHref = `${COMPANY.whatsappUrl}?text=${whatsappMsg}`;
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, x: 12 }}
+      animate={{ opacity: 1, x: 0 }}
+      exit={{ opacity: 0, x: -12 }}
+      transition={{ duration: 0.2 }}
+      className="space-y-4"
+    >
+      <div className="rounded-2xl border border-brand-orange/25 bg-gradient-to-br from-brand-warm to-white p-5">
+        <div className="w-12 h-12 rounded-xl bg-brand-orange/15 text-brand-orange flex items-center justify-center mb-3">
+          <Store className="w-6 h-6" />
+        </div>
+        <h3 className="font-black text-brand-black text-lg">Partner with Smart Mappia</h3>
+        <p className="text-sm text-brand-grey mt-2 leading-relaxed">
+          Restaurant owner accounts are created by our team after partnership approval. Reach out and
+          we&apos;ll guide you through onboarding, set up your account, and link it to your restaurant.
+        </p>
+        <ol className="mt-4 space-y-2 text-sm text-brand-dark">
+          <li className="flex items-start gap-2">
+            <span className="w-5 h-5 rounded-full bg-brand-orange text-white text-xs font-black flex items-center justify-center shrink-0 mt-0.5">1</span>
+            Contact Smart Mappia using one of the options below
+          </li>
+          <li className="flex items-start gap-2">
+            <span className="w-5 h-5 rounded-full bg-brand-orange text-white text-xs font-black flex items-center justify-center shrink-0 mt-0.5">2</span>
+            Our team reviews your restaurant and completes the partnership
+          </li>
+          <li className="flex items-start gap-2">
+            <span className="w-5 h-5 rounded-full bg-brand-orange text-white text-xs font-black flex items-center justify-center shrink-0 mt-0.5">3</span>
+            We create your owner account — then you sign in and manage your menu
+          </li>
+        </ol>
+      </div>
+
+      <div className="grid grid-cols-1 gap-2">
+        <a
+          href={whatsappHref}
+          target="_blank"
+          rel="noreferrer"
+          className="inline-flex items-center justify-center gap-2 bg-green-600 hover:bg-green-700 text-white font-bold py-3 px-5 rounded-xl text-sm transition-all cursor-pointer"
+        >
+          <MessageCircle className="w-4 h-4" /> WhatsApp — {COMPANY.whatsappDisplay}
+        </a>
+        <a
+          href={`mailto:${COMPANY.email}?subject=${encodeURIComponent('Restaurant partnership inquiry')}`}
+          className={btnGhost + ' !py-3'}
+        >
+          <Mail className="w-4 h-4" /> Email — {COMPANY.email}
+        </a>
+        <a href={`tel:${COMPANY.phoneTel}`} className={btnGhost + ' !py-3'}>
+          <Phone className="w-4 h-4" /> Call — {COMPANY.phoneDisplay}
+        </a>
+      </div>
+
+      <p className="text-xs text-brand-grey text-center leading-relaxed">
+        Support hours: {COMPANY.hours}
+      </p>
+    </motion.div>
+  );
+}
+
 export default function SignupPage() {
   const { signUp, session, role: authRole } = useAuth();
   const navigate = useNavigate();
@@ -371,6 +468,7 @@ export default function SignupPage() {
   const [vehicleType, setVehicleType] = useState('');
   const [vehiclePlate, setVehiclePlate] = useState('');
   const [acceptedTerms, setAcceptedTerms] = useState(false);
+  const [partnerPanel, setPartnerPanel] = useState(false);
   const [error, setError] = useState(null);
   const [showStepErrors, setShowStepErrors] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -444,6 +542,10 @@ export default function SignupPage() {
   function goBack() {
     setError(null);
     setShowStepErrors(false);
+    if (step === 1 && partnerPanel) {
+      setPartnerPanel(false);
+      return;
+    }
     if (step > 1) setStep((s) => s - 1);
     else navigate('/');
   }
@@ -539,29 +641,52 @@ export default function SignupPage() {
               </span>
             </h1>
             <p className="text-brand-grey text-base leading-relaxed mt-4 max-w-md">
-              {role === 'driver'
-                ? 'Register as a driver, submit your details, and get approved to start accepting trips.'
-                : 'Create your user account to book rides, order food, and track deliveries in one app.'}
+              {partnerPanel
+                ? 'Restaurant partnerships are by invitation. Contact our team and we will create your owner account after approval.'
+                : role === 'driver'
+                  ? 'Register as a driver, submit your details, and get approved to start accepting trips.'
+                  : 'Create your user account to book rides, order food, and track deliveries in one app.'}
             </p>
 
             <ul className="mt-8 space-y-3 text-sm font-semibold text-brand-dark">
-              <li className="flex items-center gap-2">
-                <span className="w-1.5 h-1.5 rounded-full bg-brand-orange" />
-                Secure account with email verification
-              </li>
-              <li className="flex items-center gap-2">
-                <span className="w-1.5 h-1.5 rounded-full bg-brand-orange" />
-                Personal details for booking &amp; support
-              </li>
-              <li className="flex items-center gap-2">
-                <span className="w-1.5 h-1.5 rounded-full bg-brand-orange" />
-                {role === 'driver' ? 'Driver verification before going live' : 'One account for rides & deliveries'}
-              </li>
+              {partnerPanel ? (
+                <>
+                  <li className="flex items-center gap-2">
+                    <span className="w-1.5 h-1.5 rounded-full bg-brand-orange" />
+                    No self-registration — contact us to get started
+                  </li>
+                  <li className="flex items-center gap-2">
+                    <span className="w-1.5 h-1.5 rounded-full bg-brand-orange" />
+                    Partnership review by our team
+                  </li>
+                  <li className="flex items-center gap-2">
+                    <span className="w-1.5 h-1.5 rounded-full bg-brand-orange" />
+                    We create your owner account for you
+                  </li>
+                </>
+              ) : (
+                <>
+                  <li className="flex items-center gap-2">
+                    <span className="w-1.5 h-1.5 rounded-full bg-brand-orange" />
+                    Secure account with email verification
+                  </li>
+                  <li className="flex items-center gap-2">
+                    <span className="w-1.5 h-1.5 rounded-full bg-brand-orange" />
+                    Personal details for booking &amp; support
+                  </li>
+                  <li className="flex items-center gap-2">
+                    <span className="w-1.5 h-1.5 rounded-full bg-brand-orange" />
+                    {role === 'driver'
+                      ? 'Driver verification before going live'
+                      : 'One account for rides & deliveries'}
+                  </li>
+                </>
+              )}
             </ul>
           </div>
 
           <p className="text-xs text-brand-grey font-medium">
-            Step {step} of {STEPS.length} — {STEPS[step - 1]}
+            {partnerPanel ? 'Restaurant partnership' : `Step ${step} of ${STEPS.length} — ${STEPS[step - 1]}`}
           </p>
         </div>
       </div>
@@ -575,7 +700,7 @@ export default function SignupPage() {
             className="inline-flex items-center gap-2 text-sm font-bold text-brand-grey hover:text-brand-orange transition-colors cursor-pointer"
           >
             <ArrowLeft className="w-4 h-4" />
-            {step > 1 ? 'Previous step' : 'Back to home'}
+            {step > 1 ? 'Previous step' : partnerPanel ? 'Back to account types' : 'Back to home'}
           </button>
 
           <Link to="/" className="flex items-center gap-2 lg:hidden">
@@ -593,14 +718,18 @@ export default function SignupPage() {
             className="w-full max-w-[480px]"
           >
             <div className="mb-6">
-              <h2 className="text-2xl sm:text-3xl font-black text-brand-black tracking-tight">Create account</h2>
+              <h2 className="text-2xl sm:text-3xl font-black text-brand-black tracking-tight">
+                {partnerPanel ? 'Restaurant partnership' : 'Create account'}
+              </h2>
               <p className="text-brand-grey text-sm mt-1 lg:hidden">
-                Step {step} of {STEPS.length} — {STEPS[step - 1]}
+                {partnerPanel
+                  ? 'Contact Smart Mappia — no signup required'
+                  : `Step ${step} of ${STEPS.length} — ${STEPS[step - 1]}`}
               </p>
             </div>
 
             <div className="bg-white border border-brand-border rounded-2xl shadow-xl shadow-brand-orange/8 p-6 sm:p-8 overflow-visible">
-              <StepIndicator step={step} />
+              {!partnerPanel && <StepIndicator step={step} />}
 
               {error && (
                 <div className="mb-5 p-3.5 rounded-xl bg-red-50 border border-red-200 text-red-700 text-sm font-medium">
@@ -611,33 +740,40 @@ export default function SignupPage() {
               <AnimatePresence mode="wait">
                 {step === 1 && (
                   <motion.div
-                    key="step1"
+                    key={partnerPanel ? 'partner' : 'step1'}
                     initial={{ opacity: 0, x: 12 }}
                     animate={{ opacity: 1, x: 0 }}
                     exit={{ opacity: 0, x: -12 }}
                     transition={{ duration: 0.2 }}
                     className="space-y-3"
                   >
-                    <p className="text-sm text-brand-grey mb-4">
-                      How will you use Smart Mappia? You can register as a user or a driver.
-                    </p>
-                    <RoleCard
-                      active={role === 'passenger'}
-                      onClick={() => setRole('passenger')}
-                      icon={User}
-                      title="User"
-                      description="Book airport transfers, order food, and track your deliveries."
-                    />
-                    <RoleCard
-                      active={role === 'driver'}
-                      onClick={() => setRole('driver')}
-                      icon={Car}
-                      title="Driver"
-                      description="Accept ride requests after admin approval. Vehicle details required."
-                    />
-                    <button type="button" onClick={goNext} className={btnPrimary + ' w-full mt-4'}>
-                      Continue <ArrowRight className="w-4 h-4" />
-                    </button>
+                    {partnerPanel ? (
+                      <PartnerContactPanel />
+                    ) : (
+                      <>
+                        <p className="text-sm text-brand-grey mb-4">
+                          How will you use Smart Mappia? Choose the account type that fits you.
+                        </p>
+                        <RoleCard
+                          active={role === 'passenger'}
+                          onClick={() => setRole('passenger')}
+                          icon={User}
+                          title="User"
+                          description="Book airport transfers, order food, and track your deliveries."
+                        />
+                        <RoleCard
+                          active={role === 'driver'}
+                          onClick={() => setRole('driver')}
+                          icon={Car}
+                          title="Driver"
+                          description="Accept ride requests after admin approval. Vehicle details required."
+                        />
+                        <PartnerCard onClick={() => setPartnerPanel(true)} />
+                        <button type="button" onClick={goNext} className={btnPrimary + ' w-full mt-4'}>
+                          Continue <ArrowRight className="w-4 h-4" />
+                        </button>
+                      </>
+                    )}
                   </motion.div>
                 )}
 

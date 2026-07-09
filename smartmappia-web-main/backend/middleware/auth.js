@@ -9,6 +9,7 @@
 //   requireAuth           -> valid token + an existing profile  (req.userId)
 //   requireAdmin          -> requireAuth + role 'admin'         (req.adminId)
 //   requireDriver         -> requireAuth + role 'driver'        (req.driverId)
+//   requireMerchant       -> requireAuth + role 'merchant'      (req.merchantOwnerId)
 //   requireApprovedDriver -> requireDriver + driver_approved = true
 // ---------------------------------------------------------------------
 const { supabase } = require('../lib/supabase');
@@ -84,6 +85,16 @@ function requireDriver(req, res, next) {
   });
 }
 
+function requireMerchant(req, res, next) {
+  requireAuth(req, res, () => {
+    if (req.role !== 'merchant' && req.role !== 'admin') {
+      return res.status(403).json({ error: 'Business owner access required' });
+    }
+    req.merchantOwnerId = req.userId;
+    return next();
+  });
+}
+
 function requireApprovedDriver(req, res, next) {
   requireDriver(req, res, () => {
     // Admin bypasses the approval gate (admins are implicitly approved).
@@ -94,4 +105,4 @@ function requireApprovedDriver(req, res, next) {
   });
 }
 
-module.exports = { requireToken, requireAuth, requireAdmin, requireDriver, requireApprovedDriver };
+module.exports = { requireToken, requireAuth, requireAdmin, requireDriver, requireMerchant, requireApprovedDriver };

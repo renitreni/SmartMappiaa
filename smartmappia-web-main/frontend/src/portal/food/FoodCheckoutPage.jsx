@@ -7,10 +7,11 @@
 // ---------------------------------------------------------------------
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useSearchParams, Link } from 'react-router-dom';
-import { MapPin, LocateFixed, AlertCircle, ArrowRight, Smartphone, Banknote, CreditCard } from 'lucide-react';
+import { MapPin, AlertCircle, ArrowRight, Smartphone, Banknote, CreditCard } from 'lucide-react';
 import { api } from '../lib/api';
 import { fmtSAR, FOOD_RADIUS_KM } from '../lib/constants';
-import { PortalShell, Card, Field, Spinner, btnPrimary, btnGhost, inputClass } from '../components/ui';
+import { PortalShell, Card, Spinner, btnPrimary, btnGhost } from '../components/ui';
+import LocationPicker from '../components/LocationPicker';
 import PaymentPanel from './PaymentPanel';
 
 // Payment options shown at checkout. Card (Tap) ships later — placeholder.
@@ -29,7 +30,6 @@ export default function FoodCheckoutPage() {
   const [loadErr, setLoadErr] = useState(null);
   const [address, setAddress] = useState('');
   const [coords, setCoords] = useState(null); // { lat, lng }
-  const [locating, setLocating] = useState(false);
   const [method, setMethod] = useState('stcpay');
   const [error, setError] = useState(null);
   const [busy, setBusy] = useState(false);
@@ -41,23 +41,6 @@ export default function FoodCheckoutPage() {
     if (!merchantId) return;
     api.foodCart(merchantId).then(setCart).catch((e) => setLoadErr(e.message));
   }, [merchantId]);
-
-  function useMyLocation() {
-    if (!navigator.geolocation) return setError('Location is not available in this browser.');
-    setLocating(true);
-    setError(null);
-    navigator.geolocation.getCurrentPosition(
-      (pos) => {
-        setCoords({ lat: pos.coords.latitude, lng: pos.coords.longitude });
-        setLocating(false);
-      },
-      () => {
-        setError('Could not get your location. Please allow location access and try again.');
-        setLocating(false);
-      },
-      { enableHighAccuracy: true, timeout: 10000 }
-    );
-  }
 
   async function placeOrder() {
     if (!address.trim()) return setError('Please enter your delivery address.');
@@ -166,18 +149,16 @@ export default function FoodCheckoutPage() {
               <p className="font-black text-brand-black flex items-center gap-2">
                 <MapPin className="w-4 h-4 text-brand-orange" /> Delivery address
               </p>
-              <Field label="Address">
-                <input
-                  value={address}
-                  onChange={(e) => setAddress(e.target.value)}
-                  placeholder="Building, street, district, city"
-                  className={inputClass}
-                />
-              </Field>
-              <button type="button" onClick={useMyLocation} disabled={locating} className={btnGhost + ' w-full'}>
-                {locating ? <Spinner /> : <LocateFixed className="w-4 h-4" />}
-                {coords ? 'Location captured — update it' : 'Use my location'}
-              </button>
+              <LocationPicker
+                label="Address"
+                placeholder="Search nearby places, streets, or districts"
+                address={address}
+                coords={coords}
+                onChange={({ address: nextAddress, coords: nextCoords }) => {
+                  setAddress(nextAddress);
+                  setCoords(nextCoords);
+                }}
+              />
               <p className="text-xs text-brand-grey">
                 Your location confirms you are within the {FOOD_RADIUS_KM} km delivery radius
                 ({fmtSAR(cart.deliveryFee)} flat fee).

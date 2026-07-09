@@ -73,6 +73,14 @@ const config = {
     ],
   },
 
+  // Public bucket for restaurant logos (create in Supabase Dashboard as PUBLIC).
+  merchantLogos: {
+    bucket: process.env.MERCHANT_LOGOS_BUCKET || 'merchant-logos',
+    uploadUrlTtlSeconds: toNumber(process.env.MERCHANT_LOGOS_UPLOAD_TTL, 900),
+    maxBytes: toNumber(process.env.MERCHANT_LOGOS_MAX_BYTES, 2 * 1024 * 1024), // 2 MB
+    allowedMimeTypes: ['image/jpeg', 'image/png', 'image/webp'],
+  },
+
   // Auth: accounts whose email is listed here automatically become admins
   // on sign-in/sync (comma-separated, case-insensitive).
   adminEmails: (process.env.ADMIN_EMAILS || '')

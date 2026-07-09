@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import { useState, useEffect } from "react";
 import { Link } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import {
@@ -45,7 +45,13 @@ function AuthActions({ mobile = false, onNavigate }) {
   if (session && role) {
     const dashboardPath = role !== "passenger" ? roleHome(role) : null;
     const dashboardLabel =
-      role === "admin" ? "Admin dashboard" : role === "driver" ? "Driver dashboard" : null;
+      role === "admin"
+        ? "Admin dashboard"
+        : role === "driver"
+          ? "Driver dashboard"
+          : role === "merchant"
+            ? "Business dashboard"
+            : null;
     const displayName = user?.email?.split("@")[0] || "Account";
 
     return (
@@ -174,19 +180,20 @@ const Navbar = () => {
                    px-6 md:px-20 flex items-center justify-between
                    fixed top-0 left-0 z-50"
       >
-        <a href="#home" className="flex items-center gap-3">
+        <a href="#home" className="flex items-center gap-2.5 shrink-0" aria-label="Smart Mappia home">
           <motion.div
             whileHover={{ scale: 1.1, rotate: -5 }}
             transition={{ type: "spring", stiffness: 320, damping: 14 }}
-            className="w-12 h-12 flex items-center justify-center overflow-hidden"
+            className="w-10 h-10 shrink-0 flex items-center justify-center"
           >
             <img
-              src="/mappia-new-logo.png"
-              alt="SmartMappia Logo"
+              src="/mappia-icon-transparent.png"
+              alt=""
+              aria-hidden="true"
               className="w-full h-full object-contain"
             />
           </motion.div>
-          <span className="text-xl font-black tracking-tight text-brand-black">
+          <span className="text-lg font-black tracking-tight whitespace-nowrap text-brand-black">
             Smart <span className="text-brand-orange">Mappia</span>
           </span>
         </a>
