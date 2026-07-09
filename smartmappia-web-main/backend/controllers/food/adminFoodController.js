@@ -21,6 +21,12 @@ const { logAudit } = require('../../lib/audit');
 const { logNotification } = require('../../lib/notifications');
 const { pushFoodOrderStatus, pushMerchantFeed, pingFoodAdmin } = require('../../lib/realtime');
 const { markOrderPaid } = require('./ordersController');
+const {
+  buildMerchantImagePath,
+  createMerchantImageUploadUrl,
+  merchantImagePublicUrl,
+} = require('../../lib/storage');
+const { validateUploadFile } = require('../../lib/uploadValidation');
 
 // Credit summary for a restaurant (used / limit / warning / suspended).
 function creditView(merchant) {
@@ -82,19 +88,32 @@ async function getOverview(req, res) {
 // --- Merchant management ------------------------------------------------
 async function listMerchants(req, res) {
   try {
-    // No restaurant owner accounts exist in this model — admins run every
-    // restaurant, so this is pure business data (no PII join).
+    // Restaurants are admin-run; owner_id is linked at contract signing and is
+    // used to show the "owner account" status in the admin UI (and to target
+    // owner notifications).
     const { data, error } = await supabase
       .from('merchants')
       .select(
         'id, name, cuisine_type, description, logo_url, address, lat, lng, is_active, status, ' +
-          'credit_limit, credit_used, is_featured, badge, created_at'
+          'credit_limit, credit_used, is_featured, badge, owner_id, created_at'
       )
       .order('created_at', { ascending: false });
     if (error) {
       console.error('food listMerchants error:', error);
       return res.status(500).json({ error: 'Could not load merchants' });
     }
+
+    // Resolve owner emails in one query so the UI can show who is linked.
+    const ownerIds = [...new Set((data || []).map((m) => m.owner_id).filter(Boolean))];
+    const ownerEmailById = new Map();
+    if (ownerIds.length) {
+      const { data: owners } = await supabase
+        .from('profiles')
+        .select('id, email')
+        .in('id', ownerIds);
+      for (const o of owners || []) ownerEmailById.set(o.id, o.email);
+    }
+
     return res.json({
       merchants: (data || []).map((m) => ({
         id: m.id,
@@ -111,6 +130,8 @@ async function listMerchants(req, res) {
         creditUsed: round2(Number(m.credit_used)),
         isFeatured: m.is_featured,
         badge: m.badge,
+        ownerId: m.owner_id,
+        ownerEmail: m.owner_id ? ownerEmailById.get(m.owner_id) || null : null,
         createdAt: m.created_at,
       })),
     });
@@ -1068,6 +1089,145 @@ async function refundPayment(req, res) {
   }
 }
 
+// --- Merchant images (logo + menu photos) ----------------------------------
+// The browser uploads straight to the PUBLIC `merchant-images` bucket via a
+// short-lived signed URL, then persists the returned publicUrl into
+// merchants.logo_url / menu_items.image_url through the normal update endpoints.
+//
+// POST /api/admin/food/merchants/:id/image/signed-url
+//   body: { kind: 'logo' | 'item', file_name, mime_type }
+async function createMerchantImageUploadUrlHandler(req, res) {
+  try {
+    const { kind, file_name, mime_type } = req.body || {};
+    if (!config.merchantImages.kinds.includes(kind)) {
+      return res.status(400).json({
+        error: `kind is required and must be one of: ${config.merchantImages.kinds.join(', ')}`,
+      });
+    }
+    const fileCheck = validateUploadFile({ fileName: file_name, mimeType: mime_type, imagesOnly: true });
+    if (!fileCheck.ok) {
+      return res.status(400).json({ error: fileCheck.error });
+    }
+
+    // The image lives under the merchant's id. Confirm the merchant exists so we
+    // never leave orphaned objects for a bad id.
+    const merchant = await loadMerchant(req.params.id);
+    if (!merchant) return res.status(404).json({ error: 'Merchant not found' });
+
+    const path = buildMerchantImagePath(merchant.id, kind, file_name);
+    const { token, signedUrl } = await createMerchantImageUploadUrl(path);
+
+    return res.status(201).json({
+      bucket: config.merchantImages.bucket,
+      path,
+      token,
+      signedUrl,
+      publicUrl: merchantImagePublicUrl(path),
+      maxBytes: config.merchantImages.maxBytes,
+    });
+  } catch (err) {
+    console.error('createMerchantImageUploadUrl error:', err);
+    return res.status(500).json({ error: 'Could not create upload URL' });
+  }
+}
+
+// --- Owner account provisioning (contract-signing step) ---------------------
+// POST /api/admin/food/merchants/:id/owner
+//   body: { email, full_name?, phone? }
+//
+// Restaurants are onboarded by admins: after the contract is signed the admin
+// creates (or reuses) the owner's auth account, grants it the `merchant` role,
+// and links it to the restaurant. There is no self-service merchant signup.
+async function setMerchantOwner(req, res) {
+  try {
+    const b = req.body || {};
+    const email = String(b.email || '').trim().toLowerCase();
+    if (!email) return res.status(400).json({ error: 'email is required' });
+
+    const merchant = await loadMerchant(req.params.id);
+    if (!merchant) return res.status(404).json({ error: 'Merchant not found' });
+    if (merchant.owner_id) {
+      return res.status(409).json({
+        error: 'This restaurant already has an owner account linked. Unlink it first if you need to change it.',
+      });
+    }
+
+    // 1. Create the auth user with a confirmed email (no confirmation mail). If
+    //    one already exists, reuse it (the person may already be a customer).
+    let ownerId = null;
+    const tempPassword = require('crypto').randomBytes(12).toString('base64url');
+    const { data: created, error: createErr } = await supabase.auth.admin.createUser({
+      email,
+      password: tempPassword,
+      email_confirm: true,
+      user_metadata: { full_name: b.full_name || null, mobile_number: b.phone || null },
+    });
+    if (createErr) {
+      const msg = (createErr.message || '').toLowerCase();
+      const alreadyExists = msg.includes('already') || createErr.status === 422;
+      if (!alreadyExists) {
+        console.error('setMerchantOwner createUser error:', createErr);
+        return res.status(500).json({ error: 'Could not create the owner account' });
+      }
+      // Look up the existing account by email via the profiles table.
+      const { data: existingProfile } = await supabase
+        .from('profiles')
+        .select('id')
+        .eq('email', email)
+        .maybeSingle();
+      if (!existingProfile) {
+        return res.status(409).json({
+          error: 'An account with this email exists but could not be linked. Please check the address.',
+        });
+      }
+      ownerId = existingProfile.id;
+    } else {
+      ownerId = created.user.id;
+    }
+
+    // 2. Upsert the profile with the merchant role + contact details.
+    const { error: profileErr } = await supabase
+      .from('profiles')
+      .upsert(
+        {
+          id: ownerId,
+          role: 'merchant',
+          email,
+          full_name: b.full_name ?? null,
+          mobile_number: b.phone ?? null,
+        },
+        { onConflict: 'id' }
+      );
+    if (profileErr) {
+      console.error('setMerchantOwner profile upsert error:', profileErr);
+      return res.status(500).json({ error: 'Could not set the merchant role' });
+    }
+
+    // 3. Link the owner to the restaurant.
+    const { error: linkErr } = await supabase
+      .from('merchants')
+      .update({ owner_id: ownerId })
+      .eq('id', merchant.id);
+    if (linkErr) {
+      console.error('setMerchantOwner link error:', linkErr);
+      return res.status(500).json({ error: 'Could not link the owner to the restaurant' });
+    }
+
+    logAudit({
+      actorId: req.adminId,
+      action: 'admin_merchant_owner_linked',
+      resourceType: 'merchant',
+      resourceId: merchant.id,
+      meta: { owner_id: ownerId, email },
+    });
+
+    return res.status(201).json({ ownerId, email, merchantId: merchant.id });
+  } catch (err) {
+    console.error('setMerchantOwner error:', err);
+    return res.status(500).json({ error: 'Unexpected server error' });
+  }
+}
+
 module.exports = {
   getOverview,
   listMerchants,
@@ -1094,4 +1254,6 @@ module.exports = {
   cancelOrder,
   refundPayment,
   assignDriver,
+  createMerchantImageUploadUrl: createMerchantImageUploadUrlHandler,
+  setMerchantOwner,
 };

@@ -167,4 +167,10 @@ export const api = {
   adminFoodRefund: (code) => request(`/api/admin/food/orders/${code}/refund`, { method: 'POST' }),
   adminFoodOrderPhotos: (code) => request(`/api/admin/food/orders/${code}/photos`),
   adminFoodAssignDriver: (code, driver_id) => request(`/api/admin/food/orders/${code}/assign-driver`, { method: 'POST', body: { driver_id } }),
+  // Merchant image upload (logo/menu photo) -> PUBLIC bucket signed URL.
+  adminFoodMerchantImageSignedUrl: (id, body) =>
+    request(`/api/admin/food/merchants/${id}/image/signed-url`, { method: 'POST', body }),
+  // Owner account provisioning (contract-signing step).
+  adminFoodSetMerchantOwner: (id, body) =>
+    request(`/api/admin/food/merchants/${id}/owner`, { method: 'POST', body }),
 };

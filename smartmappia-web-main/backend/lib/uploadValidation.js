@@ -37,8 +37,20 @@ function resolveMimeType(fileName, mimeType) {
   return extMime || mimeType || null;
 }
 
-function validateUploadFile({ fileName, mimeType }) {
+// Pass { imagesOnly: true } for storefront images (logos / menu photos), which
+// must be an actual image — PDFs are rejected there even though they are fine
+// for proofs and driver documents.
+function validateUploadFile({ fileName, mimeType, imagesOnly = false }) {
   const ext = fileExtension(fileName);
+  const allowedMimes = imagesOnly
+    ? ALLOWED_MIME_TYPES.filter((m) => m !== 'application/pdf')
+    : ALLOWED_MIME_TYPES;
+  const allowedExts = imagesOnly
+    ? new Set([...ALLOWED_EXTENSIONS].filter((e) => e !== '.pdf'))
+    : ALLOWED_EXTENSIONS;
+  const rejectMsg = imagesOnly
+    ? 'Only JPG and PNG images are accepted.'
+    : 'Only PDF, JPG, and PNG files are accepted.';
 
   if (BLOCKED_EXTENSIONS.has(ext)) {
     return {
@@ -47,13 +59,13 @@ function validateUploadFile({ fileName, mimeType }) {
     };
   }
 
-  if (ext && !ALLOWED_EXTENSIONS.has(ext)) {
-    return { ok: false, error: 'Only PDF, JPG, and PNG files are accepted.' };
+  if (ext && !allowedExts.has(ext)) {
+    return { ok: false, error: rejectMsg };
   }
 
   const resolved = resolveMimeType(fileName, mimeType);
-  if (!resolved || !ALLOWED_MIME_TYPES.includes(resolved)) {
-    return { ok: false, error: 'Only PDF, JPG, and PNG files are accepted.' };
+  if (!resolved || !allowedMimes.includes(resolved)) {
+    return { ok: false, error: rejectMsg };
   }
 
   return { ok: true, mimeType: resolved };

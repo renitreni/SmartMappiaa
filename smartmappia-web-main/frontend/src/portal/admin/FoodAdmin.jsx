@@ -26,12 +26,92 @@ import {
   EyeOff,
   UtensilsCrossed,
   ChevronRight,
+  Upload,
+  Image as ImageIcon,
+  UserPlus,
+  UserCheck,
 } from 'lucide-react';
 import { api } from '../lib/api';
 import { useBroadcast } from '../lib/useBroadcast';
-import { realtimeEnabled } from '../lib/supabaseClient';
+import { realtimeEnabled, uploadProofFile } from '../lib/supabaseClient';
+import { validateUploadFile, UPLOAD_FORMATS_HINT } from '../lib/uploadFiles';
 import { fmtSAR, foodStatusMeta, foodPaymentMeta } from '../lib/constants';
 import { Card, Badge, Field, Spinner, btnPrimary, btnGhost, inputClass } from '../components/ui';
+
+const IMAGE_ACCEPT = '.jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp';
+
+// --- Reusable image upload (restaurant logo / menu photo) -------------------
+// Uploads straight to the PUBLIC merchant-images bucket via a backend-issued
+// signed URL, then hands the stored PUBLIC url up to the form. Needs a saved
+// merchant id, so on a brand-new restaurant it asks the admin to save first.
+function ImageUploadField({ merchantId, kind, value, onChange }) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState(null);
+
+  async function onPick(e) {
+    const file = e.target.files?.[0];
+    e.target.value = ''; // allow re-picking the same file
+    if (!file) return;
+    setError(null);
+
+    const check = validateUploadFile(file);
+    if (!check.ok) return setError(check.error);
+
+    setBusy(true);
+    try {
+      const { bucket, path, token, publicUrl, maxBytes } = await api.adminFoodMerchantImageSignedUrl(
+        merchantId,
+        { kind, file_name: file.name, mime_type: check.mimeType }
+      );
+      if (maxBytes && file.size > maxBytes) {
+        throw new Error(`Image too large (max ${Math.floor(maxBytes / 1024 / 1024)} MB).`);
+      }
+      await uploadProofFile(bucket, path, token, file);
+      onChange(publicUrl);
+    } catch (err) {
+      setError(err.message || 'Upload failed. Please try again.');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (!merchantId) {
+    return (
+      <p className="text-xs text-brand-grey border border-dashed border-brand-border rounded-xl px-3 py-2.5">
+        Save the restaurant first, then edit it to upload {kind === 'logo' ? 'a logo' : 'a photo'}.
+      </p>
+    );
+  }
+
+  return (
+    <div className="flex items-center gap-3">
+      <div className="w-14 h-14 rounded-lg bg-brand-surface border border-brand-border flex items-center justify-center overflow-hidden shrink-0">
+        {value ? (
+          <img src={value} alt="" className="w-full h-full object-cover" />
+        ) : (
+          <ImageIcon className="w-5 h-5 text-brand-grey/50" />
+        )}
+      </div>
+      <div className="min-w-0">
+        <label className={btnGhost + ' !py-1.5 !px-3 !text-xs cursor-pointer inline-flex'}>
+          {busy ? <Spinner className="!w-3.5 !h-3.5" /> : <Upload className="w-3.5 h-3.5" />}
+          {value ? 'Replace image' : 'Upload image'}
+          <input type="file" accept={IMAGE_ACCEPT} onChange={onPick} disabled={busy} className="hidden" />
+        </label>
+        {value && (
+          <button
+            type="button"
+            onClick={() => onChange(null)}
+            className="ml-2 text-xs font-bold text-brand-grey hover:text-red-600 cursor-pointer"
+          >
+            Remove
+          </button>
+        )}
+        <p className="text-[11px] text-brand-grey mt-1">{error || UPLOAD_FORMATS_HINT.replace('PDF, ', '')}</p>
+      </div>
+    </div>
+  );
+}
 
 const ITEM_TYPES = [
   { value: 'meal_package', label: 'Meal / package (SAR 5.00 margin)' },
@@ -72,7 +152,7 @@ const BADGE_OPTIONS = [
   { value: 'trending', label: 'Trending' },
 ];
 
-function RestaurantForm({ initial, onSave, onCancel, busy }) {
+function RestaurantForm({ initial, onSave, onCancel, busy, merchantId }) {
   const [form, setForm] = useState({ ...EMPTY_RESTAURANT, ...initial });
   const set = (k) => (e) => setForm((f) => ({ ...f, [k]: e.target.value }));
 
@@ -101,8 +181,13 @@ function RestaurantForm({ initial, onSave, onCancel, busy }) {
         <Field label="Cuisine type">
           <input value={form.cuisine_type || ''} onChange={set('cuisine_type')} className={inputClass} placeholder="e.g. Lebanese" />
         </Field>
-        <Field label="Logo / photo URL">
-          <input value={form.logo_url || ''} onChange={set('logo_url')} className={inputClass} placeholder="https://..." />
+        <Field label="Logo / photo">
+          <ImageUploadField
+            merchantId={merchantId}
+            kind="logo"
+            value={form.logo_url || ''}
+            onChange={(url) => setForm((f) => ({ ...f, logo_url: url || '' }))}
+          />
         </Field>
       </div>
       <Field label="Address">
@@ -155,7 +240,7 @@ function RestaurantForm({ initial, onSave, onCancel, busy }) {
 // --- Menu item form ---------------------------------------------------------
 const EMPTY_ITEM = { name: '', description: '', price: '', item_type: 'meal_package', category_id: '', image_url: '' };
 
-function ItemForm({ initial, categories, onSave, onCancel, busy }) {
+function ItemForm({ initial, categories, onSave, onCancel, busy, merchantId }) {
   const [form, setForm] = useState({ ...EMPTY_ITEM, ...initial });
   const set = (k) => (e) => setForm((f) => ({ ...f, [k]: e.target.value }));
 
@@ -192,8 +277,13 @@ function ItemForm({ initial, categories, onSave, onCancel, busy }) {
           {ITEM_TYPES.map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
         </select>
       </Field>
-      <Field label="Photo URL">
-        <input value={form.image_url || ''} onChange={set('image_url')} className={inputClass} placeholder="https://..." />
+      <Field label="Photo">
+        <ImageUploadField
+          merchantId={merchantId}
+          kind="item"
+          value={form.image_url || ''}
+          onChange={(url) => setForm((f) => ({ ...f, image_url: url || '' }))}
+        />
       </Field>
       <Field label="Description">
         <input value={form.description || ''} onChange={set('description')} className={inputClass} placeholder="Optional" />
@@ -308,6 +398,7 @@ function MenuEditor({ merchant, onClose, onError }) {
                   initial={editingItem === 'new' ? EMPTY_ITEM : { ...editingItem, price: String(editingItem.price) }}
                   categories={categories}
                   busy={busy}
+                  merchantId={merchant.id}
                   onCancel={() => setEditingItem(null)}
                   onSave={(payload) =>
                     run(async () => {
@@ -382,6 +473,8 @@ function MerchantsSection({ onError }) {
   const [busyId, setBusyId] = useState(null);
   const [editing, setEditing] = useState(null); // null | 'new' | merchant
   const [menuFor, setMenuFor] = useState(null); // merchant whose menu is open
+  const [ownerFor, setOwnerFor] = useState(null); // merchant whose owner form is open
+  const [ownerForm, setOwnerForm] = useState({ email: '', full_name: '', phone: '' });
 
   const load = useCallback(async () => {
     try {
@@ -446,6 +539,7 @@ function MerchantsSection({ onError }) {
                   }
             }
             busy={busyId === 'form'}
+            merchantId={editing === 'new' ? null : editing.id}
             onCancel={() => setEditing(null)}
             onSave={(payload) =>
               run('form', async () => {
@@ -512,6 +606,19 @@ function MerchantsSection({ onError }) {
                   <button
                     type="button"
                     disabled={busyId === m.id}
+                    onClick={() => {
+                      setOwnerFor(ownerFor === m.id ? null : m.id);
+                      setOwnerForm({ email: '', full_name: '', phone: '' });
+                    }}
+                    className={btnGhost + ' !py-1.5 !px-2.5 !text-xs'}
+                    title={m.ownerEmail ? `Owner: ${m.ownerEmail}` : 'No owner account yet'}
+                  >
+                    {m.ownerId ? <UserCheck className="w-3.5 h-3.5 text-green-600" /> : <UserPlus className="w-3.5 h-3.5" />}
+                    {m.ownerId ? 'Owner' : 'Assign owner'}
+                  </button>
+                  <button
+                    type="button"
+                    disabled={busyId === m.id}
                     onClick={() => run(m.id, () => api.adminFoodUpdateMerchant(m.id, { is_active: !m.isActive }))}
                     className={btnGhost + ' !py-1.5 !px-2.5 !text-xs'}
                     title={m.isActive ? 'Hide from customers' : 'Make visible to customers'}
@@ -553,6 +660,68 @@ function MerchantsSection({ onError }) {
                     <Trash2 className="w-3.5 h-3.5" />
                   </button>
                 </div>
+
+                {ownerFor === m.id && (
+                  <div className="mt-3 p-3 rounded-xl border border-brand-orange/40 bg-brand-warm space-y-2">
+                    <p className="text-xs font-bold text-brand-dark">
+                      {m.ownerEmail
+                        ? `Owner account linked: ${m.ownerEmail}`
+                        : 'Create the owner account (contract-signing step)'}
+                    </p>
+                    {!m.ownerId && (
+                      <form
+                        onSubmit={(e) => {
+                          e.preventDefault();
+                          const email = ownerForm.email.trim();
+                          if (!email) return onError('Owner email is required.');
+                          run(m.id, async () => {
+                            await api.adminFoodSetMerchantOwner(m.id, {
+                              email,
+                              full_name: ownerForm.full_name.trim() || undefined,
+                              phone: ownerForm.phone.trim() || undefined,
+                            });
+                            setOwnerFor(null);
+                          });
+                        }}
+                        className="space-y-2"
+                      >
+                        <input
+                          type="email"
+                          required
+                          value={ownerForm.email}
+                          onChange={(e) => setOwnerForm((f) => ({ ...f, email: e.target.value }))}
+                          className={inputClass + ' !py-2'}
+                          placeholder="Owner email"
+                        />
+                        <div className="grid grid-cols-2 gap-2">
+                          <input
+                            value={ownerForm.full_name}
+                            onChange={(e) => setOwnerForm((f) => ({ ...f, full_name: e.target.value }))}
+                            className={inputClass + ' !py-2'}
+                            placeholder="Full name (optional)"
+                          />
+                          <input
+                            value={ownerForm.phone}
+                            onChange={(e) => setOwnerForm((f) => ({ ...f, phone: e.target.value }))}
+                            className={inputClass + ' !py-2'}
+                            placeholder="Phone (optional)"
+                          />
+                        </div>
+                        <div className="flex gap-2">
+                          <button type="submit" disabled={busyId === m.id} className={btnPrimary + ' !py-2 !px-3.5 !text-xs'}>
+                            <UserPlus className="w-3.5 h-3.5" /> Create &amp; link account
+                          </button>
+                          <button type="button" onClick={() => setOwnerFor(null)} className={btnGhost + ' !py-2 !px-3.5 !text-xs'}>
+                            Cancel
+                          </button>
+                        </div>
+                        <p className="text-[11px] text-brand-grey">
+                          Creates a confirmed account with the merchant role and links it to this restaurant.
+                        </p>
+                      </form>
+                    )}
+                  </div>
+                )}
               </div>
             );
           })}

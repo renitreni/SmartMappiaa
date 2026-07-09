@@ -62,7 +62,8 @@ verifies it and reads the role from `profiles`.
 
 1. **Database** — in Supabase SQL Editor run migrations in order:
    `0001, 0002, 0003, 0005, 0006, 0007, 0008` (**skip `0004`** — pilot-only auto-approve).
-2. **Storage** — create two **private** buckets: `payment-proofs` and `driver-docs`.
+2. **Storage** — create two **private** buckets: `payment-proofs` and `driver-docs`,
+   and one **public** bucket: `merchant-images` (restaurant logos + menu photos).
 3. **Env** — `cp .env.example .env`, then fill `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`,
    `ADMIN_EMAILS`, `SMART_MAPPIA_STCPAY_NUMBER`. Keep `AUTO_VERIFY_STCPAY_TEST_MODE=true` for local
    testing; **`false` in production**.
