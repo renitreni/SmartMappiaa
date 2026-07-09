@@ -74,6 +74,41 @@ async function createDriverDocDownloadUrl(path) {
   return data.signedUrl;
 }
 
+// --- Merchant images (restaurant logos + menu photos, PUBLIC `merchant-images` bucket) ---
+//
+// Same signed-upload pattern as proofs/docs, but the bucket is PUBLIC: instead
+// of issuing signed download URLs we hand back a stable public URL that is
+// stored directly in merchants.logo_url / menu_items.image_url and served to
+// customers via a plain <img src>.
+
+// Build a unique object path for a merchant image.
+//   merchant-images/<merchantId>/logo-1718352000000-3f9a2c.jpg
+//   merchant-images/<merchantId>/item-1718352000000-3f9a2c.png
+function buildMerchantImagePath(merchantId, kind, originalName) {
+  const safeId = String(merchantId).replace(/[^A-Za-z0-9-]/g, '');
+  const safeKind = String(kind).replace(/[^a-z]/g, '') || 'img';
+  const ext = (originalName && originalName.includes('.'))
+    ? originalName.slice(originalName.lastIndexOf('.')).toLowerCase().replace(/[^.a-z0-9]/g, '')
+    : '';
+  const rand = crypto.randomBytes(4).toString('hex');
+  return `${safeId}/${safeKind}-${Date.now()}-${rand}${ext}`;
+}
+
+async function createMerchantImageUploadUrl(path) {
+  const { data, error } = await supabase.storage
+    .from(config.merchantImages.bucket)
+    .createSignedUploadUrl(path);
+
+  if (error) throw error;
+  return { path, token: data.token, signedUrl: data.signedUrl };
+}
+
+// Stable public URL for an uploaded merchant image (bucket is public).
+function merchantImagePublicUrl(path) {
+  const { data } = supabase.storage.from(config.merchantImages.bucket).getPublicUrl(path);
+  return data.publicUrl;
+}
+
 module.exports = {
   buildProofPath,
   createProofUploadUrl,
@@ -81,4 +116,7 @@ module.exports = {
   buildDriverDocPath,
   createDriverDocUploadUrl,
   createDriverDocDownloadUrl,
+  buildMerchantImagePath,
+  createMerchantImageUploadUrl,
+  merchantImagePublicUrl,
 };
