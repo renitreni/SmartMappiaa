@@ -54,6 +54,7 @@ import { notifyAlert } from '../lib/notify';
 import { PortalShell, Card, Badge, Spinner, btnPrimary } from '../components/ui';
 
 import RideMap from '../components/RideMap';
+import LocationPicker from '../components/LocationPicker';
 
 
 
@@ -627,6 +628,7 @@ export default function DriverPage() {
   const [activeRide, setActiveRide] = useState(null);
 
   const [error, setError] = useState(null);
+  const [driverPlace, setDriverPlace] = useState({ address: '', coords: null });
 
   const [busyCode, setBusyCode] = useState(null);
 
@@ -1115,6 +1117,24 @@ export default function DriverPage() {
           {/* Side panel */}
 
           <div className="lg:w-[400px] shrink-0 space-y-4">
+
+            <Card className="driver-panel border-0 p-4">
+              <div className="mb-3">
+                <h2 className="font-black text-brand-black">Nearby locations</h2>
+                <p className="text-xs text-brand-grey mt-0.5">
+                  Search places around you or share your current map pin.
+                </p>
+              </div>
+              <LocationPicker
+                label="Search nearby"
+                placeholder="Gas station, pharmacy, restaurant..."
+                address={driverPlace.address}
+                coords={driverPlace.coords || here}
+                onChange={({ address: nextAddress, coords: nextCoords }) => {
+                  setDriverPlace({ address: nextAddress, coords: nextCoords });
+                }}
+              />
+            </Card>
 
             {activeRide ? (
 

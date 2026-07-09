@@ -111,6 +111,32 @@ async function createBooking(req, res) {
   }
 }
 
+// GET /api/bookings -> the signed-in passenger's own booking history.
+// Powers the Transaction Records hub (spec section 6). Scoped to req.userId
+// so a passenger only ever sees their own trips.
+async function listMyBookings(req, res) {
+  try {
+    const { data, error } = await supabase
+      .from('bookings')
+      .select(
+        'booking_code, trip_type, airport_terminal, pickup_address, dropoff_address, ' +
+          'pickup_datetime, fare_amount, currency, payment_status, payment_method, ' +
+          'booking_status, driver_ride_status, created_at'
+      )
+      .eq('user_id', req.userId)
+      .order('created_at', { ascending: false })
+      .limit(50);
+    if (error) {
+      console.error('listMyBookings error:', error);
+      return res.status(500).json({ error: 'Could not load your bookings' });
+    }
+    return res.json({ bookings: data || [] });
+  } catch (err) {
+    console.error('listMyBookings error:', err);
+    return res.status(500).json({ error: 'Unexpected server error' });
+  }
+}
+
 async function getBookingByCode(req, res) {
   try {
     const { bookingCode } = req.params;
@@ -198,4 +224,4 @@ async function cancelBooking(req, res) {
   }
 }
 
-module.exports = { createBooking, getBookingByCode, cancelBooking };
+module.exports = { createBooking, listMyBookings, getBookingByCode, cancelBooking };

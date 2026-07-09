@@ -17,9 +17,11 @@ const bookingRoutes = require('./routes/bookings');
 const trackingRoutes = require('./routes/tracking');
 const adminRoutes = require('./routes/admin');
 const driverRoutes = require('./routes/driver');
+const merchantRoutes = require('./routes/merchant');
 const notificationRoutes = require('./routes/notifications');
 const osrmRoutes = require('./routes/osrm');
 const foodRoutes = require('./routes/food');
+const locationRoutes = require('./routes/locations');
 
 const app = express();
 
@@ -53,9 +55,11 @@ app.use('/api/bookings', bookingRoutes);
 app.use('/api/tracking', trackingRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/driver', driverRoutes);
+app.use('/api/merchant', merchantRoutes);
 app.use('/api/notifications', notificationRoutes);
 app.use('/api/osrm', osrmRoutes);
 app.use('/api/food', foodRoutes);
+app.use('/api/locations', locationRoutes);
 
 // Friendly root
 app.get('/', (req, res) => {

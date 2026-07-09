@@ -24,6 +24,8 @@ module.exports = {
   driverAcceptLimiter: make(20),
   // Driver location pings (~5/min in normal use) — headroom, block floods.
   locationLimiter: make(30),
+  // OSM/Nominatim/Overpass proxy — keep public lookups reasonable.
+  locationSearchLimiter: make(40),
 
   // --- Food Delivery ---
   // Restaurant browse/search — generous, but stops scraping floods.

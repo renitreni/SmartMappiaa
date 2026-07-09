@@ -114,7 +114,7 @@ async function claimFoodDelivery(order, driverId) {
   pushMerchantFeed(order.merchantId, 'order_update', { orderCode: order.code, riderAssigned: true });
   pingFoodAdmin(order.code);
   broadcast('drivers-available', 'delivery_taken', { orderCode: order.code });
-  logNotification({ userId: order.customerId, type: 'food_rider_assigned' });
+  logNotification({ userId: order.customerId, type: 'food_rider_assigned', code: order.code });
   logAudit({
     actorId: driverId,
     action: 'driver_delivery_claimed',
@@ -135,7 +135,7 @@ async function claimRide(bookingId, driverId) {
     })
     .eq('id', bookingId)
     .is('assigned_driver_id', null)
-    .select('id, booking_code');
+    .select('id, booking_code, user_id');
   if (error || !claimed || claimed.length === 0) return { ok: false, conflict: true };
 
   const booking = claimed[0];
@@ -157,6 +157,12 @@ async function claimRide(bookingId, driverId) {
     driver: driver ? { name: driver.full_name, whatsapp: driver.whatsapp_number } : null,
   });
   announceRequestTaken(booking.booking_code);
+  logNotification({
+    userId: booking.user_id,
+    bookingId: booking.id,
+    type: 'ride_driver_accepted',
+    code: booking.booking_code,
+  });
   return { ok: true };
 }
 
@@ -520,7 +526,11 @@ async function updateDeliveryStatus(req, res) {
     pushFoodOrderStatus(order.order_code, { status: flow.orderStatus });
     pushMerchantFeed(order.merchant_id, 'order_update', { orderCode: order.order_code, status: flow.orderStatus });
     pingFoodAdmin(order.order_code);
-    logNotification({ userId: order.customer_id, type: flow.notify });
+    logNotification({ userId: order.customer_id, type: flow.notify, code: order.order_code });
+    // A warm Thank You once the order is safely delivered (spec section 5).
+    if (flow.orderStatus === 'delivered') {
+      logNotification({ userId: order.customer_id, type: 'food_thank_you', code: order.order_code });
+    }
 
     return res.json({ orderCode: order.order_code, status: flow.orderStatus });
   } catch (err) {

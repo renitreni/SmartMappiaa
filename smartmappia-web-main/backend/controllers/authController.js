@@ -18,10 +18,47 @@ const {
 } = require('../lib/profileSchema');
 
 // Roles a user may pick for themselves at signup. Admin is env-list only.
-// The merchant role is NOT self-service: restaurants contact SmartMappia and
-// an admin creates the restaurant + links the owner's account (which grants
-// the merchant role) — see POST /api/admin/food/merchants/:id/owner.
+// Merchant (restaurant owner) accounts are provisioned by admins after partnership
+// approval — not via public self-registration (see adminFoodController.setMerchantOwner).
 const SELF_ROLES = ['passenger', 'driver'];
+
+function merchantPayload(body, ownerId) {
+  const name = String(body.business_name || body.merchant_name || '').trim();
+  if (!name) return null;
+  return {
+    owner_id: ownerId,
+    name,
+    cuisine_type: body.cuisine_type || null,
+    description: body.business_description || body.description || null,
+    logo_url: body.logo_url || null,
+    address: body.business_address || body.address || null,
+    lat: body.lat ?? null,
+    lng: body.lng ?? null,
+    is_active: false, // admin still controls public listing/vetting
+  };
+}
+
+async function ensureMerchantForOwner(ownerId, body) {
+  const payload = merchantPayload(body, ownerId);
+  if (!payload) return null;
+
+  const { data: existing, error: existingErr } = await supabase
+    .from('merchants')
+    .select('id')
+    .eq('owner_id', ownerId)
+    .maybeSingle();
+  if (existingErr) throw existingErr;
+
+  const query = existing
+    ? supabase.from('merchants').update(payload).eq('id', existing.id)
+    : supabase.from('merchants').insert(payload);
+
+  const { data, error } = await query
+    .select('id, name, cuisine_type, description, logo_url, address, lat, lng, is_active, status')
+    .single();
+  if (error) throw error;
+  return data;
+}
 
 // POST /api/auth/signup  (public)
 // Creates the account server-side with its email ALREADY confirmed, so no
@@ -38,6 +75,11 @@ async function signup(req, res) {
     }
     if (String(password).length < 6) {
       return res.status(400).json({ error: 'Password must be at least 6 characters' });
+    }
+    if (b.role === 'merchant') {
+      return res.status(403).json({
+        error: 'Restaurant owner accounts are created by Smart Mappia after partnership approval. Please contact us to get started.',
+      });
     }
 
     const { data, error } = await supabase.auth.admin.createUser({
@@ -84,6 +126,11 @@ async function syncProfile(req, res) {
     let role;
     if (isAdminEmail || (existing && existing.role === 'admin')) {
       role = 'admin';
+    } else if (b.role === 'merchant' && (!existing || existing.role !== 'merchant')) {
+      // Block self-service merchant signup; admins provision owner accounts separately.
+      return res.status(403).json({
+        error: 'Restaurant owner accounts are created by Smart Mappia after partnership approval. Please contact us to get started.',
+      });
     } else if (SELF_ROLES.includes(b.role)) {
       role = b.role;
     } else {
@@ -123,6 +170,16 @@ async function syncProfile(req, res) {
       return res.status(500).json({ error: 'Could not sync your profile.' + hint });
     }
 
+    let merchant = null;
+    if (profile.role === 'merchant') {
+      try {
+        merchant = await ensureMerchantForOwner(profile.id, b);
+      } catch (merchantErr) {
+        console.error('syncProfile merchant setup error:', merchantErr);
+        return res.status(500).json({ error: 'Account created, but business profile setup failed.' });
+      }
+    }
+
     return res.json({
       id: profile.id,
       role: profile.role,
@@ -131,6 +188,7 @@ async function syncProfile(req, res) {
       mobile: profile.mobile_number,
       email: profile.email,
       driverApproved: profile.driver_approved,
+      merchant,
     });
   } catch (err) {
     console.error('syncProfile error:', err);

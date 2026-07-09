@@ -16,10 +16,14 @@ import {
   MapPin,
   XCircle,
   ReceiptText,
+  Heart,
+  Download,
 } from 'lucide-react';
 import { api } from '../lib/api';
+import { useAuth } from '../lib/AuthProvider';
 import { useBroadcast } from '../lib/useBroadcast';
 import { realtimeEnabled } from '../lib/supabaseClient';
+import { downloadFoodInvoice } from '../lib/invoice';
 import {
   fmtSAR,
   whatsappLink,
@@ -125,6 +129,7 @@ function RiderCard({ rider, etaMinutes }) {
 export default function FoodTrackPage() {
   const { code } = useParams();
   const navigate = useNavigate();
+  const { profile, user } = useAuth();
   const [data, setData] = useState(null);
   const [error, setError] = useState(null);
   // Live rider position, pushed on every GPS ping (~12s while online).
@@ -270,6 +275,33 @@ export default function FoodTrackPage() {
               (order.payment_status === 'awaiting' || order.payment_status === 'failed') && (
                 <PaymentPanel code={code} onPaid={load} />
               )}
+
+            {/* Delivered: warm thank-you + downloadable PDF receipt (spec §6). */}
+            {order.status === 'delivered' && (
+              <Card className="p-5 text-center bg-gradient-to-br from-brand-orange/10 to-white border-brand-orange/30">
+                <div className="w-12 h-12 rounded-full bg-brand-orange/15 text-brand-orange flex items-center justify-center mx-auto mb-2">
+                  <Heart className="w-6 h-6" />
+                </div>
+                <p className="font-black text-brand-black">Thank you for ordering with Smart Mappia!</p>
+                <p className="text-xs text-brand-grey mt-1 mb-4">
+                  We hope you enjoy your meal. Your receipt is ready to download.
+                </p>
+                <button
+                  type="button"
+                  onClick={() =>
+                    downloadFoodInvoice({
+                      order,
+                      items: data.items,
+                      merchant: data.merchant,
+                      customerName: profile?.fullName || user?.email || 'Smart Mappia customer',
+                    })
+                  }
+                  className="w-full inline-flex items-center justify-center gap-2 bg-brand-orange hover:bg-brand-orange/90 text-white font-black py-3 rounded-xl transition-all shadow-lg shadow-brand-orange/20 text-sm cursor-pointer"
+                >
+                  <Download className="w-4 h-4" /> Download receipt (PDF)
+                </button>
+              </Card>
+            )}
 
             {/* Delivered: rate the rider (1-5 stars). */}
             {order.status === 'delivered' && data.rider && (

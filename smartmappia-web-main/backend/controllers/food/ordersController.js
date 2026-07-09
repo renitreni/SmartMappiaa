@@ -463,7 +463,7 @@ async function markOrderPaid(order, { provider, transactionId = null, raw = null
     resourceId: order.order_code,
     meta: { provider, amount: Number(order.total) },
   });
-  logNotification({ userId: order.customer_id, type: 'food_payment_confirmed' });
+  logNotification({ userId: order.customer_id, type: 'food_payment_confirmed', code: order.order_code });
 
   pushFoodOrderStatus(order.order_code, { paymentStatus: 'paid', status: order.status });
   pushMerchantFeed(order.merchant_id, 'payment_update', {
