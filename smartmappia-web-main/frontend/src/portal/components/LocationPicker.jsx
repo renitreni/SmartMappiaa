@@ -44,7 +44,11 @@ export default function LocationPicker({
 
   useEffect(() => {
     const q = query.trim();
-    if (q.length < 2 || q === (address || '').trim()) {
+    // Skip searching only when the query matches an address that is already a
+    // confirmed selection (coords present). While the user is free-typing, coords
+    // are null, so the autocomplete must still search — otherwise there is nothing
+    // to pick and no way to attach real coordinates to the address.
+    if (q.length < 2 || (q === (address || '').trim() && !!coords?.lat && !!coords?.lng)) {
       setResults([]);
       return undefined;
     }
@@ -144,7 +148,9 @@ export default function LocationPicker({
             value={query}
             onChange={(e) => {
               setQuery(e.target.value);
-              onChange?.({ address: e.target.value, coords });
+              // A hand-typed string is not a geocoded point — drop any stale coords so
+              // coordinates only ever come from picking a result or "Use current location".
+              onChange?.({ address: e.target.value, coords: null });
             }}
             placeholder={placeholder}
           />

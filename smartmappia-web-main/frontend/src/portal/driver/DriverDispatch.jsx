@@ -95,7 +95,7 @@ function OfferCard({ offer, busy, onAccept, onDecline }) {
   );
 }
 
-function DeliveryCard({ delivery, busy, onStatus }) {
+function DeliveryCard({ delivery, busy, onStatus, onCancel }) {
   const enRoute = delivery.orderStatus === 'out_for_delivery';
   const [photo, setPhoto] = useState(null);
   const nextStatus = enRoute ? 'delivered' : 'picked_up';
@@ -182,6 +182,19 @@ function DeliveryCard({ delivery, busy, onStatus }) {
           )}
         </button>
       </div>
+
+      {/* Give up the delivery — only before pickup. The order is instantly
+          re-offered to the next-nearest rider. */}
+      {!enRoute && (
+        <button
+          type="button"
+          disabled={busy}
+          onClick={() => onCancel(delivery)}
+          className="w-full mt-2 text-xs font-bold text-brand-grey hover:text-red-600 py-1.5 cursor-pointer"
+        >
+          Can't take this order? Cancel &amp; pass it on
+        </button>
+      )}
     </Card>
   );
 }
@@ -312,6 +325,20 @@ export default function DriverDispatch({ online, driverId, coords, onRideAccepte
     }
   }
 
+  async function cancelDelivery(delivery) {
+    if (!window.confirm('Cancel this delivery? It will be offered to the next-nearest rider.')) return;
+    setBusyId(delivery.orderCode);
+    setError(null);
+    try {
+      await api.driverCancelDelivery(delivery.orderCode, undefined);
+      await loadDeliveries();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setBusyId(null);
+    }
+  }
+
   const hasContent = offers.length > 0 || deliveries.length > 0 || (online && pool.length > 0);
   if (!hasContent && !error) return null;
 
@@ -341,7 +368,7 @@ export default function DriverDispatch({ online, driverId, coords, onRideAccepte
             <Bike className="w-4 h-4 text-brand-orange" /> My deliveries
           </p>
           {deliveries.map((d) => (
-            <DeliveryCard key={d.orderCode} delivery={d} busy={busyId === d.orderCode} onStatus={updateStatus} />
+            <DeliveryCard key={d.orderCode} delivery={d} busy={busyId === d.orderCode} onStatus={updateStatus} onCancel={cancelDelivery} />
           ))}
         </>
       )}

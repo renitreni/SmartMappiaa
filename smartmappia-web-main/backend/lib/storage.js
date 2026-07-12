@@ -129,9 +129,7 @@ module.exports = {
   buildMenuItemImagePath,
   createMerchantImageUploadUrl,
   merchantImagePublicUrl,
-  // Back-compat aliases used by the merchant portal controller.
+  // Aliases used by the merchant portal controller (merchantController.js).
   createMerchantMediaUploadUrl: createMerchantImageUploadUrl,
   getMerchantMediaPublicUrl: merchantImagePublicUrl,
-  createMerchantLogoUploadUrl: createMerchantImageUploadUrl,
-  getMerchantLogoPublicUrl: merchantImagePublicUrl,
 };
