@@ -21,6 +21,9 @@ import {
   ChevronDown,
   MessageCircle,
   Phone,
+  Eye,
+  EyeOff,
+  X,
 } from 'lucide-react';
 import { useAuth } from '../lib/AuthProvider';
 import { roleHome } from '../lib/constants';
@@ -78,6 +81,12 @@ const inputClass =
 const inputWithIconClass =
   'w-full bg-white border border-brand-border rounded-xl pl-11 pr-4 py-3 text-brand-dark text-sm ' +
   'focus:outline-none focus:border-brand-orange focus:ring-2 focus:ring-brand-orange/15 transition-all';
+
+const inputWithIconToggleClass = inputWithIconClass.replace('pr-4', 'pr-11');
+
+// Names may only contain letters (incl. accented), spaces, hyphens and apostrophes
+// (e.g. "Al-Rashid", "O'Brien") — digits and other symbols are stripped as the user types.
+const sanitizeName = (v) => v.replace(/[^\p{L}\s'-]/gu, '');
 
 const selectTriggerClass =
   'w-full bg-white border rounded-xl text-sm transition-all cursor-pointer ' +
@@ -464,6 +473,8 @@ export default function SignupPage() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [nationalId, setNationalId] = useState('');
   const [vehicleType, setVehicleType] = useState('');
   const [vehiclePlate, setVehiclePlate] = useState('');
@@ -802,7 +813,7 @@ export default function SignupPage() {
                         <input
                           className={`${inputClass} ${showStepErrors && !firstName.trim() ? 'border-red-300 ring-2 ring-red-100' : ''}`}
                           value={firstName}
-                          onChange={(e) => setFirstName(e.target.value)}
+                          onChange={(e) => setFirstName(sanitizeName(e.target.value))}
                           placeholder="Ahmed"
                           autoComplete="given-name"
                         />
@@ -811,7 +822,7 @@ export default function SignupPage() {
                         <input
                           className={`${inputClass} ${showStepErrors && !lastName.trim() ? 'border-red-300 ring-2 ring-red-100' : ''}`}
                           value={lastName}
-                          onChange={(e) => setLastName(e.target.value)}
+                          onChange={(e) => setLastName(sanitizeName(e.target.value))}
                           placeholder="Al-Rashid"
                           autoComplete="family-name"
                         />
@@ -931,13 +942,21 @@ export default function SignupPage() {
                       <div className="relative">
                         <Lock className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-brand-grey pointer-events-none" />
                         <input
-                          type="password"
-                          className={`${inputWithIconClass} ${showStepErrors && password.length < 6 ? 'border-red-300 ring-2 ring-red-100' : ''}`}
+                          type={showPassword ? 'text' : 'password'}
+                          className={`${inputWithIconToggleClass} ${showStepErrors && password.length < 6 ? 'border-red-300 ring-2 ring-red-100' : ''}`}
                           value={password}
                           onChange={(e) => setPassword(e.target.value)}
                           placeholder="At least 6 characters"
                           autoComplete="new-password"
                         />
+                        <button
+                          type="button"
+                          onClick={() => setShowPassword((s) => !s)}
+                          className="absolute right-3 top-1/2 -translate-y-1/2 p-1 rounded-lg text-brand-grey hover:text-brand-dark hover:bg-brand-surface transition-colors"
+                          aria-label={showPassword ? 'Hide password' : 'Show password'}
+                        >
+                          {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                        </button>
                       </div>
                     </Field>
 
@@ -945,8 +964,8 @@ export default function SignupPage() {
                       <div className="relative">
                         <Lock className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-brand-grey pointer-events-none" />
                         <input
-                          type="password"
-                          className={`${inputWithIconClass} ${
+                          type={showConfirmPassword ? 'text' : 'password'}
+                          className={`${inputWithIconToggleClass} ${
                             showStepErrors && (password !== confirmPassword || !confirmPassword)
                               ? 'border-red-300 ring-2 ring-red-100'
                               : ''
@@ -956,9 +975,25 @@ export default function SignupPage() {
                           placeholder="Re-enter your password"
                           autoComplete="new-password"
                         />
+                        <button
+                          type="button"
+                          onClick={() => setShowConfirmPassword((s) => !s)}
+                          className="absolute right-3 top-1/2 -translate-y-1/2 p-1 rounded-lg text-brand-grey hover:text-brand-dark hover:bg-brand-surface transition-colors"
+                          aria-label={showConfirmPassword ? 'Hide password' : 'Show password'}
+                        >
+                          {showConfirmPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                        </button>
                       </div>
-                      {showStepErrors && confirmPassword && password !== confirmPassword && (
-                        <p className="text-xs text-red-600 mt-1.5 font-medium">Passwords do not match.</p>
+                      {confirmPassword && (
+                        password === confirmPassword ? (
+                          <p className="flex items-center gap-1 text-xs text-green-600 mt-1.5 font-medium">
+                            <Check className="w-3.5 h-3.5" /> Passwords match
+                          </p>
+                        ) : (
+                          <p className="flex items-center gap-1 text-xs text-red-600 mt-1.5 font-medium">
+                            <X className="w-3.5 h-3.5" /> Passwords do not match
+                          </p>
+                        )
                       )}
                     </Field>
 

@@ -26,7 +26,7 @@ const {
   createMerchantImageUploadUrl,
   merchantImagePublicUrl,
 } = require('../../lib/storage');
-const { validateUploadFile } = require('../../lib/uploadValidation');
+const { validateImageFile, validateMenuImageFile } = require('../../lib/uploadValidation');
 
 // Credit summary for a restaurant (used / limit / warning / suspended).
 function creditView(merchant) {
@@ -1104,7 +1104,10 @@ async function createMerchantImageUploadUrlHandler(req, res) {
         error: `kind is required and must be one of: ${config.merchantImages.kinds.join(', ')}`,
       });
     }
-    const fileCheck = validateUploadFile({ fileName: file_name, mimeType: mime_type, imagesOnly: true });
+    // Same rules the merchant portal uses: logos allow JPG/PNG/WebP, menu photos
+    // are JPG/PNG only.
+    const validate = kind === 'item' ? validateMenuImageFile : validateImageFile;
+    const fileCheck = validate({ fileName: file_name, mimeType: mime_type });
     if (!fileCheck.ok) {
       return res.status(400).json({ error: fileCheck.error });
     }

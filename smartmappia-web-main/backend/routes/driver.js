@@ -21,6 +21,8 @@ const {
   listMyDeliveries,
   listOpenDeliveries,
   claimOpenDelivery,
+  cancelDelivery,
+  cancelRide,
   createDeliveryPhotoUrl,
   updateDeliveryStatus,
 } = require('../controllers/driverDispatchController');
@@ -35,6 +37,13 @@ router.post('/rides/:bookingCode/accept', driverAcceptLimiter, requireApprovedDr
 
 router.get('/rides', requireDriver, listMyRides);
 router.post('/rides/:bookingCode/status', requireDriver, updateRideStatus);
+// Give up an accepted ride (pre-start only) -> released + re-offered.
+router.post(
+  '/rides/:code/cancel',
+  requireDriver,
+  validateBody({ reason: { type: 'string', maxLength: 300, nullable: true } }),
+  cancelRide
+);
 
 // --- Grab-style dispatch: exclusive 30s offers, then the open pool ---
 router.get('/offers', requireApprovedDriver, listOffers);
@@ -45,6 +54,13 @@ router.post('/offers/:id/decline', driverAcceptLimiter, requireApprovedDriver, d
 router.get('/deliveries', requireDriver, listMyDeliveries);
 router.get('/deliveries/available', requireApprovedDriver, listOpenDeliveries);
 router.post('/deliveries/:code/claim', driverAcceptLimiter, requireApprovedDriver, claimOpenDelivery);
+// Give up an accepted delivery (pre-pickup only) -> released + re-offered.
+router.post(
+  '/deliveries/:code/cancel',
+  requireDriver,
+  validateBody({ reason: { type: 'string', maxLength: 300, nullable: true } }),
+  cancelDelivery
+);
 // Mandatory photo proof: signed upload URL, then the status change carries
 // the uploaded path (rejected without it).
 router.post(

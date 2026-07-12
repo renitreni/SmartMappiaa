@@ -292,7 +292,7 @@ function OnlineToggle({ online, coords, driverMove, onToggle }) {
 
 
 
-function ActiveRidePanel({ ride, here, busyCode, onAdvance }) {
+function ActiveRidePanel({ ride, here, busyCode, onAdvance, onCancel }) {
 
   const navTarget = ride.driverRideStatus === 'started'
 
@@ -523,6 +523,29 @@ function ActiveRidePanel({ ride, here, busyCode, onAdvance }) {
           )}
 
         </div>
+
+        {/* Give up the ride — only before the trip starts. It's re-offered to
+            the next-nearest driver (the passenger keeps their booking). */}
+
+        {ride.driverRideStatus !== 'started' && (
+
+          <button
+
+            type="button"
+
+            disabled={busyCode === ride.bookingCode}
+
+            onClick={() => onCancel(ride.bookingCode)}
+
+            className="w-full mt-2.5 text-xs font-bold text-brand-grey hover:text-red-600 py-1.5 cursor-pointer"
+
+          >
+
+            Can't make it? Cancel &amp; pass it on
+
+          </button>
+
+        )}
 
       </div>
 
@@ -809,6 +832,16 @@ export default function DriverPage() {
 
     } catch (err) { setError(err.message); } finally { setBusyCode(null); }
 
+  }
+
+  async function cancelRide(code) {
+    if (!window.confirm('Cancel this ride? It will be offered to the next-nearest driver.')) return;
+    setBusyCode(code); setError(null);
+    try {
+      await api.driverCancelRide(code, undefined);
+      setActiveRide(null);
+      loadAvailable();
+    } catch (err) { setError(err.message); } finally { setBusyCode(null); }
   }
 
 
@@ -1147,6 +1180,8 @@ export default function DriverPage() {
                 busyCode={busyCode}
 
                 onAdvance={advance}
+
+                onCancel={cancelRide}
 
               />
 
