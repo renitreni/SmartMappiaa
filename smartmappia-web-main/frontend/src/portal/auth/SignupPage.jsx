@@ -15,7 +15,6 @@ import {
   ArrowLeft,
   ArrowRight,
   Mail,
-  Lock,
   IdCard,
   Check,
   ChevronDown,
@@ -25,6 +24,8 @@ import {
 import { useAuth } from '../lib/AuthProvider';
 import { roleHome } from '../lib/constants';
 import { Field, btnPrimary, btnGhost, Spinner } from '../components/ui';
+import PasswordFields from '../components/PasswordFields';
+import { isPasswordValid, getPasswordValidationError } from '../lib/passwordValidation';
 import { COMPANY } from '../../config/company';
 
 const STEPS = ['Account type', 'Personal info', 'Create login'];
@@ -492,7 +493,7 @@ export default function SignupPage() {
 
   const step3Complete =
     !!email.trim() &&
-    password.length >= 6 &&
+    isPasswordValid(password) &&
     password === confirmPassword &&
     acceptedTerms &&
     (role !== 'driver' ||
@@ -514,7 +515,8 @@ export default function SignupPage() {
 
     if (n === 3) {
       if (!email.trim()) return 'Please enter your email address.';
-      if (password.length < 6) return 'Password must be at least 6 characters.';
+      const passwordError = getPasswordValidationError(password);
+      if (passwordError) return passwordError;
       if (password !== confirmPassword) return 'Passwords do not match.';
       if (role === 'driver') {
         if (!nationalId.trim()) return 'Please enter your National ID / Iqama number.';
@@ -927,40 +929,13 @@ export default function SignupPage() {
                       </div>
                     </Field>
 
-                    <Field label="Password *">
-                      <div className="relative">
-                        <Lock className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-brand-grey pointer-events-none" />
-                        <input
-                          type="password"
-                          className={`${inputWithIconClass} ${showStepErrors && password.length < 6 ? 'border-red-300 ring-2 ring-red-100' : ''}`}
-                          value={password}
-                          onChange={(e) => setPassword(e.target.value)}
-                          placeholder="At least 6 characters"
-                          autoComplete="new-password"
-                        />
-                      </div>
-                    </Field>
-
-                    <Field label="Confirm password *">
-                      <div className="relative">
-                        <Lock className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-brand-grey pointer-events-none" />
-                        <input
-                          type="password"
-                          className={`${inputWithIconClass} ${
-                            showStepErrors && (password !== confirmPassword || !confirmPassword)
-                              ? 'border-red-300 ring-2 ring-red-100'
-                              : ''
-                          }`}
-                          value={confirmPassword}
-                          onChange={(e) => setConfirmPassword(e.target.value)}
-                          placeholder="Re-enter your password"
-                          autoComplete="new-password"
-                        />
-                      </div>
-                      {showStepErrors && confirmPassword && password !== confirmPassword && (
-                        <p className="text-xs text-red-600 mt-1.5 font-medium">Passwords do not match.</p>
-                      )}
-                    </Field>
+                    <PasswordFields
+                      password={password}
+                      confirmPassword={confirmPassword}
+                      onPasswordChange={setPassword}
+                      onConfirmPasswordChange={setConfirmPassword}
+                      showErrors={showStepErrors}
+                    />
 
                     {role === 'driver' && (
                       <>

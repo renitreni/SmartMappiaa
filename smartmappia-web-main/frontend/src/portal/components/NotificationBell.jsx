@@ -79,6 +79,7 @@ export default function NotificationBell() {
   }
 
   const isUnread = (item) => {
+    if (item.read_at !== undefined) return !item.read_at;
     const at = item.created_at || item.sent_at;
     if (!seenAt) return true;
     return at && new Date(at) > new Date(seenAt);

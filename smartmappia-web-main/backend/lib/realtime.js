@@ -83,15 +83,6 @@ function pingFoodAdmin(orderCode) {
   return broadcast('admin-food', 'changed', { orderCode });
 }
 
-// --- Personal notification inbox ---
-//   user-<userId> -> the signed-in user's own notification bell.
-// Fires the instant a notification is logged so the bell updates live
-// (with a polling fallback on the client when realtime is unavailable).
-function pushUserNotification(userId, payload) {
-  if (!userId) return undefined;
-  return broadcast(`user-${userId}`, 'notification', payload);
-}
-
 module.exports = {
   broadcast,
   pushBookingStatus,
@@ -101,5 +92,4 @@ module.exports = {
   pushFoodOrderStatus,
   pushMerchantFeed,
   pingFoodAdmin,
-  pushUserNotification,
 };

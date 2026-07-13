@@ -113,8 +113,23 @@ backend/
 
 ---
 
+## Web Push setup
+
+1. Apply migration `migrations/0017_web_push_notifications.sql`.
+2. Generate one VAPID key pair:
+   `npx web-push generate-vapid-keys`
+3. Set `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, and `VAPID_SUBJECT` in the
+   backend environment, then redeploy the backend and frontend.
+4. Serve the frontend over HTTPS. Users can then enable phone notifications
+   from the in-app prompt. iOS requires adding the site to the Home Screen.
+
+The operating system controls the background notification sound. The existing
+Web Audio chime is used while the app is visible.
+
+---
+
 ## Still on the wishlist
 - **Tap Payments** backend (create-charge + webhook) — schema/enums ready (0006), handlers not built.
-- **Native push send** — token collection is built; the FCM sender worker is not.
+- **Native push send** — web push is live; an FCM/APNs sender is still needed for a future Capacitor app.
 - **Atomic writes** — wrap multi-table verify/complete in Postgres RPCs.
 - **Automated tests** — syntax-checked + smoke-tested by hand for now.

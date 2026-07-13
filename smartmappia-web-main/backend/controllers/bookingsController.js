@@ -11,6 +11,7 @@ const { supabase } = require('../lib/supabase');
 const { quoteFare } = require('../lib/fare');
 const { addTrackingEvent } = require('../lib/tracking');
 const { pushBookingStatus, announceRequestTaken } = require('../lib/realtime');
+const { logNotification, notifyAdmins } = require('../lib/notifications');
 
 // Booking states from which a passenger may still cancel (not once the trip
 // is underway or already finished).
@@ -94,6 +95,24 @@ async function createBooking(req, res) {
       title: 'Booking created',
       message: 'Your booking has been created. Please continue to payment.',
     });
+
+    await Promise.all([
+      logNotification({
+        userId: req.userId,
+        bookingId: booking.id,
+        type: 'ride_booking_confirmed',
+        code: booking.booking_code,
+        title: 'Ride booking created',
+        body: 'Complete payment so Smart Mappia can find your driver.',
+        url: `/pay/${booking.booking_code}`,
+      }),
+      notifyAdmins({
+        bookingId: booking.id,
+        type: 'ride_booking_created',
+        code: booking.booking_code,
+        url: '/admin',
+      }),
+    ]);
 
     // We expose booking_code (public), never the internal id.
     return res.status(201).json({

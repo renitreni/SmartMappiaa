@@ -5,10 +5,11 @@
 import { useEffect, useState } from 'react';
 import { useNavigate, useSearchParams, Link } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { LogIn, Mail, Lock, ArrowLeft, MapPin, Package, Utensils } from 'lucide-react';
+import { LogIn, Mail, ArrowLeft, MapPin, Package, Utensils } from 'lucide-react';
 import { useAuth } from '../lib/AuthProvider';
 import { roleHome } from '../lib/constants';
 import { Field, btnPrimary, Spinner } from '../components/ui';
+import PasswordInput from '../components/PasswordInput';
 
 const features = [
   { icon: Utensils, text: 'Order food from 500+ restaurants' },
@@ -204,18 +205,13 @@ export default function LoginPage() {
                 </Field>
 
                 <Field label="Password">
-                  <div className="relative">
-                    <Lock className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-brand-grey pointer-events-none" />
-                    <input
-                      type="password"
-                      className={inputWithIconClass}
-                      value={password}
-                      onChange={(e) => setPassword(e.target.value)}
-                      placeholder="Enter your password"
-                      required
-                      autoComplete="current-password"
-                    />
-                  </div>
+                  <PasswordInput
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    placeholder="Enter your password"
+                    autoComplete="current-password"
+                    required
+                  />
                 </Field>
 
                 <button
