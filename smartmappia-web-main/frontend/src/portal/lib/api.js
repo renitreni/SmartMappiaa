@@ -107,6 +107,8 @@ export const api = {
   driverRides: () => request('/api/driver/rides', { silent: true }), // polled feed
   driverAccept: (code) => request(`/api/driver/rides/${code}/accept`, { method: 'POST' }),
   driverStatus: (code, status) => request(`/api/driver/rides/${code}/status`, { method: 'POST', body: { status } }),
+  // Give up an accepted ride before it starts -> auto re-dispatched to next-nearest.
+  driverCancelRide: (code, reason) => request(`/api/driver/rides/${code}/cancel`, { method: 'POST', body: { reason } }),
   driverLocation: (body) => request('/api/driver/location', { method: 'POST', body, silent: true }), // 12s GPS ping
   // driver verification documents
   driverDocSignedUrl: (body) => request('/api/driver/documents/signed-url', { method: 'POST', body }),
@@ -150,6 +152,9 @@ export const api = {
     return request(`/api/driver/deliveries/available${q}`, { silent: true }); // polled feed
   },
   driverClaimDelivery: (code) => request(`/api/driver/deliveries/${code}/claim`, { method: 'POST' }),
+  // Give up an accepted delivery before pickup -> auto re-dispatched to next-nearest.
+  driverCancelDelivery: (code, reason) =>
+    request(`/api/driver/deliveries/${code}/cancel`, { method: 'POST', body: { reason } }),
   // Photo proof is mandatory: upload first, then send the path with the status.
   driverDeliveryPhotoUrl: (code, body) => request(`/api/driver/deliveries/${code}/photo-url`, { method: 'POST', body }),
   driverDeliveryStatus: (code, status, photo_path) =>

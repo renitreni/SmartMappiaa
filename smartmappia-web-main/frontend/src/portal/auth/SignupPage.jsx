@@ -80,6 +80,10 @@ const inputWithIconClass =
   'w-full bg-white border border-brand-border rounded-xl pl-11 pr-4 py-3 text-brand-dark text-sm ' +
   'focus:outline-none focus:border-brand-orange focus:ring-2 focus:ring-brand-orange/15 transition-all';
 
+// Names may only contain letters (incl. accented), spaces, hyphens and apostrophes
+// (e.g. "Al-Rashid", "O'Brien") — digits and other symbols are stripped as the user types.
+const sanitizeName = (v) => v.replace(/[^\p{L}\s'-]/gu, '');
+
 const selectTriggerClass =
   'w-full bg-white border rounded-xl text-sm transition-all cursor-pointer ' +
   'focus:outline-none focus:border-brand-orange focus:ring-2 focus:ring-brand-orange/15';
@@ -804,7 +808,7 @@ export default function SignupPage() {
                         <input
                           className={`${inputClass} ${showStepErrors && !firstName.trim() ? 'border-red-300 ring-2 ring-red-100' : ''}`}
                           value={firstName}
-                          onChange={(e) => setFirstName(e.target.value)}
+                          onChange={(e) => setFirstName(sanitizeName(e.target.value))}
                           placeholder="Ahmed"
                           autoComplete="given-name"
                         />
@@ -813,7 +817,7 @@ export default function SignupPage() {
                         <input
                           className={`${inputClass} ${showStepErrors && !lastName.trim() ? 'border-red-300 ring-2 ring-red-100' : ''}`}
                           value={lastName}
-                          onChange={(e) => setLastName(e.target.value)}
+                          onChange={(e) => setLastName(sanitizeName(e.target.value))}
                           placeholder="Al-Rashid"
                           autoComplete="family-name"
                         />

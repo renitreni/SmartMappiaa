@@ -28,8 +28,17 @@
 const { supabase } = require('./supabase');
 const { config } = require('./config');
 const { haversineKm } = require('./geo');
-const { broadcast, announceAvailableRide, pingFoodAdmin } = require('./realtime');
+const {
+  broadcast,
+  announceAvailableRide,
+  pingFoodAdmin,
+  pingAdmin,
+  pushFoodOrderStatus,
+  pushMerchantFeed,
+  pushBookingStatus,
+} = require('./realtime');
 const { logNotification } = require('./notifications');
+const { logAudit } = require('./audit');
 
 // --- Candidates --------------------------------------------------------
 
@@ -263,6 +272,177 @@ async function startRideDispatch(bookingId) {
   }
 }
 
+// --- Release + re-dispatch (driver cancel / disconnect) -----------------------
+// Return a food delivery to the cascade. ONLY valid BEFORE pickup (delivery
+// status still 'assigned'); once the rider has the food it's a manual case.
+// Shared by the driver-cancel endpoint and the disconnect watchdog.
+// cause: 'cancelled' (driver bailed) | 'reclaimed' (driver went dark).
+async function releaseFoodDelivery(
+  orderId,
+  { previousDriverId = null, reason = null, cause = 'cancelled', actorId = null } = {}
+) {
+  // Atomic release: only if still assigned (guards against a pickup landing first).
+  const { data: released, error } = await supabase
+    .from('deliveries')
+    .update({ driver_id: null, status: 'searching' })
+    .eq('order_id', orderId)
+    .eq('status', 'assigned')
+    .select('id');
+  if (error) {
+    console.error('releaseFoodDelivery error:', error);
+    return false;
+  }
+  if (!released || released.length === 0) return false; // already picked up / taken over
+
+  const { data: order } = await supabase
+    .from('orders')
+    .select('order_code, customer_id, merchant_id, status')
+    .eq('id', orderId)
+    .maybeSingle();
+
+  if (order) {
+    logAudit({
+      actorId: actorId || previousDriverId || null,
+      action: cause === 'reclaimed' ? 'driver_delivery_reclaimed' : 'driver_delivery_cancelled',
+      resourceType: 'order',
+      resourceId: order.order_code,
+      meta: { previous_driver_id: previousDriverId, reason },
+    });
+    // Customer: "finding you a new rider". Old rider: the job left them.
+    logNotification({ userId: order.customer_id, type: 'food_finding_new_rider', code: order.order_code });
+    if (previousDriverId) {
+      logNotification({
+        userId: previousDriverId,
+        type: cause === 'reclaimed' ? 'food_delivery_reclaimed' : 'food_delivery_cancelled',
+        code: order.order_code,
+      });
+    }
+    // Drop the rider card on the customer's tracking page + refresh admin/merchant.
+    pushFoodOrderStatus(order.order_code, { status: order.status, rider: null });
+    pushMerchantFeed(order.merchant_id, 'order_update', { orderCode: order.order_code, riderAssigned: false });
+    pingFoodAdmin(order.order_code);
+  }
+
+  // Re-run the nearest-driver cascade (the canceller is excluded automatically
+  // because they already appear in dispatch_offers for this job).
+  await offerNext(await loadFoodTarget(orderId));
+  return true;
+}
+
+// Watchdog: a rider who accepted but whose GPS has gone silent past
+// abandonMinutes (and hasn't picked up yet) is treated as disconnected — the
+// order is released and re-offered. Runs in-process on the VPS alongside the
+// offer sweeper (no watchdog on serverless; the open pool still catches jobs).
+async function sweepAbandonedDeliveries() {
+  const staleBefore = Date.now() - config.dispatch.abandonMinutes * 60 * 1000;
+  const { data: rows, error } = await supabase
+    .from('deliveries')
+    .select('order_id, driver_id, orders!inner ( status )')
+    .eq('status', 'assigned')
+    .not('driver_id', 'is', null)
+    .in('orders.status', ['accepted', 'preparing', 'ready']);
+  if (error) {
+    console.error('sweepAbandonedDeliveries error:', error);
+    return;
+  }
+  for (const row of rows || []) {
+    const { data: loc } = await supabase
+      .from('driver_locations')
+      .select('recorded_at')
+      .eq('driver_id', row.driver_id)
+      .order('recorded_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    const lastSeen = loc ? new Date(loc.recorded_at).getTime() : 0;
+    if (lastSeen < staleBefore) {
+      await releaseFoodDelivery(row.order_id, {
+        previousDriverId: row.driver_id,
+        cause: 'reclaimed',
+        reason: 'rider_disconnected',
+      });
+    }
+  }
+}
+
+// Return a Pick & Drop booking to the cascade. Valid only BEFORE the trip
+// starts (driver_ride_status accepted/on_the_way/arrived); once 'started' the
+// passenger is in the car. cause: 'cancelled' (driver) | 'reclaimed' (watchdog).
+async function releaseRide(
+  bookingId,
+  { previousDriverId = null, reason = null, cause = 'cancelled', actorId = null } = {}
+) {
+  // Atomic release: only the current driver, only pre-start.
+  const { data: released, error } = await supabase
+    .from('bookings')
+    .update({ assigned_driver_id: null, driver_ride_status: null, booking_status: 'confirmed' })
+    .eq('id', bookingId)
+    .eq('assigned_driver_id', previousDriverId)
+    .in('driver_ride_status', ['accepted', 'on_the_way', 'arrived'])
+    .select('id, booking_code, user_id');
+  if (error) {
+    console.error('releaseRide error:', error);
+    return false;
+  }
+  if (!released || released.length === 0) return false; // trip started / already released
+  const booking = released[0];
+
+  logAudit({
+    actorId: actorId || previousDriverId || null,
+    action: cause === 'reclaimed' ? 'driver_ride_reclaimed' : 'driver_ride_cancelled',
+    resourceType: 'booking',
+    resourceId: booking.booking_code,
+    meta: { previous_driver_id: previousDriverId, reason },
+  });
+  logNotification({ userId: booking.user_id, bookingId: booking.id, type: 'ride_finding_new_driver', code: booking.booking_code });
+  if (previousDriverId) {
+    logNotification({
+      userId: previousDriverId,
+      type: cause === 'reclaimed' ? 'ride_reclaimed' : 'ride_cancelled_by_you',
+      code: booking.booking_code,
+    });
+  }
+  // Drop the driver on the passenger's tracking page + refresh admin.
+  pushBookingStatus(booking.booking_code, { bookingStatus: 'confirmed', driverRideStatus: null, driver: null });
+  pingAdmin(booking.booking_code);
+
+  await offerNext(await loadRideTarget(bookingId));
+  return true;
+}
+
+// Ride disconnect watchdog. Deliberately narrower than the food one: only rides
+// the driver has actively started heading to (on_the_way/arrived), NOT merely
+// 'accepted' — a driver may accept a SCHEDULED ride hours ahead and not be
+// pinging GPS yet, and we must not reclaim those.
+async function sweepAbandonedRides() {
+  const staleBefore = Date.now() - config.dispatch.abandonMinutes * 60 * 1000;
+  const { data: rows, error } = await supabase
+    .from('bookings')
+    .select('id, assigned_driver_id')
+    .not('assigned_driver_id', 'is', null)
+    .in('driver_ride_status', ['on_the_way', 'arrived']);
+  if (error) {
+    console.error('sweepAbandonedRides error:', error);
+    return;
+  }
+  for (const b of rows || []) {
+    const { data: loc } = await supabase
+      .from('driver_locations')
+      .select('recorded_at')
+      .eq('driver_id', b.assigned_driver_id)
+      .order('recorded_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    const lastSeen = loc ? new Date(loc.recorded_at).getTime() : 0;
+    if (lastSeen < staleBefore) {
+      await releaseRide(b.id, {
+        previousDriverId: b.assigned_driver_id,
+        cause: 'reclaimed',
+        reason: 'driver_disconnected',
+      });
+    }
+  }
+}
+
 // --- Sweeper --------------------------------------------------------------
 // Expire overdue pending offers and cascade each job to the next driver.
 async function sweepExpiredOffers() {
@@ -293,7 +473,16 @@ function startDispatchSweeper() {
   setInterval(() => {
     sweepExpiredOffers().catch((err) => console.error('dispatch sweeper error:', err));
   }, config.dispatch.sweepMs);
-  console.log(`Dispatch sweeper running (offers expire after ${config.dispatch.offerSeconds}s).`);
+  // Disconnect watchdog (food + rides) runs less often than the offer sweeper
+  // (abandonMinutes is minutes, not seconds) to keep per-driver lookups cheap.
+  setInterval(() => {
+    sweepAbandonedDeliveries().catch((err) => console.error('dispatch abandon (food) sweep error:', err));
+    sweepAbandonedRides().catch((err) => console.error('dispatch abandon (ride) sweep error:', err));
+  }, Math.max(config.dispatch.sweepMs, 20000));
+  console.log(
+    `Dispatch sweeper running (offers expire after ${config.dispatch.offerSeconds}s; ` +
+      `rider disconnect watchdog after ${config.dispatch.abandonMinutes}m).`
+  );
 }
 
 module.exports = {
@@ -302,6 +491,10 @@ module.exports = {
   offerNext,
   loadFoodTarget,
   loadRideTarget,
+  releaseFoodDelivery,
+  releaseRide,
   sweepExpiredOffers,
+  sweepAbandonedDeliveries,
+  sweepAbandonedRides,
   startDispatchSweeper,
 };

@@ -73,14 +73,6 @@ const config = {
     ],
   },
 
-  // Public bucket for restaurant logos (create in Supabase Dashboard as PUBLIC).
-  merchantLogos: {
-    bucket: process.env.MERCHANT_LOGOS_BUCKET || 'merchant-logos',
-    uploadUrlTtlSeconds: toNumber(process.env.MERCHANT_LOGOS_UPLOAD_TTL, 900),
-    maxBytes: toNumber(process.env.MERCHANT_LOGOS_MAX_BYTES, 2 * 1024 * 1024), // 2 MB
-    allowedMimeTypes: ['image/jpeg', 'image/png', 'image/webp'],
-  },
-
   // Auth: accounts whose email is listed here automatically become admins
   // on sign-in/sync (comma-separated, case-insensitive).
   adminEmails: (process.env.ADMIN_EMAILS || '')
@@ -122,6 +114,10 @@ const config = {
     offerSeconds: toNumber(process.env.DISPATCH_OFFER_SECONDS, 30),
     driverFreshMinutes: toNumber(process.env.DISPATCH_DRIVER_FRESH_MINUTES, 3),
     sweepMs: toNumber(process.env.DISPATCH_SWEEP_MS, 5000),
+    // A rider who accepted a delivery but whose GPS goes silent for longer than
+    // this (before pickup) is treated as disconnected: the order is released and
+    // re-offered to the next-nearest driver by the watchdog.
+    abandonMinutes: toNumber(process.env.DISPATCH_ABANDON_MINUTES, 5),
   },
 
   // Tap Payments (deferred online path — PLACEHOLDER until go-live: keep

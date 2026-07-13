@@ -40,6 +40,9 @@ const META = {
   ride_completed: { title: 'Trip completed', body: 'Your invoice is ready to download.', icon: CheckCircle2, tone: 'green', href: rideHref },
   ride_thank_you: { title: 'Thank you for riding with Smart Mappia', body: 'We hope to see you again soon!', icon: Heart, tone: 'orange', href: rideHref },
   ride_cancelled: { title: 'Your trip was cancelled', body: 'This booking was cancelled.', icon: XCircle, tone: 'red', href: rideHref },
+  ride_finding_new_driver: { title: 'Finding you a new driver', body: 'Your previous driver became unavailable — a nearby driver is being assigned.', icon: Car, tone: 'orange', href: rideHref },
+  ride_cancelled_by_you: { title: 'You cancelled a ride', body: 'It was passed on to the next-nearest driver.', icon: XCircle, tone: 'grey', href: () => '/driver' },
+  ride_reclaimed: { title: 'A ride was reassigned', body: 'You went offline, so it was offered to another driver.', icon: XCircle, tone: 'grey', href: () => '/driver' },
   ride_offer: { title: 'New ride request', body: 'A nearby trip is available.', icon: Bell, tone: 'blue', href: () => '/driver' },
 
   // --- Food delivery lifecycle ---
@@ -54,6 +57,9 @@ const META = {
   food_rider_assigned: { title: 'A rider is assigned to your order', body: 'They are heading to the restaurant.', icon: Bike, tone: 'blue', href: foodHref },
   food_delivery_assigned: { title: 'New delivery assigned', body: 'Open the driver portal for delivery details.', icon: Bike, tone: 'blue', href: () => '/driver' },
   food_order_out_for_delivery: { title: 'Your order was picked up', body: 'Your rider is on the way to you.', icon: Bike, tone: 'blue', href: foodHref },
+  food_finding_new_rider: { title: 'Finding you a new rider', body: 'Your previous rider became unavailable — a nearby rider is being assigned.', icon: Bike, tone: 'orange', href: foodHref },
+  food_delivery_cancelled: { title: 'You cancelled a delivery', body: 'It was passed on to the next-nearest rider.', icon: XCircle, tone: 'grey', href: () => '/driver' },
+  food_delivery_reclaimed: { title: 'A delivery was reassigned', body: 'You went offline, so it was offered to another rider.', icon: XCircle, tone: 'grey', href: () => '/driver' },
   food_order_delivered: { title: 'Your order was delivered', body: 'Enjoy your meal! Your receipt is ready.', icon: CheckCircle2, tone: 'green', href: foodHref },
   food_order_cancelled: { title: 'Your order was cancelled', body: 'This order will not be delivered.', icon: XCircle, tone: 'red', href: foodHref },
   food_thank_you: { title: 'Thank you for ordering with Smart Mappia', body: 'We hope you enjoyed your meal!', icon: Heart, tone: 'orange', href: foodHref },
