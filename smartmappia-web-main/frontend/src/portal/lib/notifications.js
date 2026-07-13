@@ -26,10 +26,13 @@ import {
 // Where a notification opens when tapped. Codes deep-link to live tracking;
 // without a code we fall back to the relevant history hub.
 const rideHref = (code) => (code ? `/track/${code}` : '/transactions');
+const ridePayHref = (code) => (code ? `/pay/${code}` : '/transactions');
 const foodHref = (code) => (code ? `/food/track/${code}` : '/food/orders');
 
 const META = {
   // --- Pick & Drop ride lifecycle ---
+  ride_booking_confirmed: { title: 'Ride booking created', body: 'Complete payment so we can find your driver.', icon: CheckCircle2, tone: 'green', href: ridePayHref },
+  ride_booking_created: { title: 'New ride booking', body: 'A customer created a new airport transfer booking.', icon: Car, tone: 'orange', href: () => '/admin' },
   ride_driver_accepted: { title: 'A driver accepted your trip', body: 'Your driver is on the way to you.', icon: Car, tone: 'green', href: rideHref },
   ride_driver_on_the_way: { title: 'Your driver is on the way', body: 'Track their live location on the map.', icon: Navigation, tone: 'blue', href: rideHref },
   ride_driver_arrived: { title: 'Your driver has arrived', body: 'Please head to the pickup point.', icon: MapPin, tone: 'green', href: rideHref },
@@ -40,12 +43,16 @@ const META = {
   ride_offer: { title: 'New ride request', body: 'A nearby trip is available.', icon: Bell, tone: 'blue', href: () => '/driver' },
 
   // --- Food delivery lifecycle ---
+  food_order_placed: { title: 'Food order placed', body: 'Your restaurant order was created successfully.', icon: CheckCircle2, tone: 'green', href: foodHref },
+  admin_food_order_created: { title: 'New food order', body: 'A customer placed a new restaurant order.', icon: UtensilsCrossed, tone: 'orange', href: () => '/admin' },
+  merchant_food_order_created: { title: 'New restaurant order', body: 'Review the new order in your restaurant portal.', icon: UtensilsCrossed, tone: 'orange', href: () => '/merchant' },
+  delivery_offer: { title: 'New delivery request', body: 'A nearby food delivery is available.', icon: Bike, tone: 'blue', href: () => '/driver' },
   food_order_accepted: { title: 'Restaurant accepted your order', body: 'The kitchen will start preparing it shortly.', icon: CheckCircle2, tone: 'blue', href: foodHref },
   food_order_rejected: { title: 'Order rejected', body: 'The restaurant could not accept your order.', icon: XCircle, tone: 'red', href: foodHref },
   food_order_preparing: { title: 'Your order is being prepared', body: 'The restaurant is cooking your food.', icon: UtensilsCrossed, tone: 'blue', href: foodHref },
   food_order_ready: { title: 'Your order is ready', body: 'Waiting for a rider to pick it up.', icon: UtensilsCrossed, tone: 'blue', href: foodHref },
   food_rider_assigned: { title: 'A rider is assigned to your order', body: 'They are heading to the restaurant.', icon: Bike, tone: 'blue', href: foodHref },
-  food_delivery_assigned: { title: 'A rider is assigned to your order', body: 'They are heading to the restaurant.', icon: Bike, tone: 'blue', href: foodHref },
+  food_delivery_assigned: { title: 'New delivery assigned', body: 'Open the driver portal for delivery details.', icon: Bike, tone: 'blue', href: () => '/driver' },
   food_order_out_for_delivery: { title: 'Your order was picked up', body: 'Your rider is on the way to you.', icon: Bike, tone: 'blue', href: foodHref },
   food_order_delivered: { title: 'Your order was delivered', body: 'Enjoy your meal! Your receipt is ready.', icon: CheckCircle2, tone: 'green', href: foodHref },
   food_order_cancelled: { title: 'Your order was cancelled', body: 'This order will not be delivered.', icon: XCircle, tone: 'red', href: foodHref },
