@@ -34,19 +34,30 @@ import {
 import { api } from '../lib/api';
 import { useBroadcast } from '../lib/useBroadcast';
 import { realtimeEnabled, uploadProofFile } from '../lib/supabaseClient';
-import { validateUploadFile, UPLOAD_FORMATS_HINT } from '../lib/uploadFiles';
+import {
+  validateLogoFile,
+  validateMenuImageFile,
+  LOGO_ACCEPT,
+  MENU_IMAGE_ACCEPT,
+  LOGO_FORMATS_HINT,
+  MENU_IMAGE_FORMATS_HINT,
+} from '../lib/uploadFiles';
 import { fmtSAR, foodStatusMeta, foodPaymentMeta } from '../lib/constants';
 import { Card, Badge, Field, Spinner, btnPrimary, btnGhost, inputClass } from '../components/ui';
-
-const IMAGE_ACCEPT = '.jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp';
 
 // --- Reusable image upload (restaurant logo / menu photo) -------------------
 // Uploads straight to the PUBLIC merchant-images bucket via a backend-issued
 // signed URL, then hands the stored PUBLIC url up to the form. Needs a saved
 // merchant id, so on a brand-new restaurant it asks the admin to save first.
+// Logos accept JPG/PNG/WebP; menu photos are JPG/PNG only — same rules as the
+// merchant portal (uploadFiles.js) and the backend validators.
 function ImageUploadField({ merchantId, kind, value, onChange }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
+  const isMenu = kind === 'item';
+  const validate = isMenu ? validateMenuImageFile : validateLogoFile;
+  const accept = isMenu ? MENU_IMAGE_ACCEPT : LOGO_ACCEPT;
+  const hint = isMenu ? MENU_IMAGE_FORMATS_HINT : LOGO_FORMATS_HINT;
 
   async function onPick(e) {
     const file = e.target.files?.[0];
@@ -54,7 +65,7 @@ function ImageUploadField({ merchantId, kind, value, onChange }) {
     if (!file) return;
     setError(null);
 
-    const check = validateUploadFile(file);
+    const check = validate(file);
     if (!check.ok) return setError(check.error);
 
     setBusy(true);
@@ -96,7 +107,7 @@ function ImageUploadField({ merchantId, kind, value, onChange }) {
         <label className={btnGhost + ' !py-1.5 !px-3 !text-xs cursor-pointer inline-flex'}>
           {busy ? <Spinner className="!w-3.5 !h-3.5" /> : <Upload className="w-3.5 h-3.5" />}
           {value ? 'Replace image' : 'Upload image'}
-          <input type="file" accept={IMAGE_ACCEPT} onChange={onPick} disabled={busy} className="hidden" />
+          <input type="file" accept={accept} onChange={onPick} disabled={busy} className="hidden" />
         </label>
         {value && (
           <button
@@ -107,7 +118,7 @@ function ImageUploadField({ merchantId, kind, value, onChange }) {
             Remove
           </button>
         )}
-        <p className="text-[11px] text-brand-grey mt-1">{error || UPLOAD_FORMATS_HINT.replace('PDF, ', '')}</p>
+        <p className="text-[11px] text-brand-grey mt-1">{error || hint}</p>
       </div>
     </div>
   );

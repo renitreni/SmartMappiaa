@@ -96,7 +96,10 @@ export default function BookPage() {
     if (!name || !whatsapp || !datetime) {
       return setError('Please fill in your name, WhatsApp number, and pickup time.');
     }
-    const home = { address: homeAddress || 'My location', lat: homePoint?.lat ?? null, lng: homePoint?.lng ?? null };
+    if (!homePoint?.lat || !homePoint?.lng) {
+      return setError('Please select your address from the suggestions or use current location.');
+    }
+    const home = { address: homeAddress, lat: homePoint.lat, lng: homePoint.lng };
     const air = { address: airport.name, lat: airport.lat, lng: airport.lng };
     const toAirport = direction === 'house_to_airport';
     const pickup = toAirport ? home : air;
@@ -202,12 +205,13 @@ export default function BookPage() {
 
               <div className="grid sm:grid-cols-2 gap-4">
                 <Field label="Your name">
-                  <input className={inputClass} value={name} onChange={(e) => setName(e.target.value)} placeholder="Full name" />
+                  <input className={`${inputClass} bg-brand-surface text-brand-grey cursor-not-allowed`} value={name} readOnly placeholder="Full name" />
                 </Field>
                 <Field label="WhatsApp">
-                  <input className={inputClass} value={whatsapp} onChange={(e) => setWhatsapp(e.target.value)} placeholder="+9665XXXXXXXX" />
+                  <input className={`${inputClass} bg-brand-surface text-brand-grey cursor-not-allowed`} value={whatsapp} readOnly placeholder="+9665XXXXXXXX" />
                 </Field>
               </div>
+              <p className="-mt-1 text-xs text-brand-grey">From your account — edit these in your Profile.</p>
 
               <FareSummary fare={FARE} showButton buttonLabel="Continue to payment" busy={busy} compact />
               <LegalConsentNote />

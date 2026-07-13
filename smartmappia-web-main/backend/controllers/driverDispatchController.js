@@ -28,7 +28,7 @@ const {
   pingFoodAdmin,
   broadcast,
 } = require('../lib/realtime');
-const { offerNext, loadFoodTarget, loadRideTarget } = require('../lib/dispatch');
+const { offerNext, loadFoodTarget, loadRideTarget, releaseFoodDelivery, releaseRide } = require('../lib/dispatch');
 
 // Order statuses during which a rider can still be working the delivery.
 const RIDER_ACTIVE_ORDER_STATUSES = ['accepted', 'preparing', 'ready', 'out_for_delivery'];
@@ -375,6 +375,84 @@ async function claimOpenDelivery(req, res) {
   }
 }
 
+// POST /api/driver/deliveries/:code/cancel { reason? }
+// A rider gives up a delivery they accepted but has NOT picked up yet. The order
+// is released and instantly re-offered to the next-nearest driver (the canceller
+// is excluded from the cascade). After pickup this is refused — the food is with
+// the rider, so a support/admin path must handle it.
+async function cancelDelivery(req, res) {
+  try {
+    const { data: order } = await supabase
+      .from('orders')
+      .select('id, order_code, status')
+      .eq('order_code', req.params.code)
+      .maybeSingle();
+    if (!order) return res.status(404).json({ error: 'Delivery not found' });
+
+    const { data: delivery } = await supabase
+      .from('deliveries')
+      .select('id, driver_id, status')
+      .eq('order_id', order.id)
+      .maybeSingle();
+    if (!delivery || delivery.driver_id !== req.driverId) {
+      return res.status(403).json({ error: 'This delivery is not assigned to you' });
+    }
+    if (delivery.status !== 'assigned' || !['accepted', 'preparing', 'ready'].includes(order.status)) {
+      return res.status(409).json({ error: 'You can only cancel before you pick up the order' });
+    }
+
+    const released = await releaseFoodDelivery(order.id, {
+      previousDriverId: req.driverId,
+      reason: req.body.reason || null,
+      cause: 'cancelled',
+      actorId: req.driverId,
+    });
+    if (!released) {
+      return res.status(409).json({ error: 'This delivery can no longer be cancelled' });
+    }
+    return res.json({ cancelled: true, code: order.order_code });
+  } catch (err) {
+    console.error('cancelDelivery error:', err);
+    return res.status(500).json({ error: 'Unexpected server error' });
+  }
+}
+
+// POST /api/driver/rides/:code/cancel { reason? }
+// A driver gives up a Pick & Drop ride they accepted but has NOT started yet.
+// The booking is released back to 'confirmed' and re-offered to the next-nearest
+// driver (unlike the terminal 'cancelled' status, the passenger keeps their
+// trip). Once the trip has started this is refused.
+async function cancelRide(req, res) {
+  try {
+    const { data: booking } = await supabase
+      .from('bookings')
+      .select('id, booking_code, assigned_driver_id, driver_ride_status')
+      .eq('booking_code', req.params.code)
+      .maybeSingle();
+    if (!booking) return res.status(404).json({ error: 'Ride not found' });
+    if (booking.assigned_driver_id !== req.driverId) {
+      return res.status(403).json({ error: 'This ride is not assigned to you' });
+    }
+    if (!['accepted', 'on_the_way', 'arrived'].includes(booking.driver_ride_status)) {
+      return res.status(409).json({ error: 'You can only cancel before the trip starts' });
+    }
+
+    const released = await releaseRide(booking.id, {
+      previousDriverId: req.driverId,
+      reason: req.body.reason || null,
+      cause: 'cancelled',
+      actorId: req.driverId,
+    });
+    if (!released) {
+      return res.status(409).json({ error: 'This ride can no longer be cancelled' });
+    }
+    return res.json({ cancelled: true, code: booking.booking_code });
+  } catch (err) {
+    console.error('cancelRide error:', err);
+    return res.status(500).json({ error: 'Unexpected server error' });
+  }
+}
+
 // --- Delivery lifecycle (rider side) ---------------------------------------
 // PHOTO PROOF IS MANDATORY at both steps (Grab-style accountability):
 // picked_up -> photo of the order AT THE RESTAURANT, then the customer sees
@@ -546,6 +624,8 @@ module.exports = {
   listMyDeliveries,
   listOpenDeliveries,
   claimOpenDelivery,
+  cancelDelivery,
+  cancelRide,
   createDeliveryPhotoUrl,
   updateDeliveryStatus,
 };
