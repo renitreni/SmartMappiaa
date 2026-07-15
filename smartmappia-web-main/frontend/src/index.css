@@ -55,10 +55,32 @@ body {
   animation: admin-pulse 2s ease-in-out infinite;
 }
 
-/* Leaflet ride map — brand pins (driver, client/pickup, drop-off) */
-.sm-ride-map .leaflet-div-icon.sm-map-pin-wrap {
-  background: transparent;
-  border: none;
+/* Ride map (MapLibre GL) — brand pins (driver, client/pickup, drop-off).
+   The .sm-map-pin* rules below are renderer-agnostic HTML/CSS reused from
+   the old Leaflet map; the pins are now MapLibre DOM markers. */
+.sm-ride-map .maplibregl-canvas {
+  outline: none;
+}
+.sm-ride-map .maplibregl-ctrl-attrib {
+  font-size: 10px;
+  background: rgba(255, 255, 255, 0.8);
+  border-radius: 8px 0 0 0;
+}
+.sm-ride-map .maplibregl-ctrl-group {
+  border-radius: 10px;
+  box-shadow: 0 2px 8px rgba(17, 24, 39, 0.12);
+}
+.sm-ride-map .maplibregl-popup-content {
+  border-radius: 12px;
+  padding: 8px 12px;
+  font-family: inherit;
+  box-shadow: 0 4px 12px rgba(17, 24, 39, 0.15);
+  border: 1px solid #e5e7eb;
+}
+.sm-map-popup-label {
+  font-size: 0.875rem;
+  font-weight: 700;
+  color: #1f2937;
 }
 
 .sm-map-pin {
