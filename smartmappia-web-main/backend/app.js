@@ -43,7 +43,10 @@ app.use(express.json()); // parse JSON request bodies
 
 // Rate limiting. Effective on a single server/VPS; on serverless it's best-effort
 // per-instance. General cap on the whole API, stricter on auth to slow brute force.
-const generalLimiter = rateLimit({ windowMs: 60 * 1000, max: 120, standardHeaders: true, legacyHeaders: false });
+// The general cap is 240/min because map-heavy screens (live tracking + the
+// location picker) legitimately make many small read calls per minute; the
+// sensitive endpoints keep their own tighter per-route limiters.
+const generalLimiter = rateLimit({ windowMs: 60 * 1000, max: 240, standardHeaders: true, legacyHeaders: false });
 const authLimiter = rateLimit({ windowMs: 60 * 1000, max: 20, standardHeaders: true, legacyHeaders: false });
 app.use('/api/', generalLimiter);
 app.use('/api/auth', authLimiter);

@@ -8,11 +8,15 @@
 // uses the browser `fetch`.
 // ---------------------------------------------------------------------
 
-// Routing base. Defaults to the public OSRM demo (fine for local/testing, but
-// rate-limited and not for production). Set VITE_OSRM_BASE to a self-hosted OSRM
-// (or a backend proxy) for production — e.g. https://yourdomain.com/osrm/route/v1/driving
+// Routing base. Prefers VITE_OSRM_BASE; otherwise uses the same-origin backend
+// OSRM proxy (/api/osrm) on the configured API host, which forwards to the
+// self-hosted OSRM (private, 127.0.0.1:5000 on the VPS). This makes the tracking
+// lines follow real streets in dev AND prod with no extra config; if OSRM is
+// unreachable the caller falls back to a straight line. Override VITE_OSRM_BASE
+// only to point at a different routing host (e.g. the public OSRM demo in dev).
+const API_BASE = import.meta.env.VITE_API_BASE || 'http://localhost:4000';
 const OSRM_BASE =
-  import.meta.env.VITE_OSRM_BASE || 'https://router.project-osrm.org/route/v1/driving';
+  import.meta.env.VITE_OSRM_BASE || `${API_BASE}/api/osrm/route/v1/driving`;
 
 function valid(p) {
   return p && Number.isFinite(p.lat) && Number.isFinite(p.lng);

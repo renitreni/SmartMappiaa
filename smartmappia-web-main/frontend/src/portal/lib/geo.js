@@ -3,6 +3,7 @@
 // ---------------------------------------------------------------------
 import { useEffect, useRef, useState } from 'react';
 import { AIRPORTS, RIYADH_CENTER } from './constants';
+import { confirmAction } from './notify';
 
 const RIYADH_DISTRICTS = {
   malaz: { lat: 24.6872, lng: 46.7438 },
@@ -117,4 +118,51 @@ export function useGeolocation({ watch = false, enabled = true } = {}) {
   }, [watch, enabled]);
 
   return { coords, error };
+}
+
+// Proactively ask for location permission ONCE (e.g. right after sign-in), with
+// a friendly explainer before the browser's native prompt. Safe to call
+// repeatedly and never throws: it no-ops if geolocation is unavailable, the
+// user already decided (granted/denied), or we've asked before. This is why
+// the location picker no longer fails cold the first time it needs a fix.
+const GEO_PROMPT_KEY = 'sm_geo_prompted';
+
+export async function ensureLocationPermission() {
+  try {
+    if (typeof navigator === 'undefined' || !('geolocation' in navigator)) return;
+    if (localStorage.getItem(GEO_PROMPT_KEY)) return; // asked before — don't nag
+
+    // If the user already granted/denied, record it and skip the explainer.
+    if (navigator.permissions?.query) {
+      try {
+        const status = await navigator.permissions.query({ name: 'geolocation' });
+        if (status.state === 'granted' || status.state === 'denied') {
+          localStorage.setItem(GEO_PROMPT_KEY, status.state);
+          return;
+        }
+      } catch {
+        /* geolocation not queryable here — fall through and ask. */
+      }
+    }
+
+    // Mark asked up front so a reload mid-prompt never double-asks.
+    localStorage.setItem(GEO_PROMPT_KEY, '1');
+    const ok = await confirmAction({
+      title: 'Share your location?',
+      text: 'SmartMappia uses your location to show nearby places and match you with nearby drivers.',
+      confirmText: 'Allow location',
+      cancelText: 'Not now',
+      icon: 'info',
+    });
+    if (!ok) return;
+
+    // Fire the browser's native prompt (result handled elsewhere when needed).
+    navigator.geolocation.getCurrentPosition(
+      () => {},
+      () => {},
+      { enableHighAccuracy: false, timeout: 12000, maximumAge: 60000 }
+    );
+  } catch {
+    /* never let the permission prompt break sign-in */
+  }
 }

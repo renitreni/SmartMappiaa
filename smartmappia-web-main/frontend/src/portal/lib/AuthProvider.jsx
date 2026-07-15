@@ -9,6 +9,7 @@ import { createContext, useContext, useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from './supabaseClient';
 import { api } from './api';
+import { ensureLocationPermission } from './geo';
 
 const AuthCtx = createContext(null);
 const PENDING_KEY = 'sm_pending_profile';
@@ -66,7 +67,12 @@ export function AuthProvider({ children }) {
     const uid = session?.user?.id;
     if (uid && syncedFor.current !== uid) {
       syncedFor.current = uid;
-      loadProfile();
+      loadProfile().then((p) => {
+        // Proactively ask for location once, right after sign-in — only for the
+        // roles that actually use it (passengers + drivers), never admin/merchant.
+        const role = p?.role;
+        if (role && role !== 'admin' && role !== 'merchant') ensureLocationPermission();
+      });
     } else if (!uid) {
       syncedFor.current = null;
       setProfile(null);

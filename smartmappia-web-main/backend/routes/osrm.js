@@ -1,5 +1,6 @@
 const express = require('express');
 const router = express.Router();
+const { osrmLimiter } = require('../middleware/rateLimiters');
 
 // ---------------------------------------------------------------------
 // OSRM proxy. The self-hosted OSRM container is bound to localhost:5000
@@ -10,7 +11,7 @@ const router = express.Router();
 // ---------------------------------------------------------------------
 const OSRM_URL = process.env.OSRM_URL || 'http://127.0.0.1:5000';
 
-router.get('/*', async (req, res) => {
+router.get('/*', osrmLimiter, async (req, res) => {
   const suffix = req.originalUrl.replace(/^\/api\/osrm/, '');
   try {
     const upstream = await fetch(`${OSRM_URL}${suffix}`);
