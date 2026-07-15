@@ -1,6 +1,7 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { LocateFixed, MapPin, Search, Share2, X } from 'lucide-react';
 import { api } from '../lib/api';
+import { haversineKm } from '../lib/geo';
 import RideMap from './RideMap';
 import { btnGhost, btnPrimary, inputClass, Spinner } from './ui';
 
@@ -30,11 +31,19 @@ export default function LocationPicker({
     setQuery(address || '');
   }, [address]);
 
+  const lastNearbyRef = useRef(null);
   useEffect(() => {
     if (!coords?.lat || !coords?.lng) {
       setNearby([]);
+      lastNearbyRef.current = null;
       return undefined;
     }
+    // Only refetch nearby when the pin moved a meaningful distance (~150m).
+    // Small map nudges must NOT spam /nearby — that chattiness was a 429 driver.
+    const prev = lastNearbyRef.current;
+    const moved = !prev || (haversineKm(prev, { lat: coords.lat, lng: coords.lng }) ?? 1) > 0.15;
+    if (!moved) return undefined;
+    lastNearbyRef.current = { lat: coords.lat, lng: coords.lng };
     let alive = true;
     api.locationNearby(coords.lat, coords.lng)
       .then((data) => { if (alive) setNearby(data.places || []); })
@@ -48,7 +57,7 @@ export default function LocationPicker({
     // confirmed selection (coords present). While the user is free-typing, coords
     // are null, so the autocomplete must still search — otherwise there is nothing
     // to pick and no way to attach real coordinates to the address.
-    if (q.length < 2 || (q === (address || '').trim() && !!coords?.lat && !!coords?.lng)) {
+    if (q.length < 3 || (q === (address || '').trim() && !!coords?.lat && !!coords?.lng)) {
       setResults([]);
       return undefined;
     }
@@ -64,7 +73,7 @@ export default function LocationPicker({
       } finally {
         if (alive) setSearching(false);
       }
-    }, 350);
+    }, 550);
     return () => {
       alive = false;
       window.clearTimeout(timer);

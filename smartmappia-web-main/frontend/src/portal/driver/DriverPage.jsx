@@ -53,7 +53,7 @@ import { notifyAlert } from '../lib/notify';
 
 import { PortalShell, Card, Badge, Spinner, btnPrimary } from '../components/ui';
 
-import RideMap from '../components/RideMap';
+import RoutedRideMap from '../components/RoutedRideMap';
 import LocationPicker from '../components/LocationPicker';
 
 
@@ -874,6 +874,10 @@ export default function DriverPage() {
 
   let line = null;
 
+  let routeFrom = null;
+
+  let routeTo = null;
+
   if (activeRide) {
 
     markers = [
@@ -901,6 +905,10 @@ export default function DriverPage() {
     if (here && activeRide.pickupLat != null && activeRide.driverRideStatus !== 'started') {
 
       line = [here, { lat: activeRide.pickupLat, lng: activeRide.pickupLng }];
+
+      routeFrom = here;
+
+      routeTo = { lat: activeRide.pickupLat, lng: activeRide.pickupLng };
 
     }
 
@@ -1075,11 +1083,15 @@ export default function DriverPage() {
 
             <div className="relative driver-map-frame rounded-3xl overflow-hidden border border-brand-border/50 bg-white">
 
-              <RideMap
+              <RoutedRideMap
 
                 markers={markers}
 
-                line={line}
+                from={routeFrom}
+
+                to={routeTo}
+
+                fallbackLine={line}
 
                 legend={mapLegend}
 

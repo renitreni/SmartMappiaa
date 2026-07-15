@@ -36,7 +36,7 @@ import {
   FOOD_PAYMENT_METHODS,
 } from '../lib/constants';
 import { PortalShell, Card, Badge, Spinner, btnGhost } from '../components/ui';
-import RideMap from '../components/RideMap';
+import RoutedRideMap from '../components/RoutedRideMap';
 import RateDriver from '../components/RateDriver';
 import PaymentPanel from './PaymentPanel';
 
@@ -316,7 +316,21 @@ export default function FoodTrackPage() {
 
             {/* Live map — the rider pin glides on every GPS ping (Grab-style). */}
             {!failed && riderLive && order.status !== 'delivered' && (
-              <RideMap
+              <RoutedRideMap
+                from={{ lat: riderLive.lat, lng: riderLive.lng }}
+                to={
+                  order.delivery_lat != null
+                    ? { lat: order.delivery_lat, lng: order.delivery_lng }
+                    : null
+                }
+                fallbackLine={
+                  order.delivery_lat != null
+                    ? [
+                        { lat: riderLive.lat, lng: riderLive.lng },
+                        { lat: order.delivery_lat, lng: order.delivery_lng },
+                      ]
+                    : null
+                }
                 height={260}
                 follow
                 followTarget={
