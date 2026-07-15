@@ -30,8 +30,11 @@ import {
   Image as ImageIcon,
   UserPlus,
   UserCheck,
+  Coins,
+  Download,
 } from 'lucide-react';
 import { api } from '../lib/api';
+import { toCsv, downloadCsv } from '../lib/csv';
 import { useBroadcast } from '../lib/useBroadcast';
 import { realtimeEnabled, uploadProofFile } from '../lib/supabaseClient';
 import {
@@ -124,9 +127,12 @@ function ImageUploadField({ merchantId, kind, value, onChange }) {
   );
 }
 
+// Item category. The platform markup now comes from the net price (below),
+// not from this bucket — item_type only falls back to a flat margin (SAR 5 /
+// SAR 3) for items left WITHOUT a net price.
 const ITEM_TYPES = [
-  { value: 'meal_package', label: 'Meal / package (SAR 5.00 margin)' },
-  { value: 'drink_dessert_addon', label: 'Drink / dessert / add-on (SAR 3.00 margin)' },
+  { value: 'meal_package', label: 'Meal / package' },
+  { value: 'drink_dessert_addon', label: 'Drink / dessert / add-on' },
 ];
 
 const NEXT_STATUS = {
@@ -249,7 +255,20 @@ function RestaurantForm({ initial, onSave, onCancel, busy, merchantId }) {
 }
 
 // --- Menu item form ---------------------------------------------------------
-const EMPTY_ITEM = { name: '', description: '', price: '', item_type: 'meal_package', category_id: '', image_url: '' };
+const EMPTY_ITEM = { name: '', description: '', price: '', net_price: '', item_type: 'meal_package', category_id: '', image_url: '' };
+
+// Live markup preview for the item form: list price - net price.
+function markupHint(price, netPrice) {
+  if (netPrice === '' || netPrice == null) {
+    return { text: 'No net price — a flat SAR 5 / SAR 3 margin applies.', tone: 'muted' };
+  }
+  const p = Number(price);
+  const n = Number(netPrice);
+  if (!Number.isFinite(p) || !Number.isFinite(n)) return { text: '', tone: 'muted' };
+  if (n > p) return { text: 'Net price cannot exceed the list price.', tone: 'error' };
+  const markup = Math.round((p - n) * 100) / 100;
+  return { text: `Our markup: SAR ${markup.toFixed(2)} per item.`, tone: 'ok' };
+}
 
 function ItemForm({ initial, categories, onSave, onCancel, busy, merchantId }) {
   const [form, setForm] = useState({ ...EMPTY_ITEM, ...initial });
@@ -261,11 +280,14 @@ function ItemForm({ initial, categories, onSave, onCancel, busy, merchantId }) {
       name: form.name.trim(),
       description: (form.description || '').trim() || null,
       price: Number(form.price),
+      net_price: form.net_price === '' || form.net_price == null ? null : Number(form.net_price),
       item_type: form.item_type,
       category_id: form.category_id || null,
       image_url: (form.image_url || '').trim() || null,
     });
   }
+
+  const hint = markupHint(form.price, form.net_price);
 
   return (
     <form onSubmit={submit} className="space-y-3">
@@ -273,21 +295,33 @@ function ItemForm({ initial, categories, onSave, onCancel, busy, merchantId }) {
         <input value={form.name} onChange={set('name')} className={inputClass} required />
       </Field>
       <div className="grid grid-cols-2 gap-3">
-        <Field label="Price (SAR)">
+        <Field label="List price (SAR) — shown to the customer">
           <input type="number" min="0.01" step="0.01" value={form.price} onChange={set('price')} className={inputClass} required />
         </Field>
+        <Field label="Net price (SAR) — what the restaurant keeps">
+          <input type="number" min="0.01" step="0.01" value={form.net_price ?? ''} onChange={set('net_price')} className={inputClass} placeholder="Optional" />
+        </Field>
+      </div>
+      {hint.text && (
+        <p className={`text-xs font-bold -mt-1 ${
+          hint.tone === 'error' ? 'text-red-600' : hint.tone === 'ok' ? 'text-green-700' : 'text-brand-grey'
+        }`}>
+          {hint.text}
+        </p>
+      )}
+      <div className="grid grid-cols-2 gap-3">
         <Field label="Category">
           <select value={form.category_id || ''} onChange={set('category_id')} className={inputClass}>
             <option value="">No category</option>
             {categories.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
           </select>
         </Field>
+        <Field label="Type">
+          <select value={form.item_type} onChange={set('item_type')} className={inputClass}>
+            {ITEM_TYPES.map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
+          </select>
+        </Field>
       </div>
-      <Field label="Type (sets the platform margin)">
-        <select value={form.item_type} onChange={set('item_type')} className={inputClass}>
-          {ITEM_TYPES.map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
-        </select>
-      </Field>
       <Field label="Photo">
         <ImageUploadField
           merchantId={merchantId}
@@ -406,7 +440,15 @@ function MenuEditor({ merchant, onClose, onError }) {
                   {editingItem === 'new' ? 'New item' : `Edit: ${editingItem.name}`}
                 </p>
                 <ItemForm
-                  initial={editingItem === 'new' ? EMPTY_ITEM : { ...editingItem, price: String(editingItem.price) }}
+                  initial={
+                    editingItem === 'new'
+                      ? EMPTY_ITEM
+                      : {
+                          ...editingItem,
+                          price: String(editingItem.price),
+                          net_price: editingItem.net_price == null ? '' : String(editingItem.net_price),
+                        }
+                  }
                   categories={categories}
                   busy={busy}
                   merchantId={merchant.id}
@@ -442,6 +484,9 @@ function MenuEditor({ merchant, onClose, onError }) {
                     <p className="font-bold text-brand-dark text-sm truncate">{item.name}</p>
                     <p className="text-xs text-brand-grey">
                       {fmtSAR(item.price)} · {item.item_type === 'meal_package' ? 'Meal' : 'Drink/add-on'}
+                      {item.net_price != null && (
+                        <span className="text-green-700 font-bold"> · +{fmtSAR(item.price - item.net_price)} markup</span>
+                      )}
                     </p>
                   </div>
                   <button
@@ -986,6 +1031,147 @@ function OrdersSection({ onError }) {
   );
 }
 
+// --- Settlement section ----------------------------------------------------
+// Per-restaurant payout vs. our markup over a date range, split by who
+// collected the money. Downloads a CSV (reuses the shared csv.js helpers).
+function isoDay(d) {
+  return d.toISOString().slice(0, 10);
+}
+function defaultRange() {
+  const to = new Date();
+  const from = new Date();
+  from.setDate(from.getDate() - 30);
+  return { from: isoDay(from), to: isoDay(to) };
+}
+
+const SETTLEMENT_COLUMNS = [
+  'order_code', 'date', 'merchant', 'subtotal', 'restaurant_payout', 'platform_markup',
+  'delivery_fee', 'total', 'payment_method', 'payment_status', 'collected_by',
+].map((k) => ({ key: k, header: k }));
+
+function toCsvRows(rows) {
+  return (rows || []).map((r) => ({
+    order_code: r.orderCode,
+    date: r.date ? new Date(r.date).toISOString().slice(0, 10) : '',
+    merchant: r.merchant,
+    subtotal: r.subtotal,
+    restaurant_payout: r.restaurantPayout,
+    platform_markup: r.platformMarkup,
+    delivery_fee: r.deliveryFee,
+    total: r.total,
+    payment_method: r.paymentMethod,
+    payment_status: r.paymentStatus,
+    collected_by: r.collectedBy,
+  }));
+}
+
+function SettlementSection({ onError }) {
+  const def = defaultRange();
+  const [from, setFrom] = useState(def.from);
+  const [to, setTo] = useState(def.to);
+  const [data, setData] = useState(null);
+  const [loading, setLoading] = useState(false);
+
+  async function loadReport() {
+    setLoading(true);
+    try {
+      const d = await api.adminFoodSettlement(from, to);
+      setData(d);
+      return d;
+    } catch (err) {
+      onError(err.message);
+      return null;
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function download() {
+    const d = data || (await loadReport());
+    if (!d) return;
+    if (!d.rows || d.rows.length === 0) {
+      onError('No orders in that date range to export.');
+      return;
+    }
+    const csv = toCsv(toCsvRows(d.rows), SETTLEMENT_COLUMNS);
+    downloadCsv(`smartmappia-settlement-${d.from}_${d.to}.csv`, csv);
+  }
+
+  const t = data?.totals;
+
+  return (
+    <Card className="p-5 space-y-4">
+      <div className="flex items-center gap-2">
+        <Coins className="w-4 h-4 text-brand-orange" />
+        <p className="font-black text-brand-black">Settlement</p>
+      </div>
+      <p className="text-xs text-brand-grey">
+        What we owe each restaurant (their net payout) vs. the markup we keep, over a date range.
+        Online orders are collected by us — we owe the restaurant; cash orders are collected by the rider.
+        Only paid orders count; refunds are shown separately.
+      </p>
+      <div className="flex flex-wrap items-end gap-3">
+        {/* Changing a date clears the loaded report so Download always
+            re-fetches the CURRENT range (never a stale preview). */}
+        <Field label="From">
+          <input type="date" value={from} onChange={(e) => { setFrom(e.target.value); setData(null); }} className={inputClass + ' !py-2'} />
+        </Field>
+        <Field label="To">
+          <input type="date" value={to} onChange={(e) => { setTo(e.target.value); setData(null); }} className={inputClass + ' !py-2'} />
+        </Field>
+        <button type="button" onClick={loadReport} disabled={loading} className={btnGhost + ' !py-2 !px-3.5 !text-sm'}>
+          {loading ? <Spinner className="!w-4 !h-4" /> : 'Preview'}
+        </button>
+        <button type="button" onClick={download} disabled={loading} className={btnPrimary + ' !py-2 !px-3.5 !text-sm ml-auto'}>
+          <Download className="w-3.5 h-3.5" /> Download CSV
+        </button>
+      </div>
+
+      {t && (
+        <>
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+            <Stat label="Orders" value={t.orders} />
+            <Stat label="Owe restaurants (online)" value={fmtSAR(t.onlineOwedToRestaurant)} />
+            <Stat label="Markup (online)" value={fmtSAR(t.onlineMarkupKept)} accent />
+            <Stat label="Cash collected (rider)" value={fmtSAR(t.cashCollectedByRider)} />
+            <Stat label="Markup (cash)" value={fmtSAR(t.cashMarkup)} accent />
+            <Stat label="Refunded" value={fmtSAR(t.refundedAmount)} />
+          </div>
+
+          {(data.byMerchant || []).length > 0 && (
+            <div className="overflow-x-auto">
+              <table className="w-full text-xs">
+                <thead>
+                  <tr className="text-left text-brand-grey border-b border-brand-border">
+                    <th className="py-2 pr-3 font-bold">Restaurant</th>
+                    <th className="py-2 px-2 font-bold text-right">Orders</th>
+                    <th className="py-2 px-2 font-bold text-right">Owe (online)</th>
+                    <th className="py-2 px-2 font-bold text-right">Markup (online)</th>
+                    <th className="py-2 px-2 font-bold text-right">Cash (rider)</th>
+                    <th className="py-2 pl-2 font-bold text-right">Markup (cash)</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {data.byMerchant.map((m) => (
+                    <tr key={m.merchantId || m.merchant} className="border-b border-brand-border/50">
+                      <td className="py-2 pr-3 font-bold text-brand-dark">{m.merchant || 'Unknown'}</td>
+                      <td className="py-2 px-2 text-right tabular-nums">{m.orders}</td>
+                      <td className="py-2 px-2 text-right tabular-nums">{fmtSAR(m.onlineOwedToRestaurant)}</td>
+                      <td className="py-2 px-2 text-right tabular-nums text-green-700 font-bold">{fmtSAR(m.onlineMarkupKept)}</td>
+                      <td className="py-2 px-2 text-right tabular-nums">{fmtSAR(m.cashCollectedByRider)}</td>
+                      <td className="py-2 pl-2 text-right tabular-nums text-green-700 font-bold">{fmtSAR(m.cashMarkup)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </>
+      )}
+    </Card>
+  );
+}
+
 // --- Tab root ------------------------------------------------------------------
 export default function FoodAdmin() {
   const [overview, setOverview] = useState(null);
@@ -1032,6 +1218,8 @@ export default function FoodAdmin() {
           <OrdersSection onError={onError} />
         </div>
       </div>
+
+      <SettlementSection onError={onError} />
     </div>
   );
 }

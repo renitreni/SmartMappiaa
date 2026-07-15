@@ -182,6 +182,9 @@ export const api = {
 
   // --- food delivery: admin (admins run the restaurants — no owner accounts) ---
   adminFoodOverview: () => request('/api/admin/food/overview'),
+  // Settlement report: what we owe each restaurant vs. our markup, by date range.
+  adminFoodSettlement: (from, to) =>
+    request(`/api/admin/food/settlement?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`),
   adminFoodMerchants: () => request('/api/admin/food/merchants'),
   adminFoodCreateMerchant: (body) => request('/api/admin/food/merchants', { method: 'POST', body }),
   adminFoodUpdateMerchant: (id, body) => request(`/api/admin/food/merchants/${id}`, { method: 'PATCH', body }),

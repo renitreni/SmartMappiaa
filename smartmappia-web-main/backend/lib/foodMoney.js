@@ -19,12 +19,28 @@ function round2(n) {
 }
 
 // Margin the platform earns on one unit of an item, by menu_items.item_type.
+// This is the FALLBACK now: only used when an item has no explicit net price.
 function marginForItemType(itemType) {
   const margin = config.food.margins[itemType];
   if (margin == null) {
     throw new Error(`Unknown item_type "${itemType}" — no platform margin defined`);
   }
   return margin;
+}
+
+// Markup the platform keeps on ONE unit of an item.
+//   * with a net price set: markup = list price − net price (Ka Inasal
+//     "X SAR (Y)" pattern — varies per item, 0..10+ SAR)
+//   * without one (net price null): the flat config.food.margins by
+//     item_type (back-compat for legacy / single-price menu rows)
+// The DB CHECK (migration 0017) guarantees net_price <= price, so the
+// clamp below is only defence in depth.
+function markupPerUnit({ unitPrice, netPrice, itemType }) {
+  if (netPrice != null) {
+    const markup = round2(Number(unitPrice) - Number(netPrice));
+    return markup < 0 ? 0 : markup;
+  }
+  return marginForItemType(itemType);
 }
 
 // Price a whole order from trusted inputs (fresh DB menu rows + a distance
@@ -40,7 +56,11 @@ function priceOrder({ items, distanceKm }) {
   const lines = items.map((item) => {
     const quantity = Math.trunc(Number(item.quantity));
     const unitPrice = round2(item.unitPrice);
-    const marginPerItem = marginForItemType(item.itemType);
+    const marginPerItem = markupPerUnit({
+      unitPrice,
+      netPrice: item.netPrice ?? null,
+      itemType: item.itemType,
+    });
     return {
       menuItemId: item.menuItemId,
       name: item.name,
@@ -98,4 +118,4 @@ function creditAfterCharge(merchant, marginTotal) {
   };
 }
 
-module.exports = { round2, marginForItemType, priceOrder, creditAfterCharge };
+module.exports = { round2, marginForItemType, markupPerUnit, priceOrder, creditAfterCharge };
