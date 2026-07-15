@@ -54,7 +54,8 @@ const ADMIN_ITEM_FIELDS = {
   category_id: { type: 'string', maxLength: 60, nullable: true },
   name: { type: 'string', maxLength: 120 },
   description: { type: 'string', maxLength: 1000, nullable: true },
-  price: { type: 'number', min: 0.01, max: 100000 },
+  price: { type: 'number', min: 0.01, max: 100000 }, // LIST price (shown to the customer)
+  net_price: { type: 'number', min: 0.01, max: 100000, nullable: true }, // what the restaurant keeps; markup = price - net_price
   item_type: { type: 'string', enum: ['meal_package', 'drink_dessert_addon'] },
   image_url: { type: 'string', maxLength: 500, nullable: true },
   is_available: { type: 'boolean' },
@@ -132,6 +133,10 @@ router.post(
 );
 router.patch('/food/items/:id', validateBody(ADMIN_ITEM_FIELDS), food.moderateItem);
 router.delete('/food/items/:id', food.removeItem);
+// Settlement report: per-restaurant payout vs. our markup over a date range,
+// split by who collected the money (online = platform, cash = rider). Feeds
+// the "Download CSV" button in the Food Admin portal.
+router.get('/food/settlement', food.getSettlement);
 // Orders: admins run the restaurants (no owner accounts), so accept/reject
 // and the fulfillment ladder live here. Accept enforces the 300 SAR credit.
 router.get('/food/orders', food.listOrders);

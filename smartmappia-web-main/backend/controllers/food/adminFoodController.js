@@ -298,6 +298,11 @@ async function addItemForMerchant(req, res) {
     const merchant = await loadMerchant(req.params.id);
     if (!merchant) return res.status(404).json({ error: 'Merchant not found' });
     const b = req.body;
+    // Markup must be >= 0: the restaurant's net can't exceed the list price.
+    // (DB CHECK backs this up; this yields a clean 400 instead of a 500.)
+    if (b.net_price != null && Number(b.net_price) > Number(b.price)) {
+      return res.status(400).json({ error: 'net_price must be <= price' });
+    }
     if (b.category_id) {
       const { data: cat } = await supabase
         .from('menu_categories')
@@ -311,7 +316,7 @@ async function addItemForMerchant(req, res) {
     const { data, error } = await supabase
       .from('menu_items')
       .insert({ merchant_id: merchant.id, ...b })
-      .select('id, category_id, name, description, price, item_type, image_url, is_available')
+      .select('id, category_id, name, description, price, net_price, item_type, image_url, is_available')
       .single();
     if (error) {
       console.error('admin addItem error:', error);
@@ -464,7 +469,7 @@ async function getMerchantMenu(req, res) {
         .order('sort_order'),
       supabase
         .from('menu_items')
-        .select('id, category_id, name, description, price, item_type, image_url, is_available')
+        .select('id, category_id, name, description, price, net_price, item_type, image_url, is_available')
         .eq('merchant_id', merchant.id)
         .order('name'),
     ]);
@@ -481,12 +486,44 @@ async function getMerchantMenu(req, res) {
 
 async function moderateItem(req, res) {
   try {
+    const b = req.body;
+    // Guard markup >= 0 (net_price <= price). EITHER field may arrive alone on a
+    // PATCH — including a price-only lowering below a stored net_price — so
+    // resolve the effective PAIR: a field PRESENT in the body (even an explicit
+    // null, which CLEARS net_price — validateBody keeps nullable nulls) wins;
+    // an ABSENT field falls back to the stored row. Reject with a clean 400 up
+    // front rather than the DB CHECK's confusing error.
+    const hasNet = 'net_price' in b;
+    const hasPrice = 'price' in b;
+    if (hasNet || hasPrice) {
+      let current = null;
+      if (!hasNet || !hasPrice) {
+        const { data: row } = await supabase
+          .from('menu_items')
+          .select('price, net_price')
+          .eq('id', req.params.id)
+          .maybeSingle();
+        if (!row) return res.status(404).json({ error: 'Menu item not found' });
+        current = row;
+      }
+      const effPrice = hasPrice ? Number(b.price) : Number(current.price);
+      const effNet = hasNet
+        ? (b.net_price == null ? null : Number(b.net_price))
+        : current.net_price == null ? null : Number(current.net_price);
+      if (effNet != null && effNet > effPrice) {
+        return res.status(400).json({ error: 'net_price must be <= price' });
+      }
+    }
     const { data, error } = await supabase
       .from('menu_items')
       .update(req.body)
       .eq('id', req.params.id)
-      .select('id, name, price, is_available')
+      .select('id, name, price, net_price, is_available')
       .single();
+    // 23514 = the net_price <= price CHECK — surface it as a clean 400, not a 404.
+    if (error && error.code === '23514') {
+      return res.status(400).json({ error: 'net_price must be <= price' });
+    }
     if (error || !data) return res.status(404).json({ error: 'Menu item not found' });
 
     logAudit({
@@ -949,6 +986,21 @@ async function advanceOrderStatus(req, res) {
       return res.status(409).json({ error: 'Order status changed — please refresh' });
     }
 
+    // Cash on delivery settles at the door: mirror the rider portal
+    // (driverDispatchController) and record the payment when the admin
+    // fallback marks the order delivered. Without this, admin-delivered cash
+    // orders stay 'awaiting' forever and drop out of the settlement totals.
+    // Best-effort: the order is already delivered at this point, so a payment
+    // hiccup must not fail the request — the admin can recover with the
+    // normal "Verify payment" action (verifyPayment handles cash too).
+    if (status === 'delivered' && order.payment_method === 'cash' && order.payment_status === 'awaiting') {
+      try {
+        await markOrderPaid(order, { provider: 'cash', actorId: req.adminId });
+      } catch (payErr) {
+        console.error('advanceOrderStatus cash markOrderPaid error:', payErr);
+      }
+    }
+
     logAudit({
       actorId: req.adminId,
       action: 'admin_food_order_status',
@@ -1231,8 +1283,176 @@ async function setMerchantOwner(req, res) {
   }
 }
 
+// --- Settlement report ------------------------------------------------------
+// Parse ?from=YYYY-MM-DD&to=YYYY-MM-DD into UTC day boundaries. 'to' is
+// inclusive (we filter < the day AFTER it). Defaults: to = today, from = 30
+// days before that.
+function parseDateRange(query) {
+  const today = new Date();
+  today.setUTCHours(0, 0, 0, 0);
+
+  const toParam = (query.to || '').toString().trim();
+  const fromParam = (query.from || '').toString().trim();
+
+  const toDay = toParam ? new Date(`${toParam}T00:00:00.000Z`) : new Date(today);
+  let fromDay;
+  if (fromParam) {
+    fromDay = new Date(`${fromParam}T00:00:00.000Z`);
+  } else {
+    fromDay = new Date(toDay);
+    fromDay.setUTCDate(fromDay.getUTCDate() - 30);
+  }
+
+  // Exclusive upper bound = start of the day AFTER toDay, so toDay is included.
+  const toExclusive = new Date(toDay);
+  toExclusive.setUTCDate(toExclusive.getUTCDate() + 1);
+
+  return {
+    from: fromDay,
+    toExclusive,
+    fromLabel: Number.isNaN(fromDay.getTime()) ? null : fromDay.toISOString().slice(0, 10),
+    toLabel: Number.isNaN(toDay.getTime()) ? null : toDay.toISOString().slice(0, 10),
+  };
+}
+
+// GET /api/admin/food/settlement?from=YYYY-MM-DD&to=YYYY-MM-DD
+// Per-order + per-restaurant view of what we owe each restaurant (their net
+// payout = subtotal - markup) vs. the markup we keep (platform_margin_total),
+// split by who collected the money:
+//   * online (stcpay/tap) -> the PLATFORM holds the cash, we owe the restaurant
+//   * cash                 -> the RIDER collected at the door
+// Only fulfilled orders count (status not in pending/cancelled/rejected),
+// matching getOverview's revenue definition. Only paid orders move money in
+// the rollup; refunds are surfaced separately.
+async function getSettlement(req, res) {
+  try {
+    const range = parseDateRange(req.query);
+    if (Number.isNaN(range.from.getTime()) || Number.isNaN(range.toExclusive.getTime())) {
+      return res.status(400).json({ error: 'Invalid from/to date (use YYYY-MM-DD)' });
+    }
+    // Guard the paging loop: an unbounded range would pull the whole table
+    // into memory. ~13 months covers any real settlement period.
+    const spanDays = (range.toExclusive - range.from) / 86400000;
+    if (spanDays > 400) {
+      return res.status(400).json({ error: 'Date range too large — export at most 400 days at a time' });
+    }
+
+    // Page past Supabase's ~1000-row cap so the export is COMPLETE (unlike
+    // listOrders, which caps at 100).
+    const PAGE = 1000;
+    const MAX_ROWS = 50000;
+    const raw = [];
+    for (let offset = 0; ; offset += PAGE) {
+      const { data, error } = await supabase
+        .from('orders')
+        .select(
+          'order_code, created_at, status, payment_status, payment_method, ' +
+            'subtotal, delivery_fee, platform_margin_total, total, merchants ( id, name )'
+        )
+        .gte('created_at', range.from.toISOString())
+        .lt('created_at', range.toExclusive.toISOString())
+        // Fulfilled orders PLUS refunded ones. Refunds only exist on
+        // cancelled/rejected orders (refundPayment gates on that), so a plain
+        // "status not in (...)" filter would silently drop every refund from
+        // the report — the refunded bucket must see those rows.
+        .or('status.not.in.(pending,cancelled,rejected),payment_status.eq.refunded')
+        .order('created_at', { ascending: false })
+        .range(offset, offset + PAGE - 1);
+      if (error) {
+        console.error('food getSettlement error:', error);
+        return res.status(500).json({ error: 'Could not build the settlement report' });
+      }
+      raw.push(...(data || []));
+      if (!data || data.length < PAGE || raw.length >= MAX_ROWS) break;
+    }
+
+    const rows = raw.map((o) => {
+      const subtotal = round2(Number(o.subtotal || 0));
+      const markup = round2(Number(o.platform_margin_total || 0));
+      return {
+        orderCode: o.order_code,
+        date: o.created_at,
+        merchantId: o.merchants ? o.merchants.id : null,
+        merchant: o.merchants ? o.merchants.name : null,
+        subtotal,
+        restaurantPayout: round2(subtotal - markup), // = sum of net prices
+        platformMarkup: markup,
+        deliveryFee: round2(Number(o.delivery_fee || 0)),
+        total: round2(Number(o.total || 0)),
+        paymentMethod: o.payment_method,
+        paymentStatus: o.payment_status,
+        collectedBy: o.payment_method === 'cash' ? 'cash_rider' : 'platform_online',
+      };
+    });
+
+    // Per-merchant rollup. Only 'paid' orders have actually moved money.
+    const byMerchantMap = new Map();
+    const totals = {
+      orders: 0,
+      onlineOwedToRestaurant: 0, onlineMarkupKept: 0,
+      cashCollectedByRider: 0, cashRestaurantPayout: 0, cashMarkup: 0,
+      refundedAmount: 0,
+    };
+    const blankBucket = (r) => ({
+      merchantId: r.merchantId, merchant: r.merchant, orders: 0,
+      onlineOwedToRestaurant: 0, onlineMarkupKept: 0,
+      cashCollectedByRider: 0, cashRestaurantPayout: 0, cashMarkup: 0,
+      refundedAmount: 0,
+    });
+    for (const r of rows) {
+      const key = r.merchantId || 'unknown';
+      if (!byMerchantMap.has(key)) byMerchantMap.set(key, blankBucket(r));
+      const m = byMerchantMap.get(key);
+      m.orders += 1;
+      totals.orders += 1;
+
+      if (r.paymentStatus === 'refunded') {
+        m.refundedAmount = round2(m.refundedAmount + r.total);
+        totals.refundedAmount = round2(totals.refundedAmount + r.total);
+        continue;
+      }
+      if (r.paymentStatus !== 'paid') continue; // awaiting/failed: not collected yet
+
+      if (r.collectedBy === 'platform_online') {
+        m.onlineOwedToRestaurant = round2(m.onlineOwedToRestaurant + r.restaurantPayout);
+        m.onlineMarkupKept = round2(m.onlineMarkupKept + r.platformMarkup);
+        totals.onlineOwedToRestaurant = round2(totals.onlineOwedToRestaurant + r.restaurantPayout);
+        totals.onlineMarkupKept = round2(totals.onlineMarkupKept + r.platformMarkup);
+      } else {
+        m.cashCollectedByRider = round2(m.cashCollectedByRider + r.total);
+        m.cashRestaurantPayout = round2(m.cashRestaurantPayout + r.restaurantPayout);
+        m.cashMarkup = round2(m.cashMarkup + r.platformMarkup);
+        totals.cashCollectedByRider = round2(totals.cashCollectedByRider + r.total);
+        totals.cashRestaurantPayout = round2(totals.cashRestaurantPayout + r.restaurantPayout);
+        totals.cashMarkup = round2(totals.cashMarkup + r.platformMarkup);
+      }
+    }
+
+    logAudit({
+      actorId: req.adminId,
+      action: 'admin_food_settlement_read',
+      resourceType: 'orders',
+      meta: { from: range.fromLabel, to: range.toLabel, orders: totals.orders },
+    });
+
+    return res.json({
+      from: range.fromLabel,
+      to: range.toLabel,
+      rows,
+      byMerchant: Array.from(byMerchantMap.values()).sort((a, b) =>
+        (a.merchant || '').localeCompare(b.merchant || '')
+      ),
+      totals,
+    });
+  } catch (err) {
+    console.error('food getSettlement error:', err);
+    return res.status(500).json({ error: 'Unexpected server error' });
+  }
+}
+
 module.exports = {
   getOverview,
+  getSettlement,
   listMerchants,
   createMerchant,
   updateMerchant,
