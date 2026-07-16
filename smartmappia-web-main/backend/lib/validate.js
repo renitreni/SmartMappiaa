@@ -14,9 +14,10 @@
 //     params:   { type: 'object' },
 //   })
 //
-// Rules per field: type ('string'|'number'|'integer'|'boolean'|'object'),
+// Rules per field: type ('string'|'number'|'integer'|'boolean'|'object'|'array'),
 // required, nullable, enum, min/max (numbers), maxLength (strings/objects
-// where objects are capped by their JSON size).
+// where objects are capped by their JSON size), maxItems/itemEnum (arrays
+// of strings).
 // ---------------------------------------------------------------------
 
 function checkField(name, value, rule, errors) {
@@ -91,6 +92,31 @@ function checkField(name, value, rule, errors) {
         return undefined;
       }
       return value;
+    }
+    case 'array': {
+      if (!Array.isArray(value)) {
+        errors.push(`${name} must be an array`);
+        return undefined;
+      }
+      const maxItems = rule.maxItems || 20;
+      if (value.length > maxItems) {
+        errors.push(`${name} must have at most ${maxItems} items`);
+        return undefined;
+      }
+      const items = [];
+      for (const item of value) {
+        if (typeof item !== 'string') {
+          errors.push(`${name} items must be strings`);
+          return undefined;
+        }
+        const trimmed = item.trim();
+        if (rule.itemEnum && !rule.itemEnum.includes(trimmed)) {
+          errors.push(`${name} items must be one of: ${rule.itemEnum.join(', ')}`);
+          return undefined;
+        }
+        items.push(trimmed);
+      }
+      return items;
     }
     default:
       errors.push(`${name} has an unknown validation type`);

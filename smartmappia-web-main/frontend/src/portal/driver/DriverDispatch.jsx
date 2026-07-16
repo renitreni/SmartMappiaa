@@ -199,7 +199,7 @@ function DeliveryCard({ delivery, busy, onStatus, onCancel }) {
   );
 }
 
-export default function DriverDispatch({ online, driverId, coords, onRideAccepted, onActiveDeliveryChange }) {
+export default function DriverDispatch({ online, foodEnabled = true, driverId, coords, onRideAccepted, onActiveDeliveryChange }) {
   const [offers, setOffers] = useState([]);
   const [deliveries, setDeliveries] = useState([]);
   const [pool, setPool] = useState([]);
@@ -246,15 +246,22 @@ export default function DriverDispatch({ online, driverId, coords, onRideAccepte
     return () => clearInterval(d);
   }, [loadDeliveries]);
 
-  // Offers + open pool are only relevant while online.
+  // Offers are relevant while online (they can be food OR ride offers, so this
+  // is NOT gated on foodEnabled — a Pick & Drop-only driver still gets ride offers).
   useEffect(() => {
-    if (!online) { setOffers([]); setPool([]); return undefined; }
+    if (!online) { setOffers([]); return undefined; }
     loadOffers();
-    loadPool();
     const a = setInterval(loadOffers, OFFERS_POLL_MS);
+    return () => clearInterval(a);
+  }, [online, loadOffers]);
+
+  // The open food pool only matters to a driver who works Food delivery.
+  useEffect(() => {
+    if (!online || !foodEnabled) { setPool([]); return undefined; }
+    loadPool();
     const b = setInterval(loadPool, POOL_POLL_MS);
-    return () => { clearInterval(a); clearInterval(b); };
-  }, [online, loadOffers, loadPool]);
+    return () => clearInterval(b);
+  }, [online, foodEnabled, loadPool]);
 
   // Tell the parent (DriverPage) so it keeps GPS pinging while a delivery is
   // active, even when the rider isn't "online" — that's what feeds the pin.

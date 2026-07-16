@@ -8,7 +8,9 @@ const {
   updateDriverLocation,
   listMyRides,
   updateRideStatus,
+  updateServiceTypes,
 } = require('../controllers/driverController');
+const { SERVICE_TYPES } = require('../lib/serviceTypes');
 const {
   createDocUploadUrl,
   recordDriverDocument,
@@ -34,6 +36,17 @@ const { validateBody } = require('../lib/validate');
 router.get('/available', requireApprovedDriver, listAvailableRides);
 router.post('/location', locationLimiter, requireApprovedDriver, updateDriverLocation);
 router.post('/rides/:bookingCode/accept', driverAcceptLimiter, requireApprovedDriver, acceptRide);
+
+// Which verticals this driver works (pick_drop / food / shop). requireDriver,
+// not approved — a pending driver may set preferences; dispatch gates on approval.
+router.patch(
+  '/services',
+  requireDriver,
+  validateBody({
+    service_types: { type: 'array', required: true, itemEnum: SERVICE_TYPES, maxItems: 3 },
+  }),
+  updateServiceTypes
+);
 
 router.get('/rides', requireDriver, listMyRides);
 router.post('/rides/:bookingCode/status', requireDriver, updateRideStatus);

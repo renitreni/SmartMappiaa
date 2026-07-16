@@ -39,15 +39,16 @@ const {
 } = require('./realtime');
 const { logNotification } = require('./notifications');
 const { logAudit } = require('./audit');
+const { SERVICE_TYPES } = require('./serviceTypes');
 
 // --- Candidates --------------------------------------------------------
 
-// Latest fresh GPS fix per approved driver: { driverId -> {lat,lng,at} }.
+// Latest fresh GPS fix per approved driver: { driverId -> {lat,lng,at,services} }.
 async function freshDriverLocations() {
   const since = new Date(Date.now() - config.dispatch.driverFreshMinutes * 60 * 1000).toISOString();
   const { data, error } = await supabase
     .from('driver_locations')
-    .select('driver_id, lat, lng, recorded_at, profiles!inner ( role, driver_approved )')
+    .select('driver_id, lat, lng, recorded_at, profiles!inner ( role, driver_approved, service_types )')
     .gte('recorded_at', since)
     .eq('profiles.role', 'driver')
     .eq('profiles.driver_approved', true)
@@ -60,7 +61,12 @@ async function freshDriverLocations() {
   const latest = new Map();
   for (const row of data || []) {
     if (!latest.has(row.driver_id)) {
-      latest.set(row.driver_id, { lat: row.lat, lng: row.lng, at: row.recorded_at });
+      latest.set(row.driver_id, {
+        lat: row.lat,
+        lng: row.lng,
+        at: row.recorded_at,
+        services: row.profiles.service_types || SERVICE_TYPES,
+      });
     }
   }
   return latest;
@@ -173,8 +179,13 @@ async function offerNext(target) {
     busyDriverIds(),
   ]);
 
+  // Only drivers who opted into this vertical (service_types, 0020).
+  const requiredService = target.kind === 'food' ? 'food' : 'pick_drop';
   const candidates = [...locations.entries()]
-    .filter(([driverId]) => !seen.has(driverId) && !busy.has(driverId))
+    .filter(
+      ([driverId, loc]) =>
+        !seen.has(driverId) && !busy.has(driverId) && loc.services.includes(requiredService)
+    )
     .map(([driverId, loc]) => ({
       driverId,
       distanceKm: target.point ? haversineKm(loc, target.point) : null,
