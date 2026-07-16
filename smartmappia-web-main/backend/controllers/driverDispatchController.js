@@ -29,6 +29,7 @@ const {
   broadcast,
 } = require('../lib/realtime');
 const { offerNext, loadFoodTarget, loadRideTarget, releaseFoodDelivery, releaseRide } = require('../lib/dispatch');
+const { hasService } = require('../lib/serviceTypes');
 
 // Order statuses during which a rider can still be working the delivery.
 const RIDER_ACTIVE_ORDER_STATUSES = ['accepted', 'preparing', 'ready', 'out_for_delivery'];
@@ -313,6 +314,12 @@ async function listMyDeliveries(req, res) {
 // Open pool: deliveries every driver may claim (cascade exhausted).
 async function listOpenDeliveries(req, res) {
   try {
+    // Drivers who turned Food delivery off see an empty pool (200, not 403 —
+    // the frontend polls this silently). Admin preview bypasses.
+    if (req.role !== 'admin' && !hasService(req.profile, 'food')) {
+      return res.json({ deliveries: [] });
+    }
+
     const lat = req.query.lat != null ? Number(req.query.lat) : null;
     const lng = req.query.lng != null ? Number(req.query.lng) : null;
     const here = lat != null && lng != null ? { lat, lng } : null;
@@ -356,6 +363,10 @@ async function listOpenDeliveries(req, res) {
 
 async function claimOpenDelivery(req, res) {
   try {
+    if (req.role !== 'admin' && !hasService(req.profile, 'food')) {
+      return res.status(403).json({ error: 'Enable Food delivery in your services to claim deliveries' });
+    }
+
     const { data: order } = await supabase
       .from('orders')
       .select('id, order_code, status, merchant_id, customer_id')

@@ -5,6 +5,7 @@
 //   - updateDriverLocation: POST /api/driver/location     (live position)
 //   - listMyRides        : GET  /api/driver/rides
 //   - updateRideStatus   : POST /api/driver/rides/:code/status
+//   - updateServiceTypes : PATCH /api/driver/services (verticals worked)
 //
 // A driver may only see/update rides assigned to them. Accepting a ride is
 // first-come-first-served: the claim only succeeds while the booking is
@@ -15,6 +16,7 @@ const { addTrackingEvent } = require('../lib/tracking');
 const { createLedgerEntryForBooking } = require('../lib/ledger');
 const { haversineKm, etaMinutes } = require('../lib/geo');
 const { logNotification } = require('../lib/notifications');
+const { hasService } = require('../lib/serviceTypes');
 const {
   pushBookingStatus,
   announceRequestTaken,
@@ -40,6 +42,12 @@ const ACTIVE_RIDE_STATUSES = ['accepted', 'on_the_way', 'arrived', 'started'];
 // Verified + confirmed + still unassigned bookings, nearest first.
 async function listAvailableRides(req, res) {
   try {
+    // Drivers who turned Pick & Drop off see an empty feed (200, not 403 —
+    // the frontend polls this silently). Admin preview bypasses.
+    if (req.role !== 'admin' && !hasService(req.profile, 'pick_drop')) {
+      return res.json({ rides: [] });
+    }
+
     const lat = req.query.lat != null ? Number(req.query.lat) : null;
     const lng = req.query.lng != null ? Number(req.query.lng) : null;
     const here = lat != null && lng != null ? { lat, lng } : null;
@@ -84,6 +92,10 @@ async function listAvailableRides(req, res) {
 // --- POST /api/driver/rides/:bookingCode/accept ----------------------
 async function acceptRide(req, res) {
   try {
+    if (req.role !== 'admin' && !hasService(req.profile, 'pick_drop')) {
+      return res.status(403).json({ error: 'Enable Pick & Drop in your services to accept rides' });
+    }
+
     const { data: booking, error } = await supabase
       .from('bookings')
       .select('id, booking_code, payment_status, booking_status, assigned_driver_id, user_id')
@@ -339,10 +351,43 @@ async function updateRideStatus(req, res) {
   }
 }
 
+// --- PATCH /api/driver/services ---------------------------------------
+// Save which verticals this driver works (route validates: array of
+// known values). Body already cleaned by validateBody; dedupe and reject
+// empty here (belt-and-braces with the 0020 CHECK constraint).
+async function updateServiceTypes(req, res) {
+  try {
+    const cleaned = [...new Set(req.body.service_types)];
+    if (cleaned.length === 0) {
+      return res.status(400).json({ error: 'Select at least one service type' });
+    }
+
+    const { data, error } = await supabase
+      .from('profiles')
+      .update({ service_types: cleaned })
+      .eq('id', req.driverId)
+      .select('service_types')
+      .single();
+    if (error || !data) {
+      console.error('updateServiceTypes error:', error);
+      const hint = (error && error.message ? error.message : '').includes('service_types')
+        ? ' Run backend/migrations/0020_driver_service_types.sql in the Supabase SQL Editor.'
+        : '';
+      return res.status(500).json({ error: 'Could not save your services.' + hint });
+    }
+
+    return res.json({ serviceTypes: data.service_types });
+  } catch (err) {
+    console.error('updateServiceTypes error:', err);
+    return res.status(500).json({ error: 'Unexpected server error' });
+  }
+}
+
 module.exports = {
   listAvailableRides,
   acceptRide,
   updateDriverLocation,
   listMyRides,
   updateRideStatus,
+  updateServiceTypes,
 };

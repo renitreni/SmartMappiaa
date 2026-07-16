@@ -110,6 +110,9 @@ export const api = {
   // Give up an accepted ride before it starts -> auto re-dispatched to next-nearest.
   driverCancelRide: (code, reason) => request(`/api/driver/rides/${code}/cancel`, { method: 'POST', body: { reason } }),
   driverLocation: (body) => request('/api/driver/location', { method: 'POST', body, silent: true }), // 12s GPS ping
+  // Which verticals this driver works: ['pick_drop','food','shop'].
+  driverServices: (service_types) =>
+    request('/api/driver/services', { method: 'PATCH', body: { service_types } }),
   // driver verification documents
   driverDocSignedUrl: (body) => request('/api/driver/documents/signed-url', { method: 'POST', body }),
   driverRecordDoc: (body) => request('/api/driver/documents', { method: 'POST', body }),

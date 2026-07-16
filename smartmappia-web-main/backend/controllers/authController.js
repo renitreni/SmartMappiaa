@@ -164,8 +164,9 @@ async function syncProfile(req, res) {
       console.error('syncProfile upsert error:', error);
       const hint =
         (error.message || '').includes('date_of_birth') ||
-        (error.message || '').includes('driver_approved')
-          ? ' Database migrations may be incomplete — run the SQL files in backend/migrations/ (0001, 0002, 0003) in the Supabase SQL Editor.'
+        (error.message || '').includes('driver_approved') ||
+        (error.message || '').includes('service_types')
+          ? ' Database migrations may be incomplete — run the SQL files in backend/migrations/ (0001, 0002, 0003, 0020) in the Supabase SQL Editor.'
           : '';
       return res.status(500).json({ error: 'Could not sync your profile.' + hint });
     }
@@ -188,6 +189,7 @@ async function syncProfile(req, res) {
       mobile: profile.mobile_number,
       email: profile.email,
       driverApproved: profile.driver_approved,
+      serviceTypes: profile.service_types,
       merchant,
     });
   } catch (err) {
