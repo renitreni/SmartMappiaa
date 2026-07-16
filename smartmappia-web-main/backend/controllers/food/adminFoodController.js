@@ -688,8 +688,20 @@ async function assignDriver(req, res) {
       resourceId: order.order_code,
       meta: { driver_id: driver.id },
     });
-    logNotification({ userId: order.customer_id, type: 'food_rider_assigned' });
-    logNotification({ userId: driver.id, type: 'food_delivery_assigned' });
+    logNotification({
+      userId: order.customer_id,
+      orderId: order.id,
+      type: 'food_rider_assigned',
+      code: order.order_code,
+      url: `/food/track/${order.order_code}`,
+    });
+    logNotification({
+      userId: driver.id,
+      orderId: order.id,
+      type: 'food_delivery_assigned',
+      code: order.order_code,
+      url: '/driver',
+    });
     // Live update for the customer's tracking page: safe rider fields only.
     pushFoodOrderStatus(order.order_code, {
       status: order.status,

@@ -218,7 +218,14 @@ async function offerNext(target) {
     expiresAt: offer.expires_at,
     distanceKm: next.distanceKm != null ? Math.round(next.distanceKm * 10) / 10 : null,
   });
-  logNotification({ userId: next.driverId, type: target.kind === 'food' ? 'delivery_offer' : 'ride_offer' });
+  logNotification({
+    userId: next.driverId,
+    bookingId: target.kind === 'ride' ? target.id : null,
+    orderId: target.kind === 'food' ? target.id : null,
+    type: target.kind === 'food' ? 'delivery_offer' : 'ride_offer',
+    code: target.code,
+    url: '/driver',
+  });
   return true;
 }
 

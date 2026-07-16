@@ -118,8 +118,10 @@ export const api = {
   // --- notifications ---
   // The signed-in user's own notification history (last 50), powering the bell.
   listNotifications: () => request('/api/notifications', { silent: true }),
+  notificationPushConfig: () => request('/api/notifications/push-config', { silent: true }),
   registerPushToken: (body) => request('/api/notifications/register', { method: 'POST', body, silent: true }),
   unregisterPushToken: (token) => request('/api/notifications/unregister', { method: 'POST', body: { token }, silent: true }),
+  markNotificationsRead: () => request('/api/notifications/read', { method: 'PATCH', silent: true }),
 
   // --- food delivery: customer ---
   foodRestaurants: (params = '') => request(`/api/food/restaurants${params}`, { silent: true }),

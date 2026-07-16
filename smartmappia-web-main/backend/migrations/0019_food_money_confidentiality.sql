@@ -1,8 +1,8 @@
 -- =====================================================================
--- Smart Mappia — Migration 0018: Food money confidentiality (column grants)
+-- Smart Mappia — Migration 0019: Food money confidentiality (column grants)
 -- For: Supabase / PostgreSQL 15+
 --
--- Security hardening for the variable-markup model (0017). RLS policies
+-- Security hardening for the variable-markup model (0018). RLS policies
 -- filter ROWS, not COLUMNS — so although the backend carefully whitelists
 -- its API responses, anyone holding the public anon key could read the
 -- commercially sensitive money columns straight from PostgREST:

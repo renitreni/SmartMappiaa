@@ -33,7 +33,7 @@ function marginForItemType(itemType) {
 //     "X SAR (Y)" pattern — varies per item, 0..10+ SAR)
 //   * without one (net price null): the flat config.food.margins by
 //     item_type (back-compat for legacy / single-price menu rows)
-// The DB CHECK (migration 0017) guarantees net_price <= price, so the
+// The DB CHECK (migration 0018) guarantees net_price <= price, so the
 // clamp below is only defence in depth.
 function markupPerUnit({ unitPrice, netPrice, itemType }) {
   if (netPrice != null) {

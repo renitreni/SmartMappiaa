@@ -15,19 +15,17 @@ import {
   ArrowLeft,
   ArrowRight,
   Mail,
-  Lock,
   IdCard,
   Check,
   ChevronDown,
   MessageCircle,
   Phone,
-  Eye,
-  EyeOff,
-  X,
 } from 'lucide-react';
 import { useAuth } from '../lib/AuthProvider';
 import { roleHome } from '../lib/constants';
 import { Field, btnPrimary, btnGhost, Spinner } from '../components/ui';
+import PasswordFields from '../components/PasswordFields';
+import { isPasswordValid, getPasswordValidationError } from '../lib/passwordValidation';
 import { COMPANY } from '../../config/company';
 
 const STEPS = ['Account type', 'Personal info', 'Create login'];
@@ -81,8 +79,6 @@ const inputClass =
 const inputWithIconClass =
   'w-full bg-white border border-brand-border rounded-xl pl-11 pr-4 py-3 text-brand-dark text-sm ' +
   'focus:outline-none focus:border-brand-orange focus:ring-2 focus:ring-brand-orange/15 transition-all';
-
-const inputWithIconToggleClass = inputWithIconClass.replace('pr-4', 'pr-11');
 
 // Names may only contain letters (incl. accented), spaces, hyphens and apostrophes
 // (e.g. "Al-Rashid", "O'Brien") — digits and other symbols are stripped as the user types.
@@ -473,8 +469,6 @@ export default function SignupPage() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
-  const [showPassword, setShowPassword] = useState(false);
-  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [nationalId, setNationalId] = useState('');
   const [vehicleType, setVehicleType] = useState('');
   const [vehiclePlate, setVehiclePlate] = useState('');
@@ -503,7 +497,7 @@ export default function SignupPage() {
 
   const step3Complete =
     !!email.trim() &&
-    password.length >= 6 &&
+    isPasswordValid(password) &&
     password === confirmPassword &&
     acceptedTerms &&
     (role !== 'driver' ||
@@ -525,7 +519,8 @@ export default function SignupPage() {
 
     if (n === 3) {
       if (!email.trim()) return 'Please enter your email address.';
-      if (password.length < 6) return 'Password must be at least 6 characters.';
+      const passwordError = getPasswordValidationError(password);
+      if (passwordError) return passwordError;
       if (password !== confirmPassword) return 'Passwords do not match.';
       if (role === 'driver') {
         if (!nationalId.trim()) return 'Please enter your National ID / Iqama number.';
@@ -938,64 +933,13 @@ export default function SignupPage() {
                       </div>
                     </Field>
 
-                    <Field label="Password *">
-                      <div className="relative">
-                        <Lock className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-brand-grey pointer-events-none" />
-                        <input
-                          type={showPassword ? 'text' : 'password'}
-                          className={`${inputWithIconToggleClass} ${showStepErrors && password.length < 6 ? 'border-red-300 ring-2 ring-red-100' : ''}`}
-                          value={password}
-                          onChange={(e) => setPassword(e.target.value)}
-                          placeholder="At least 6 characters"
-                          autoComplete="new-password"
-                        />
-                        <button
-                          type="button"
-                          onClick={() => setShowPassword((s) => !s)}
-                          className="absolute right-3 top-1/2 -translate-y-1/2 p-1 rounded-lg text-brand-grey hover:text-brand-dark hover:bg-brand-surface transition-colors"
-                          aria-label={showPassword ? 'Hide password' : 'Show password'}
-                        >
-                          {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                        </button>
-                      </div>
-                    </Field>
-
-                    <Field label="Confirm password *">
-                      <div className="relative">
-                        <Lock className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-brand-grey pointer-events-none" />
-                        <input
-                          type={showConfirmPassword ? 'text' : 'password'}
-                          className={`${inputWithIconToggleClass} ${
-                            showStepErrors && (password !== confirmPassword || !confirmPassword)
-                              ? 'border-red-300 ring-2 ring-red-100'
-                              : ''
-                          }`}
-                          value={confirmPassword}
-                          onChange={(e) => setConfirmPassword(e.target.value)}
-                          placeholder="Re-enter your password"
-                          autoComplete="new-password"
-                        />
-                        <button
-                          type="button"
-                          onClick={() => setShowConfirmPassword((s) => !s)}
-                          className="absolute right-3 top-1/2 -translate-y-1/2 p-1 rounded-lg text-brand-grey hover:text-brand-dark hover:bg-brand-surface transition-colors"
-                          aria-label={showConfirmPassword ? 'Hide password' : 'Show password'}
-                        >
-                          {showConfirmPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                        </button>
-                      </div>
-                      {confirmPassword && (
-                        password === confirmPassword ? (
-                          <p className="flex items-center gap-1 text-xs text-green-600 mt-1.5 font-medium">
-                            <Check className="w-3.5 h-3.5" /> Passwords match
-                          </p>
-                        ) : (
-                          <p className="flex items-center gap-1 text-xs text-red-600 mt-1.5 font-medium">
-                            <X className="w-3.5 h-3.5" /> Passwords do not match
-                          </p>
-                        )
-                      )}
-                    </Field>
+                    <PasswordFields
+                      password={password}
+                      confirmPassword={confirmPassword}
+                      onPasswordChange={setPassword}
+                      onConfirmPasswordChange={setConfirmPassword}
+                      showErrors={showStepErrors}
+                    />
 
                     {role === 'driver' && (
                       <>
