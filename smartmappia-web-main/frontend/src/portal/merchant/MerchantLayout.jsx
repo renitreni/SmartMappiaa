@@ -13,6 +13,7 @@ import {
 } from 'lucide-react';
 import { useState } from 'react';
 import { useAuth } from '../lib/AuthProvider';
+import NotificationBell from '../components/NotificationBell';
 
 export const MERCHANT_NAV = [
   { id: 'overview', label: 'Overview', icon: LayoutDashboard },
@@ -135,7 +136,7 @@ export default function MerchantLayout({ activeTab, onTabChange, children }) {
 
       <div className="flex-1 flex flex-col min-w-0 admin-shell-bg">
         <header className="sticky top-0 z-30 bg-[#eef1f6]/80 backdrop-blur-xl border-b border-black/5">
-          <div className="h-[72px] px-4 md:px-8 flex items-center gap-4">
+          <div className="h-[72px] px-4 md:px-8 flex items-center justify-between gap-4">
             <div className="flex items-center gap-3 min-w-0">
               <button
                 type="button"
@@ -151,6 +152,9 @@ export default function MerchantLayout({ activeTab, onTabChange, children }) {
                 </h1>
                 <p className="text-sm text-brand-grey truncate hidden sm:block">{copy.subtitle}</p>
               </div>
+            </div>
+            <div className="rounded-xl bg-white border border-black/5 shadow-sm">
+              <NotificationBell />
             </div>
           </div>
 

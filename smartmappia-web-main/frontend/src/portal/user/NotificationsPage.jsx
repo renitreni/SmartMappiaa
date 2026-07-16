@@ -9,10 +9,12 @@ import { Bell, Check, Wifi } from 'lucide-react';
 import { useNotifications } from '../lib/useNotifications';
 import { notificationMeta, relativeTime } from '../lib/notifications';
 import { PortalShell, Card, Spinner } from '../components/ui';
-import { TONE_CLASSES } from '../lib/constants';
+import { TONE_CLASSES, roleHome } from '../lib/constants';
+import { useAuth } from '../lib/AuthProvider';
 
 export default function NotificationsPage() {
   const navigate = useNavigate();
+  const { role } = useAuth();
   const { items, loading, unreadCount, connected, markAllRead, seenAt } = useNotifications();
 
   // Opening the inbox clears the unread badge.
@@ -22,6 +24,7 @@ export default function NotificationsPage() {
   }, []);
 
   const isUnread = (item) => {
+    if (item.read_at !== undefined) return !item.read_at;
     const at = item.created_at || item.sent_at;
     if (!seenAt) return true;
     return at && new Date(at) > new Date(seenAt);
@@ -31,7 +34,7 @@ export default function NotificationsPage() {
     <PortalShell
       title="Notifications"
       subtitle={connected ? 'Live updates on' : 'Your recent alerts'}
-      onBack={() => navigate('/home')}
+      onBack={() => navigate(roleHome(role))}
       right={
         connected ? (
           <span className="inline-flex items-center gap-1 text-[10px] font-bold text-green-600 uppercase tracking-wider px-2">

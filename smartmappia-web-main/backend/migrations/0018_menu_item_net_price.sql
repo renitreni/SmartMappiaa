@@ -1,5 +1,5 @@
 -- =====================================================================
--- Smart Mappia — Migration 0017: Menu item net price (variable markup)
+-- Smart Mappia — Migration 0018: Menu item net price (variable markup)
 -- For: Supabase / PostgreSQL 15+
 --
 -- Moves food pricing from a FLAT platform margin (5 SAR meal_package /

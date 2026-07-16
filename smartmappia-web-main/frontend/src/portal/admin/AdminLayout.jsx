@@ -13,7 +13,6 @@ import {
   Menu,
   X,
   ExternalLink,
-  Bell,
   ChevronDown,
   Eye,
   User,
@@ -24,6 +23,7 @@ import { useState, useRef, useEffect } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { useAuth } from '../lib/AuthProvider';
 import { useViewMode } from '../lib/ViewModeProvider';
+import NotificationBell from '../components/NotificationBell';
 
 // Admin-only action menu that replaces the old Refresh button. Lets the admin
 // refresh data or preview the user/driver portal WITHOUT logging out (the
@@ -261,13 +261,9 @@ export default function AdminLayout({ activeTab, onTabChange, onRefresh, childre
             </div>
 
             <div className="flex items-center gap-2 shrink-0">
-              <button
-                type="button"
-                className="hidden sm:flex p-2.5 rounded-xl bg-white border border-black/5 text-brand-grey hover:text-brand-dark cursor-pointer shadow-sm"
-                title="Notifications"
-              >
-                <Bell className="w-4 h-4" />
-              </button>
+              <div className="rounded-xl bg-white border border-black/5 shadow-sm">
+                <NotificationBell />
+              </div>
               <ViewSwitchMenu onRefresh={onRefresh} />
               <Link
                 to="/"

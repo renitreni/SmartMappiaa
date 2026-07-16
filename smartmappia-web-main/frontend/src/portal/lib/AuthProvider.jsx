@@ -10,6 +10,7 @@ import { useNavigate } from 'react-router-dom';
 import { supabase } from './supabaseClient';
 import { api } from './api';
 import { ensureLocationPermission } from './geo';
+import { unregisterCurrentWebPush } from './pushNotifications';
 
 const AuthCtx = createContext(null);
 const PENDING_KEY = 'sm_pending_profile';
@@ -112,6 +113,7 @@ export function AuthProvider({ children }) {
     },
 
     async signOut() {
+      await unregisterCurrentWebPush();
       if (supabase) await supabase.auth.signOut();
       setProfile(null);
       syncedFor.current = null;

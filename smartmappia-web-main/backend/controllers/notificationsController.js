@@ -9,6 +9,7 @@
 // user; tokens are always scoped to req.userId.
 // ---------------------------------------------------------------------
 const { supabase } = require('../lib/supabase');
+const { getWebPushConfig } = require('../lib/webPush');
 
 const PLATFORMS = ['android', 'ios', 'web'];
 
@@ -19,6 +20,9 @@ async function registerToken(req, res) {
     if (!PLATFORMS.includes(platform)) {
       return res.status(400).json({ error: `platform must be one of: ${PLATFORMS.join(', ')}` });
     }
+    // A browser subscription can only belong to the currently signed-in
+    // account. This prevents a shared phone from receiving the previous
+    // account's private alerts.
     const { error } = await supabase
       .from('device_push_tokens')
       .upsert(
@@ -29,7 +33,7 @@ async function registerToken(req, res) {
           app_version: app_version ?? null,
           last_seen_at: new Date().toISOString(),
         },
-        { onConflict: 'user_id,token' }
+        { onConflict: 'token' }
       );
     if (error) {
       console.error('registerToken error:', error);
@@ -40,6 +44,10 @@ async function registerToken(req, res) {
     console.error('registerToken error:', err);
     return res.status(500).json({ error: 'Unexpected server error' });
   }
+}
+
+function pushConfig(_req, res) {
+  return res.json(getWebPushConfig());
 }
 
 async function unregisterToken(req, res) {
@@ -66,7 +74,7 @@ async function listMyNotifications(req, res) {
   try {
     const { data, error } = await supabase
       .from('notification_events')
-      .select('id, type, channel, booking_id, sent_at, created_at')
+      .select('id, type, channel, booking_id, order_id, code, read_at, sent_at, created_at')
       .eq('user_id', req.userId)
       .order('created_at', { ascending: false })
       .limit(50);
@@ -81,4 +89,29 @@ async function listMyNotifications(req, res) {
   }
 }
 
-module.exports = { registerToken, unregisterToken, listMyNotifications };
+async function markAllRead(req, res) {
+  try {
+    const readAt = new Date().toISOString();
+    const { error } = await supabase
+      .from('notification_events')
+      .update({ read_at: readAt })
+      .eq('user_id', req.userId)
+      .is('read_at', null);
+    if (error) {
+      console.error('markAllRead error:', error);
+      return res.status(500).json({ error: 'Could not update notifications' });
+    }
+    return res.json({ readAt });
+  } catch (err) {
+    console.error('markAllRead error:', err);
+    return res.status(500).json({ error: 'Unexpected server error' });
+  }
+}
+
+module.exports = {
+  pushConfig,
+  registerToken,
+  unregisterToken,
+  listMyNotifications,
+  markAllRead,
+};

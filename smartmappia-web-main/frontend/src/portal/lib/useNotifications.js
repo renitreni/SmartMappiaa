@@ -2,16 +2,15 @@
 // Notification inbox state for the signed-in user.
 //
 //   - loads history from GET /api/notifications
-//   - subscribes to the user-<id> Realtime channel so new alerts arrive
-//     instantly (with a 30s polling safety net when realtime is off)
-//   - tracks the unread count via a "last seen" timestamp in localStorage
+//   - receives user-scoped Web Push messages while open, with authenticated
+//     polling as a safety net
+//   - persists read state on the server (with localStorage as a compatibility
+//     fallback until migration 0017 is applied everywhere)
 //   - rings a chime + toast when a fresh notification lands
 // ---------------------------------------------------------------------
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useAuth } from './AuthProvider';
 import { api } from './api';
-import { useBroadcast } from './useBroadcast';
-import { realtimeEnabled } from './supabaseClient';
 import { notifyAlert } from './notify';
 import { notificationMeta } from './notifications';
 
@@ -33,6 +32,9 @@ export function useNotifications() {
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(false);
   const [seenAt, setSeenAt] = useState(loadSeenAt);
+  const [connected, setConnected] = useState(
+    () => typeof Notification !== 'undefined' && Notification.permission === 'granted'
+  );
   const knownIds = useRef(new Set());
 
   const load = useCallback(async () => {
@@ -51,37 +53,52 @@ export function useNotifications() {
   }, [userId]);
 
   useEffect(() => {
-    if (!userId) {
+    let active = true;
+    Promise.resolve().then(() => {
+      if (!active) return;
       setItems([]);
-      return;
-    }
-    load();
+      if (userId) load();
+    });
+    return () => {
+      active = false;
+    };
   }, [userId, load]);
 
-  // Live pushes on the user's personal channel.
-  const connected = useBroadcast(
-    userId ? `user-${userId}` : null,
-    {
-      notification: (payload) => {
-        if (!payload || !payload.id) return;
-        if (knownIds.current.has(payload.id)) return;
-        knownIds.current.add(payload.id);
-        setItems((prev) => [payload, ...prev].slice(0, 50));
-        const meta = notificationMeta(payload.type, payload.code);
-        notifyAlert(meta.title, { icon: meta.tone === 'red' ? 'error' : 'success' });
-      },
-    },
-    realtimeEnabled && !!userId
-  );
+  const receive = useCallback((payload) => {
+    if (!payload?.id || knownIds.current.has(payload.id)) return;
+    knownIds.current.add(payload.id);
+    setItems((prev) => [payload, ...prev].slice(0, 50));
+    const meta = notificationMeta(payload.type, payload.code);
+    notifyAlert(meta.title, { icon: meta.tone === 'red' ? 'error' : 'success' });
+  }, []);
 
-  // Polling safety net when realtime is unavailable.
+  // A visible PWA receives its private Web Push payload from the service
+  // worker. Unlike the old guessable broadcast channel, this is tied to the
+  // browser's registered push subscription.
   useEffect(() => {
-    if (!userId || connected) return undefined;
+    if (!userId || !('serviceWorker' in navigator)) return undefined;
+    const onMessage = (event) => {
+      if (event.data?.type === 'SMART_MAPPIA_NOTIFICATION') receive(event.data.payload);
+    };
+    const onEnabled = () => setConnected(true);
+    navigator.serviceWorker.addEventListener('message', onMessage);
+    window.addEventListener('smartmappia:push-enabled', onEnabled);
+    return () => {
+      navigator.serviceWorker.removeEventListener('message', onMessage);
+      window.removeEventListener('smartmappia:push-enabled', onEnabled);
+    };
+  }, [userId, receive]);
+
+  // Authenticated polling also catches alerts when push is unsupported,
+  // disabled, or temporarily unavailable.
+  useEffect(() => {
+    if (!userId) return undefined;
     const t = setInterval(load, POLL_MS);
     return () => clearInterval(t);
-  }, [userId, connected, load]);
+  }, [userId, load]);
 
   const unreadCount = items.reduce((n, item) => {
+    if (item.read_at !== undefined) return item.read_at ? n : n + 1;
     const at = item.created_at || item.sent_at;
     if (!seenAt) return n + 1;
     return at && new Date(at) > new Date(seenAt) ? n + 1 : n;
@@ -95,6 +112,10 @@ export function useNotifications() {
       /* ignore storage errors */
     }
     setSeenAt(now);
+    setItems((current) => current.map((item) => ({ ...item, read_at: item.read_at || now })));
+    api.markNotificationsRead().catch(() => {
+      /* optimistic UI; the next load reconciles server state */
+    });
   }, []);
 
   return { items, loading, unreadCount, connected, markAllRead, reload: load, seenAt };

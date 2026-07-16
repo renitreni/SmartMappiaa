@@ -23,7 +23,7 @@ const { haversineKm, etaMinutes } = require('../../lib/geo');
 const { priceOrder } = require('../../lib/foodMoney');
 const { logFoodEvent } = require('../../lib/foodEvents');
 const { logAudit } = require('../../lib/audit');
-const { logNotification } = require('../../lib/notifications');
+const { logNotification, notifyAdmins } = require('../../lib/notifications');
 const { pushFoodOrderStatus, pushMerchantFeed, pingFoodAdmin } = require('../../lib/realtime');
 const { buildProofPath, createProofUploadUrl } = require('../../lib/storage');
 
@@ -223,6 +223,38 @@ async function checkout(req, res) {
       total: order.total,
     });
     pingFoodAdmin(order.order_code);
+
+    const creationAlerts = [
+      logNotification({
+        userId: req.userId,
+        orderId: order.id,
+        type: 'food_order_placed',
+        code: order.order_code,
+        title: 'Food order placed',
+        body: `Your order from ${merchant.name} was created successfully.`,
+        url: `/food/track/${order.order_code}`,
+      }),
+      notifyAdmins({
+        orderId: order.id,
+        type: 'admin_food_order_created',
+        code: order.order_code,
+        url: '/admin',
+      }),
+    ];
+    if (merchant.owner_id) {
+      creationAlerts.push(
+        logNotification({
+          userId: merchant.owner_id,
+          orderId: order.id,
+          type: 'merchant_food_order_created',
+          code: order.order_code,
+          title: 'New restaurant order',
+          body: `A customer placed order ${order.order_code}.`,
+          url: '/merchant',
+        })
+      );
+    }
+    await Promise.all(creationAlerts);
 
     return res.status(201).json({
       orderCode: order.order_code,

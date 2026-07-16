@@ -5,10 +5,11 @@
 import { useEffect, useState } from 'react';
 import { useNavigate, useSearchParams, Link } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { LogIn, Mail, Lock, ArrowLeft, MapPin, Package, Utensils, Eye, EyeOff } from 'lucide-react';
+import { LogIn, Mail, ArrowLeft, MapPin, Package, Utensils } from 'lucide-react';
 import { useAuth } from '../lib/AuthProvider';
 import { roleHome } from '../lib/constants';
 import { Field, btnPrimary, Spinner } from '../components/ui';
+import PasswordInput from '../components/PasswordInput';
 
 const features = [
   { icon: Utensils, text: 'Order food from 500+ restaurants' },
@@ -20,8 +21,6 @@ const inputWithIconClass =
   'w-full bg-white border border-brand-border rounded-xl pl-11 pr-4 py-3 text-brand-dark text-sm ' +
   'focus:outline-none focus:border-brand-orange focus:ring-2 focus:ring-brand-orange/15 transition-all';
 
-const inputWithIconToggleClass = inputWithIconClass.replace('pr-4', 'pr-11');
-
 export default function LoginPage() {
   const { signIn, session, role, profileError, profileLoading } = useAuth();
   const navigate = useNavigate();
@@ -30,7 +29,6 @@ export default function LoginPage() {
 
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState(null);
   const [busy, setBusy] = useState(false);
 
@@ -207,26 +205,13 @@ export default function LoginPage() {
                 </Field>
 
                 <Field label="Password">
-                  <div className="relative">
-                    <Lock className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-brand-grey pointer-events-none" />
-                    <input
-                      type={showPassword ? 'text' : 'password'}
-                      className={inputWithIconToggleClass}
-                      value={password}
-                      onChange={(e) => setPassword(e.target.value)}
-                      placeholder="Enter your password"
-                      required
-                      autoComplete="current-password"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => setShowPassword((s) => !s)}
-                      className="absolute right-3 top-1/2 -translate-y-1/2 p-1 rounded-lg text-brand-grey hover:text-brand-dark hover:bg-brand-surface transition-colors"
-                      aria-label={showPassword ? 'Hide password' : 'Show password'}
-                    >
-                      {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                    </button>
-                  </div>
+                  <PasswordInput
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    placeholder="Enter your password"
+                    autoComplete="current-password"
+                    required
+                  />
                 </Field>
 
                 <button

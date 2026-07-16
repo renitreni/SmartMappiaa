@@ -6,6 +6,7 @@ import App from './App.jsx'
 import { AuthProvider } from './portal/lib/AuthProvider.jsx'
 import { ViewModeProvider } from './portal/lib/ViewModeProvider.jsx'
 import RequireAuth from './portal/components/RequireAuth.jsx'
+import PushNotificationPrompt from './portal/components/PushNotificationPrompt.jsx'
 import LoginPage from './portal/auth/LoginPage.jsx'
 import SignupPage from './portal/auth/SignupPage.jsx'
 import HomePage from './portal/user/HomePage.jsx'
@@ -23,6 +24,13 @@ import FoodTrackPage from './portal/food/FoodTrackPage.jsx'
 import FoodOrdersPage from './portal/food/FoodOrdersPage.jsx'
 import NotificationsPage from './portal/user/NotificationsPage.jsx'
 import TransactionsPage from './portal/user/TransactionsPage.jsx'
+import { registerServiceWorker } from './portal/lib/pushNotifications.js'
+
+if (import.meta.env.PROD) {
+  registerServiceWorker().catch(() => {
+    // PWA support is best-effort; the web app remains fully usable without it.
+  })
+}
 
 createRoot(document.getElementById('root')).render(
   <StrictMode>
@@ -57,6 +65,7 @@ createRoot(document.getElementById('root')).render(
             <Route path="/food/orders" element={<RequireAuth><FoodOrdersPage /></RequireAuth>} />
             <Route path="/food/track/:code" element={<RequireAuth><FoodTrackPage /></RequireAuth>} />
           </Routes>
+          <PushNotificationPrompt />
         </ViewModeProvider>
       </AuthProvider>
     </BrowserRouter>
