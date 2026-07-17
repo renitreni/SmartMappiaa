@@ -8,7 +8,6 @@ import { useAuth } from '../lib/AuthProvider';
 import {
   Upload,
   CheckCircle2,
-  Crosshair,
   ArrowLeft,
   CreditCard,
   Copy,
@@ -16,9 +15,9 @@ import {
 } from 'lucide-react';
 import { api } from '../lib/api';
 import { uploadProofFile } from '../lib/supabaseClient';
-import { useGeolocation } from '../lib/geo';
 import { AIRPORTS, fareBreakdown, airportDropdownOptions } from '../lib/constants';
 import { PortalShell, Card, Field, inputClass, btnPrimary, btnGhost, Spinner } from '../components/ui';
+import LocationPicker from '../components/LocationPicker';
 import CustomDropdown from '../../components/CustomDropdown';
 import DateTimePicker from '../../components/DateTimePicker';
 import RideMap from '../components/RideMap';
@@ -69,21 +68,10 @@ export default function BookPage() {
     if (profile?.whatsapp) setWhatsapp((w) => w || profile.whatsapp);
   }, [profile]);
 
-  const { coords: geo } = useGeolocation({ enabled: false });
-
   const [booking, setBooking] = useState(null);
   const [instructions, setInstructions] = useState(null);
   const [file, setFile] = useState(null);
   const [copied, setCopied] = useState(null);
-
-  function useMyLocation() {
-    if (!('geolocation' in navigator)) return setError('Geolocation not available.');
-    navigator.geolocation.getCurrentPosition(
-      (p) => setHomeCoords({ lat: p.coords.latitude, lng: p.coords.longitude }),
-      (e) => setError(e.message),
-      { enableHighAccuracy: true }
-    );
-  }
 
   function copyText(key, text) {
     navigator.clipboard?.writeText(text);
@@ -91,7 +79,7 @@ export default function BookPage() {
     setTimeout(() => setCopied(null), 2000);
   }
 
-  const homePoint = homeCoords || geo || null;
+  const homePoint = homeCoords || null;
   const mapMarkers = [
     homePoint && { lat: homePoint.lat, lng: homePoint.lng, type: 'home', label: 'Your location', key: 'home' },
     { lat: airport.lat, lng: airport.lng, type: 'airport', label: airport.name, key: 'airport' },
@@ -108,7 +96,10 @@ export default function BookPage() {
     if (!name || !whatsapp || !datetime) {
       return setError('Please fill in your name, WhatsApp number, and pickup time.');
     }
-    const home = { address: homeAddress || 'My location', lat: homePoint?.lat ?? null, lng: homePoint?.lng ?? null };
+    if (!homePoint?.lat || !homePoint?.lng) {
+      return setError('Please select your address from the suggestions or use current location.');
+    }
+    const home = { address: homeAddress, lat: homePoint.lat, lng: homePoint.lng };
     const air = { address: airport.name, lat: airport.lat, lng: airport.lng };
     const toAirport = direction === 'house_to_airport';
     const pickup = toAirport ? home : air;
@@ -199,35 +190,28 @@ export default function BookPage() {
                 </Field>
               </div>
 
-              <Field label={direction === 'house_to_airport' ? 'Your address (pickup)' : 'Your address (drop-off)'}>
-                <div className="flex gap-2.5">
-                  <input
-                    className={inputClass}
-                    placeholder="e.g. Al Olaya, Riyadh"
-                    value={homeAddress}
-                    onChange={(e) => setHomeAddress(e.target.value)}
-                  />
-                  <button
-                    type="button"
-                    onClick={useMyLocation}
-                    className={btnGhost + ' shrink-0 px-4'}
-                    title="Use my GPS location"
-                  >
-                    <Crosshair className="w-4 h-4" />
-                  </button>
-                </div>
-                {homePoint && <LocationHint active lat={homePoint.lat} lng={homePoint.lng} />}
-                <p className="text-xs text-brand-grey mt-1.5">Tap the crosshair to pin your exact location</p>
-              </Field>
+              <LocationPicker
+                label={direction === 'house_to_airport' ? 'Your address (pickup)' : 'Your address (drop-off)'}
+                placeholder="Search nearby places, streets, or districts"
+                address={homeAddress}
+                coords={homeCoords}
+                showMap={false}
+                onChange={({ address: nextAddress, coords: nextCoords }) => {
+                  setHomeAddress(nextAddress);
+                  setHomeCoords(nextCoords);
+                }}
+              />
+              {homePoint && <LocationHint active lat={homePoint.lat} lng={homePoint.lng} />}
 
               <div className="grid sm:grid-cols-2 gap-4">
                 <Field label="Your name">
-                  <input className={inputClass} value={name} onChange={(e) => setName(e.target.value)} placeholder="Full name" />
+                  <input className={`${inputClass} bg-brand-surface text-brand-grey cursor-not-allowed`} value={name} readOnly placeholder="Full name" />
                 </Field>
                 <Field label="WhatsApp">
-                  <input className={inputClass} value={whatsapp} onChange={(e) => setWhatsapp(e.target.value)} placeholder="+9665XXXXXXXX" />
+                  <input className={`${inputClass} bg-brand-surface text-brand-grey cursor-not-allowed`} value={whatsapp} readOnly placeholder="+9665XXXXXXXX" />
                 </Field>
               </div>
+              <p className="-mt-1 text-xs text-brand-grey">From your account — edit these in your Profile.</p>
 
               <FareSummary fare={FARE} showButton buttonLabel="Continue to payment" busy={busy} compact />
               <LegalConsentNote />

@@ -39,6 +39,20 @@ const config = {
     allowedMimeTypes: ['image/jpeg', 'image/png', 'image/webp', 'application/pdf'],
   },
 
+  // Supabase Storage bucket holding customer-facing merchant images: restaurant
+  // logos and menu-item photos (PUBLIC bucket — unlike proofs/docs these must be
+  // readable by anyone so <img src> works directly on the storefront). The
+  // browser uploads straight to Storage via a short-lived signed upload URL and
+  // we persist the resulting PUBLIC url into merchants.logo_url / menu_items.image_url.
+  merchantImages: {
+    bucket: process.env.MERCHANT_IMAGES_BUCKET || 'merchant-images',
+    uploadUrlTtlSeconds: toNumber(process.env.MERCHANT_IMAGES_UPLOAD_TTL, 900),
+    maxBytes: toNumber(process.env.MERCHANT_IMAGES_MAX_BYTES, 5 * 1024 * 1024), // 5 MB
+    allowedMimeTypes: ['image/jpeg', 'image/png', 'image/webp'],
+    // logo = restaurant logo/cover, item = a menu item's photo.
+    kinds: ['logo', 'item'],
+  },
+
   // Supabase Storage bucket holding driver verification documents (PRIVATE bucket).
   driverDocs: {
     bucket: process.env.DRIVER_DOCS_BUCKET || 'driver-docs',
@@ -100,6 +114,10 @@ const config = {
     offerSeconds: toNumber(process.env.DISPATCH_OFFER_SECONDS, 30),
     driverFreshMinutes: toNumber(process.env.DISPATCH_DRIVER_FRESH_MINUTES, 3),
     sweepMs: toNumber(process.env.DISPATCH_SWEEP_MS, 5000),
+    // A rider who accepted a delivery but whose GPS goes silent for longer than
+    // this (before pickup) is treated as disconnected: the order is released and
+    // re-offered to the next-nearest driver by the watchdog.
+    abandonMinutes: toNumber(process.env.DISPATCH_ABANDON_MINUTES, 5),
   },
 
   // Tap Payments (deferred online path — PLACEHOLDER until go-live: keep

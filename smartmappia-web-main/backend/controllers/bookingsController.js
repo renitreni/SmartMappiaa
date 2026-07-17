@@ -11,6 +11,7 @@ const { supabase } = require('../lib/supabase');
 const { quoteFare } = require('../lib/fare');
 const { addTrackingEvent } = require('../lib/tracking');
 const { pushBookingStatus, announceRequestTaken } = require('../lib/realtime');
+const { logNotification, notifyAdmins } = require('../lib/notifications');
 
 // Booking states from which a passenger may still cancel (not once the trip
 // is underway or already finished).
@@ -95,6 +96,24 @@ async function createBooking(req, res) {
       message: 'Your booking has been created. Please continue to payment.',
     });
 
+    await Promise.all([
+      logNotification({
+        userId: req.userId,
+        bookingId: booking.id,
+        type: 'ride_booking_confirmed',
+        code: booking.booking_code,
+        title: 'Ride booking created',
+        body: 'Complete payment so Smart Mappia can find your driver.',
+        url: `/pay/${booking.booking_code}`,
+      }),
+      notifyAdmins({
+        bookingId: booking.id,
+        type: 'ride_booking_created',
+        code: booking.booking_code,
+        url: '/admin',
+      }),
+    ]);
+
     // We expose booking_code (public), never the internal id.
     return res.status(201).json({
       bookingCode: booking.booking_code,
@@ -107,6 +126,32 @@ async function createBooking(req, res) {
     });
   } catch (err) {
     console.error('createBooking error:', err);
+    return res.status(500).json({ error: 'Unexpected server error' });
+  }
+}
+
+// GET /api/bookings -> the signed-in passenger's own booking history.
+// Powers the Transaction Records hub (spec section 6). Scoped to req.userId
+// so a passenger only ever sees their own trips.
+async function listMyBookings(req, res) {
+  try {
+    const { data, error } = await supabase
+      .from('bookings')
+      .select(
+        'booking_code, trip_type, airport_terminal, pickup_address, dropoff_address, ' +
+          'pickup_datetime, fare_amount, currency, payment_status, payment_method, ' +
+          'booking_status, driver_ride_status, created_at'
+      )
+      .eq('user_id', req.userId)
+      .order('created_at', { ascending: false })
+      .limit(50);
+    if (error) {
+      console.error('listMyBookings error:', error);
+      return res.status(500).json({ error: 'Could not load your bookings' });
+    }
+    return res.json({ bookings: data || [] });
+  } catch (err) {
+    console.error('listMyBookings error:', err);
     return res.status(500).json({ error: 'Unexpected server error' });
   }
 }
@@ -198,4 +243,4 @@ async function cancelBooking(req, res) {
   }
 }
 
-module.exports = { createBooking, getBookingByCode, cancelBooking };
+module.exports = { createBooking, listMyBookings, getBookingByCode, cancelBooking };

@@ -6,6 +6,7 @@ const { proofLimiter, lookupLimiter } = require('../middleware/rateLimiters');
 const { rateRideDriver } = require('../controllers/ratingsController');
 const {
   createBooking,
+  listMyBookings,
   getBookingByCode,
   cancelBooking,
 } = require('../controllers/bookingsController');
@@ -17,6 +18,9 @@ const {
 
 // POST /api/bookings              -> create a booking (requires sign-in)
 router.post('/', requireAuth, createBooking);
+
+// GET  /api/bookings              -> the signed-in passenger's booking history
+router.get('/', requireAuth, listMyBookings);
 
 // GET  /api/bookings/:bookingCode -> booking summary (public by code; rate-limited)
 router.get('/:bookingCode', lookupLimiter, getBookingByCode);

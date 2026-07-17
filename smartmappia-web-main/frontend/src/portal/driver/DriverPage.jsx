@@ -32,6 +32,10 @@ import {
 
   ChevronRight,
 
+  Utensils,
+
+  ShoppingBag,
+
 } from 'lucide-react';
 
 import { api } from '../lib/api';
@@ -53,11 +57,21 @@ import { notifyAlert } from '../lib/notify';
 
 import { PortalShell, Card, Badge, Spinner, btnPrimary } from '../components/ui';
 
-import RideMap from '../components/RideMap';
+import RoutedRideMap from '../components/RoutedRideMap';
 
 
 
 const ACTIVE = ['accepted', 'on_the_way', 'arrived', 'started'];
+
+// Driver service-type preferences (profiles.service_types, migration 0020).
+// 'shop' = Ecommerce — selectable placeholder, no dispatch behind it yet.
+const ALL_SERVICES = ['pick_drop', 'food', 'shop'];
+
+const SERVICE_OPTIONS = [
+  { id: 'pick_drop', label: 'Pick & Drop', subtitle: 'Airport rides', icon: Navigation },
+  { id: 'food', label: 'Food delivery', subtitle: 'Restaurant orders', icon: Utensils },
+  { id: 'shop', label: 'Ecommerce', subtitle: 'Parcel and shop orders', icon: ShoppingBag, comingSoon: true },
+];
 
 const RIDE_STEPS = [
 
@@ -291,7 +305,65 @@ function OnlineToggle({ online, coords, driverMove, onToggle }) {
 
 
 
-function ActiveRidePanel({ ride, here, busyCode, onAdvance }) {
+// Which verticals this driver works. Multi-select; at least one must stay on.
+// Saved to the profile so dispatch and the pull feeds respect it server-side.
+function ServiceToggles({ services, onToggle, saving }) {
+  return (
+    <div className="p-3.5 rounded-2xl bg-white/90 backdrop-blur-md border border-white/80 shadow-lg shadow-black/5">
+      <div className="flex items-baseline justify-between gap-2 mb-1">
+        <div className="font-black text-brand-black text-sm">My services</div>
+        <div className="text-[11px] text-brand-grey">Choose the work you take</div>
+      </div>
+      <div className="divide-y divide-brand-border/40">
+        {SERVICE_OPTIONS.map((opt) => {
+          const on = services.includes(opt.id);
+          const Icon = opt.icon;
+          return (
+            <div key={opt.id} className="flex items-center justify-between gap-3 py-2.5">
+              <div className="flex items-center gap-3 min-w-0">
+                <div
+                  className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 transition-colors ${
+                    on ? 'bg-brand-orange/10 text-brand-orange' : 'bg-brand-surface text-brand-grey'
+                  }`}
+                >
+                  <Icon className="w-4 h-4" />
+                </div>
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2">
+                    <span className="font-bold text-brand-dark text-sm leading-tight">{opt.label}</span>
+                    {opt.comingSoon && <Badge tone="grey">Coming soon</Badge>}
+                  </div>
+                  <div className="text-[11px] text-brand-grey truncate mt-0.5">{opt.subtitle}</div>
+                </div>
+              </div>
+              <button
+                type="button"
+                role="switch"
+                aria-checked={on}
+                aria-label={`${opt.label} ${on ? 'on' : 'off'}`}
+                disabled={saving}
+                onClick={() => onToggle(opt.id)}
+                className={`relative shrink-0 w-11 h-6 rounded-full transition-colors cursor-pointer disabled:opacity-60 ${
+                  on ? 'bg-emerald-500' : 'bg-brand-border'
+                }`}
+              >
+                <span
+                  className={`absolute top-0.5 w-5 h-5 rounded-full bg-white shadow transition-all ${
+                    on ? 'left-[22px]' : 'left-0.5'
+                  }`}
+                />
+              </button>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+
+
+function ActiveRidePanel({ ride, here, busyCode, onAdvance, onCancel }) {
 
   const navTarget = ride.driverRideStatus === 'started'
 
@@ -523,6 +595,29 @@ function ActiveRidePanel({ ride, here, busyCode, onAdvance }) {
 
         </div>
 
+        {/* Give up the ride — only before the trip starts. It's re-offered to
+            the next-nearest driver (the passenger keeps their booking). */}
+
+        {ride.driverRideStatus !== 'started' && (
+
+          <button
+
+            type="button"
+
+            disabled={busyCode === ride.bookingCode}
+
+            onClick={() => onCancel(ride.bookingCode)}
+
+            className="w-full mt-2.5 text-xs font-bold text-brand-grey hover:text-red-600 py-1.5 cursor-pointer"
+
+          >
+
+            Can't make it? Cancel &amp; pass it on
+
+          </button>
+
+        )}
+
       </div>
 
     </Card>
@@ -613,9 +708,22 @@ function RequestCard({ ride, dist, busyCode, onAccept }) {
 
 export default function DriverPage() {
 
-  const { driverApproved, profile } = useAuth();
+  const { driverApproved, profile, refreshProfile } = useAuth();
 
   const [online, setOnline] = useState(false);
+
+  // Which verticals this driver works. `null` until the first local edit, so a
+  // late-arriving profile is picked up without a seeding effect. Empty is never
+  // allowed (kept in sync with profiles.service_types via api.driverServices).
+  const [services, setServices] = useState(null);
+
+  const [savingServices, setSavingServices] = useState(false);
+
+  const effectiveServices = services || profile?.serviceTypes || ALL_SERVICES;
+
+  const ridesEnabled = effectiveServices.includes('pick_drop');
+
+  const foodEnabled = effectiveServices.includes('food');
 
   // A rider carrying an active food delivery must keep sending GPS even when
   // they haven't toggled "online" for ride offers — otherwise the customer's
@@ -627,7 +735,6 @@ export default function DriverPage() {
   const [activeRide, setActiveRide] = useState(null);
 
   const [error, setError] = useState(null);
-
   const [busyCode, setBusyCode] = useState(null);
 
   const [lastPayout, setLastPayout] = useState(null);
@@ -719,7 +826,7 @@ export default function DriverPage() {
 
       if (c) { try { await api.driverLocation({ lat: c.lat, lng: c.lng, accuracy: c.accuracy }); } catch { /* ignore */ } }
 
-      if (online && !activeRide && !stop) loadAvailable();
+      if (online && ridesEnabled && !activeRide && !stop) loadAvailable();
 
     };
 
@@ -729,7 +836,7 @@ export default function DriverPage() {
 
     return () => { stop = true; clearInterval(id); };
 
-  }, [online, hasActiveDelivery, driverApproved, activeRide, loadAvailable]);
+  }, [online, hasActiveDelivery, driverApproved, activeRide, ridesEnabled, loadAvailable]);
 
 
 
@@ -759,9 +866,39 @@ export default function DriverPage() {
 
     },
 
-    realtimeEnabled && online && driverApproved && !activeRide
+    realtimeEnabled && online && ridesEnabled && driverApproved && !activeRide
 
   );
+
+
+
+  async function toggleService(type) {
+
+    const cur = effectiveServices;
+
+    const next = cur.includes(type) ? cur.filter((t) => t !== type) : [...cur, type];
+
+    if (next.length === 0) { setError('Keep at least one service type enabled.'); return; }
+
+    setServices(next); setError(null); setSavingServices(true);
+
+    try {
+
+      const res = await api.driverServices(next);
+
+      setServices(res.serviceTypes);
+
+      refreshProfile?.(); // fire-and-forget: keep AuthProvider fresh across remounts
+
+    } catch (err) { setServices(cur); setError(err.message); } finally { setSavingServices(false); }
+
+  }
+
+
+
+  // Turning Pick & Drop off clears any ride requests already on screen.
+
+  useEffect(() => { if (!ridesEnabled) setAvailable([]); }, [ridesEnabled]);
 
 
 
@@ -809,6 +946,16 @@ export default function DriverPage() {
 
   }
 
+  async function cancelRide(code) {
+    if (!window.confirm('Cancel this ride? It will be offered to the next-nearest driver.')) return;
+    setBusyCode(code); setError(null);
+    try {
+      await api.driverCancelRide(code, undefined);
+      setActiveRide(null);
+      loadAvailable();
+    } catch (err) { setError(err.message); } finally { setBusyCode(null); }
+  }
+
 
 
   if (!driverApproved) {
@@ -839,6 +986,10 @@ export default function DriverPage() {
 
   let line = null;
 
+  let routeFrom = null;
+
+  let routeTo = null;
+
   if (activeRide) {
 
     markers = [
@@ -866,6 +1017,10 @@ export default function DriverPage() {
     if (here && activeRide.pickupLat != null && activeRide.driverRideStatus !== 'started') {
 
       line = [here, { lat: activeRide.pickupLat, lng: activeRide.pickupLng }];
+
+      routeFrom = here;
+
+      routeTo = { lat: activeRide.pickupLat, lng: activeRide.pickupLng };
 
     }
 
@@ -996,6 +1151,7 @@ export default function DriverPage() {
         {/* Grab-style dispatch: exclusive 30s offers + food deliveries. */}
         <DriverDispatch
           online={online}
+          foodEnabled={foodEnabled}
           driverId={profile?.id}
           coords={coords}
           onRideAccepted={loadActive}
@@ -1040,11 +1196,15 @@ export default function DriverPage() {
 
             <div className="relative driver-map-frame rounded-3xl overflow-hidden border border-brand-border/50 bg-white">
 
-              <RideMap
+              <RoutedRideMap
 
                 markers={markers}
 
-                line={line}
+                from={routeFrom}
+
+                to={routeTo}
+
+                fallbackLine={line}
 
                 legend={mapLegend}
 
@@ -1108,6 +1268,16 @@ export default function DriverPage() {
 
             />
 
+            <ServiceToggles
+
+              services={effectiveServices}
+
+              onToggle={toggleService}
+
+              saving={savingServices}
+
+            />
+
           </div>
 
 
@@ -1128,6 +1298,8 @@ export default function DriverPage() {
 
                 onAdvance={advance}
 
+                onCancel={cancelRide}
+
               />
 
             ) : (
@@ -1144,7 +1316,15 @@ export default function DriverPage() {
 
                       <p className="text-xs text-brand-grey mt-0.5">
 
-                        {online ? 'Sorted by distance from you' : 'Go online to start receiving rides'}
+                        {!ridesEnabled
+
+                          ? 'Pick & Drop is turned off'
+
+                          : online
+
+                            ? 'Sorted by distance from you'
+
+                            : 'Go online to start receiving rides'}
 
                       </p>
 
@@ -1160,7 +1340,25 @@ export default function DriverPage() {
 
                 <div className="p-4 space-y-3 max-h-[520px] overflow-y-auto">
 
-                  {!online && (
+                  {!ridesEnabled && (
+
+                    <div className="text-center py-10 px-4">
+
+                      <div className="w-14 h-14 rounded-2xl bg-brand-muted mx-auto mb-3 flex items-center justify-center">
+
+                        <Navigation className="w-7 h-7 text-brand-grey" />
+
+                      </div>
+
+                      <p className="font-bold text-brand-dark">Pick &amp; Drop is off</p>
+
+                      <p className="text-sm text-brand-grey mt-1">Enable it under My services to receive ride requests.</p>
+
+                    </div>
+
+                  )}
+
+                  {ridesEnabled && !online && (
 
                     <div className="text-center py-10 px-4">
 
@@ -1178,7 +1376,7 @@ export default function DriverPage() {
 
                   )}
 
-                  {online && sortedAvailable.length === 0 && (
+                  {ridesEnabled && online && sortedAvailable.length === 0 && (
 
                     <div className="text-center py-10 px-4">
 
@@ -1192,7 +1390,7 @@ export default function DriverPage() {
 
                   )}
 
-                  {online && sortedAvailable.map((r) => (
+                  {ridesEnabled && online && sortedAvailable.map((r) => (
 
                     <RequestCard
 

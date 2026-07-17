@@ -16,19 +16,27 @@ import {
   MapPin,
   XCircle,
   ReceiptText,
+  Heart,
+  Download,
+  Clock,
+  Store,
+  Loader2,
 } from 'lucide-react';
 import { api } from '../lib/api';
+import { useAuth } from '../lib/AuthProvider';
 import { useBroadcast } from '../lib/useBroadcast';
 import { realtimeEnabled } from '../lib/supabaseClient';
+import { downloadFoodInvoice } from '../lib/invoice';
 import {
   fmtSAR,
   whatsappLink,
   foodStatusMeta,
   foodPaymentMeta,
   FOOD_TRACK_STEPS,
+  FOOD_PAYMENT_METHODS,
 } from '../lib/constants';
 import { PortalShell, Card, Badge, Spinner, btnGhost } from '../components/ui';
-import RideMap from '../components/RideMap';
+import RoutedRideMap from '../components/RoutedRideMap';
 import RateDriver from '../components/RateDriver';
 import PaymentPanel from './PaymentPanel';
 
@@ -72,6 +80,76 @@ function StatusStepper({ status }) {
           </div>
         );
       })}
+    </div>
+  );
+}
+
+// Coarse "what phase are we in" copy for the ETA hero. Kept here (not per-order)
+// so the upcoming ecommerce order-status page can supply its own phase map and
+// reuse <TrackHeader> unchanged.
+const FOOD_TRACK_PHASE = {
+  pending: { eta: 'Confirming', note: 'Waiting for the restaurant to confirm your order' },
+  accepted: { eta: '25 – 45 mins', note: 'Preparing your order' },
+  preparing: { eta: '25 – 45 mins', note: 'Preparing your order' },
+  ready: { eta: '15 – 25 mins', note: "Ready — waiting for a rider to pick it up" },
+  out_for_delivery: { eta: 'On the way', note: 'Your rider is heading to you' },
+  delivered: { eta: 'Delivered', note: 'Enjoy your meal!' },
+};
+
+// Reusable ETA hero + slim progress bar (props in, no fetching) — shared shape
+// for food today and ecommerce order status later.
+function TrackHeader({ eta, note, progress, live }) {
+  return (
+    <Card className="p-0 overflow-hidden">
+      <div className="p-5 bg-gradient-to-br from-brand-orange/10 to-white">
+        <div className="flex items-center justify-between gap-3">
+          <div className="min-w-0">
+            <p className="text-3xl font-black text-brand-black leading-none tabular-nums">{eta}</p>
+            <p className="text-sm font-bold text-brand-dark mt-2">{note}</p>
+          </div>
+          <div className="w-14 h-14 rounded-full bg-white shadow-sm flex items-center justify-center shrink-0">
+            <Clock className="w-7 h-7 text-brand-orange" />
+          </div>
+        </div>
+        {live && (
+          <span className="mt-3 inline-flex items-center gap-1 text-[10px] font-bold text-green-600 uppercase tracking-wider">
+            <span className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse" /> Live
+          </span>
+        )}
+      </div>
+      <div className="h-1.5 bg-brand-border">
+        <div
+          className="h-full bg-brand-orange transition-all duration-500"
+          style={{ width: `${Math.round(Math.max(0.04, progress) * 100)}%` }}
+        />
+      </div>
+    </Card>
+  );
+}
+
+// Order-details block (order number / from / delivery address / total).
+function OrderMetaCard({ code, from, address, total }) {
+  return (
+    <Card className="p-5 space-y-3">
+      <p className="font-black text-brand-black">Order details</p>
+      <Row label="Order number" value={<span className="font-mono font-bold text-brand-dark">{code}</span>} />
+      {from && (
+        <Row
+          label="Order from"
+          value={<span className="font-bold text-brand-dark inline-flex items-center gap-1.5"><Store className="w-3.5 h-3.5 text-brand-orange" /> {from}</span>}
+        />
+      )}
+      {address && <Row label="Delivery address" value={<span className="text-brand-dark text-right">{address}</span>} />}
+      {total != null && <Row label="Total" value={<span className="font-black text-brand-orange tabular-nums">{fmtSAR(total)}</span>} />}
+    </Card>
+  );
+}
+
+function Row({ label, value }) {
+  return (
+    <div className="flex items-start justify-between gap-3 text-sm">
+      <span className="text-brand-grey shrink-0">{label}</span>
+      <span className="min-w-0">{value}</span>
     </div>
   );
 }
@@ -125,6 +203,7 @@ function RiderCard({ rider, etaMinutes }) {
 export default function FoodTrackPage() {
   const { code } = useParams();
   const navigate = useNavigate();
+  const { profile, user } = useAuth();
   const [data, setData] = useState(null);
   const [error, setError] = useState(null);
   // Live rider position, pushed on every GPS ping (~12s while online).
@@ -176,6 +255,18 @@ export default function FoodTrackPage() {
   const statusMeta = order ? foodStatusMeta(order.status) : null;
   const payMeta = order ? foodPaymentMeta(order.payment_status) : null;
 
+  // ETA hero + progress driven off the fulfillment ladder; the live rider ETA
+  // takes over once the order is on the way.
+  const activeIdx = order ? FOOD_TRACK_STEPS.findIndex((s) => s.id === order.status) : -1;
+  const progress = activeIdx >= 0 ? activeIdx / (FOOD_TRACK_STEPS.length - 1) : 0;
+  const phase = (order && FOOD_TRACK_PHASE[order.status]) || { eta: '', note: '' };
+  const liveEta = riderLive?.etaMinutes ?? data?.rider?.etaMinutes ?? null;
+  const heroEta = order && order.status === 'out_for_delivery' && liveEta != null ? `${liveEta} min` : phase.eta;
+  // Rider dropped mid-flight (cancel / disconnect): show a reassuring state.
+  const findingRider =
+    order && !failed && !data.rider &&
+    ['accepted', 'preparing', 'ready', 'out_for_delivery'].includes(order.status);
+
   return (
     <PortalShell title="Track your order" subtitle={code} onBack={() => navigate('/food/orders')}>
       <div className="max-w-xl mx-auto space-y-4">
@@ -188,18 +279,16 @@ export default function FoodTrackPage() {
 
         {order && (
           <>
-            {/* Status header */}
+            {/* ETA hero + progress bar (foodpanda-style). */}
+            {!failed && (
+              <TrackHeader eta={heroEta} note={phase.note} progress={progress} live={connected} />
+            )}
+
+            {/* Status + payment badges, and the full step ladder (or failure). */}
             <Card className="p-5">
-              <div className="flex items-center justify-between gap-2 mb-4">
-                <div className="flex items-center gap-2">
-                  <Badge tone={statusMeta.tone}>{statusMeta.label}</Badge>
-                  <Badge tone={payMeta.tone}>{payMeta.label}</Badge>
-                </div>
-                {connected && (
-                  <span className="text-[10px] font-bold text-green-600 uppercase tracking-wider flex items-center gap-1">
-                    <span className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse" /> Live
-                  </span>
-                )}
+              <div className="flex items-center gap-2 mb-4">
+                <Badge tone={statusMeta.tone}>{statusMeta.label}</Badge>
+                <Badge tone={payMeta.tone}>{payMeta.label}</Badge>
               </div>
 
               {failed ? (
@@ -227,7 +316,21 @@ export default function FoodTrackPage() {
 
             {/* Live map — the rider pin glides on every GPS ping (Grab-style). */}
             {!failed && riderLive && order.status !== 'delivered' && (
-              <RideMap
+              <RoutedRideMap
+                from={{ lat: riderLive.lat, lng: riderLive.lng }}
+                to={
+                  order.delivery_lat != null
+                    ? { lat: order.delivery_lat, lng: order.delivery_lng }
+                    : null
+                }
+                fallbackLine={
+                  order.delivery_lat != null
+                    ? [
+                        { lat: riderLive.lat, lng: riderLive.lng },
+                        { lat: order.delivery_lat, lng: order.delivery_lng },
+                      ]
+                    : null
+                }
                 height={260}
                 follow
                 followTarget={
@@ -257,6 +360,17 @@ export default function FoodTrackPage() {
               <RiderCard rider={data.rider} etaMinutes={riderLive?.etaMinutes ?? data.rider.etaMinutes} />
             )}
 
+            {/* No rider yet (searching, or the previous one cancelled/disconnected). */}
+            {findingRider && (
+              <Card className="p-5 flex items-center gap-3">
+                <Loader2 className="w-5 h-5 text-brand-orange animate-spin shrink-0" />
+                <div className="min-w-0">
+                  <p className="font-bold text-brand-dark text-sm">Finding you a rider…</p>
+                  <p className="text-xs text-brand-grey">We're matching your order with the nearest available rider.</p>
+                </div>
+              </Card>
+            )}
+
             {/* Cash on delivery: nothing to pay online — just a reminder. */}
             {!failed && order.payment_method === 'cash' && order.payment_status === 'awaiting' && (
               <div className="p-4 rounded-xl bg-amber-50 border border-amber-200 text-sm font-bold text-amber-800">
@@ -270,6 +384,33 @@ export default function FoodTrackPage() {
               (order.payment_status === 'awaiting' || order.payment_status === 'failed') && (
                 <PaymentPanel code={code} onPaid={load} />
               )}
+
+            {/* Delivered: warm thank-you + downloadable PDF receipt (spec §6). */}
+            {order.status === 'delivered' && (
+              <Card className="p-5 text-center bg-gradient-to-br from-brand-orange/10 to-white border-brand-orange/30">
+                <div className="w-12 h-12 rounded-full bg-brand-orange/15 text-brand-orange flex items-center justify-center mx-auto mb-2">
+                  <Heart className="w-6 h-6" />
+                </div>
+                <p className="font-black text-brand-black">Thank you for ordering with Smart Mappia!</p>
+                <p className="text-xs text-brand-grey mt-1 mb-4">
+                  We hope you enjoy your meal. Your receipt is ready to download.
+                </p>
+                <button
+                  type="button"
+                  onClick={() =>
+                    downloadFoodInvoice({
+                      order,
+                      items: data.items,
+                      merchant: data.merchant,
+                      customerName: profile?.fullName || user?.email || 'Smart Mappia customer',
+                    })
+                  }
+                  className="w-full inline-flex items-center justify-center gap-2 bg-brand-orange hover:bg-brand-orange/90 text-white font-black py-3 rounded-xl transition-all shadow-lg shadow-brand-orange/20 text-sm cursor-pointer"
+                >
+                  <Download className="w-4 h-4" /> Download receipt (PDF)
+                </button>
+              </Card>
+            )}
 
             {/* Delivered: rate the rider (1-5 stars). */}
             {order.status === 'delivered' && data.rider && (
@@ -302,10 +443,18 @@ export default function FoodTrackPage() {
               </Card>
             )}
 
-            {/* Receipt */}
+            {/* Order details block (order number / from / address / total). */}
+            <OrderMetaCard
+              code={code}
+              from={data.merchant?.name}
+              address={order.delivery_address}
+              total={order.total}
+            />
+
+            {/* Itemized receipt */}
             <Card className="p-5">
               <p className="font-black text-brand-black mb-3 flex items-center gap-2">
-                <ReceiptText className="w-4 h-4 text-brand-orange" /> Order details
+                <ReceiptText className="w-4 h-4 text-brand-orange" /> Receipt
               </p>
               <div className="space-y-1.5 text-sm">
                 {(data.items || []).map((line, i) => (
@@ -322,6 +471,14 @@ export default function FoodTrackPage() {
                   <span className="font-bold text-brand-dark">Total</span>
                   <span className="font-black text-brand-orange tabular-nums">{fmtSAR(order.total)}</span>
                 </div>
+                {order.payment_method && (
+                  <div className="flex justify-between pt-1.5">
+                    <span className="text-brand-grey">Paid with</span>
+                    <span className="font-bold text-brand-dark">
+                      {FOOD_PAYMENT_METHODS[order.payment_method] || order.payment_method}
+                    </span>
+                  </div>
+                )}
               </div>
               <p className="text-xs text-brand-grey mt-3 flex items-center gap-1">
                 <MapPin className="w-3 h-3 shrink-0" /> {order.delivery_address}

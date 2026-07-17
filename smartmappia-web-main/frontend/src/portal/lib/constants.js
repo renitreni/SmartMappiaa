@@ -8,9 +8,15 @@
 export function roleHome(role, next = '/') {
   if (role === 'admin') return '/admin';
   if (role === 'driver') return '/driver';
+  if (role === 'merchant') return '/merchant';
   // Passengers: honor an explicit `next`, but never follow a stale one into an
-  // admin/driver-only area (e.g. ?next=/admin left over after switching accounts).
-  const safeNext = next && next !== '/' && !next.startsWith('/admin') && !next.startsWith('/driver');
+  // account-type dashboard (e.g. ?next=/admin left over after switching accounts).
+  const safeNext =
+    next &&
+    next !== '/' &&
+    !next.startsWith('/admin') &&
+    !next.startsWith('/driver') &&
+    !next.startsWith('/merchant');
   return safeNext ? next : '/home';
 }
 
@@ -66,6 +72,21 @@ export const TONE_CLASSES = {
 
 export function statusMeta(bookingStatus) {
   return BOOKING_STATUS[bookingStatus] || { label: bookingStatus || 'Unknown', tone: 'grey' };
+}
+
+// Human-friendly labels + colors for Pick & Drop payment statuses (mirrors
+// the payment_status enum in the DB). Used by the Transaction Records hub.
+export const RIDE_PAYMENT_STATUS = {
+  awaiting_proof: { label: 'Awaiting payment', tone: 'amber' },
+  proof_uploaded: { label: 'Payment under review', tone: 'amber' },
+  under_review: { label: 'Payment under review', tone: 'amber' },
+  verified: { label: 'Paid', tone: 'green' },
+  rejected: { label: 'Payment rejected', tone: 'red' },
+  refunded: { label: 'Refunded', tone: 'grey' },
+};
+
+export function ridePaymentMeta(status) {
+  return RIDE_PAYMENT_STATUS[status] || { label: status || 'Unknown', tone: 'grey' };
 }
 
 // Build a WhatsApp deep link from a phone number (strips non-digits).

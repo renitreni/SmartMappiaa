@@ -9,6 +9,7 @@
     "start": "node server.js",
     "dev": "node --watch server.js",
     "seed:admin": "node scripts/seed-admin.js",
+    "seed:admins": "node scripts/seed-admins.js",
     "seed:user": "node scripts/seed-user.js",
     "seed:driver": "node scripts/seed-driver.js",
     "seed:accounts": "node scripts/seed-admin.js && node scripts/seed-user.js && node scripts/seed-driver.js",
@@ -28,6 +29,7 @@
     "express": "^4.21.0",
     "express-rate-limit": "^8.5.2",
     "helmet": "^8.2.0",
+    "web-push": "^3.6.7",
     "ws": "^8.21.0"
   }
 }

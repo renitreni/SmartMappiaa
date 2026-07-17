@@ -4,6 +4,7 @@ import Hero from "./sections/Hero";
 import AboutUs from "./sections/AboutUs";
 import Services from "./sections/Services";
 import VideoShowcase from "./sections/VideoShowcase";
+import PromoBanners from "./sections/PromoBanners";
 import HowItWorks from "./sections/HowItWorks";
 import Restaurants from "./sections/Restaurants";
 import Shop from "./sections/Shop";
@@ -20,6 +21,7 @@ function App() {
         <Hero />
         <AboutUs />
         <Services />
+        <PromoBanners />
         <VideoShowcase />
         <HowItWorks />
         <Restaurants />

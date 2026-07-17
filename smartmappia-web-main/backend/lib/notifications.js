@@ -1,29 +1,126 @@
 // ---------------------------------------------------------------------
 // Notification helpers.
 //
-// Native push DELIVERY (Firebase Cloud Messaging) is added once the
-// Capacitor APK exists — it needs an FCM server key + registered device
-// tokens. Until then this module gives us:
-//   - a place device tokens are collected (device_push_tokens), so delivery
-//     drops in later with zero app changes, and
-//   - logNotification(): a best-effort audit trail in notification_events.
+// Every alert is written to the recipient's inbox and, when configured, sent
+// to that recipient's registered web-push devices.
 // ---------------------------------------------------------------------
 const { supabase } = require('./supabase');
+const { sendWebPush } = require('./webPush');
+
+const COPY = {
+  ride_booking_created: {
+    title: 'New ride booking',
+    body: 'A customer created a new airport transfer booking.',
+  },
+  ride_offer: {
+    title: 'New ride request',
+    body: 'A nearby trip is available. Open Smart Mappia to respond.',
+  },
+  ride_driver_accepted: {
+    title: 'A driver accepted your trip',
+    body: 'Your driver is on the way to you.',
+  },
+  ride_driver_on_the_way: { title: 'Your driver is on the way', body: 'Track their live location.' },
+  ride_driver_arrived: { title: 'Your driver has arrived', body: 'Please head to the pickup point.' },
+  ride_trip_started: { title: 'Your trip started', body: 'You are on the way to your destination.' },
+  ride_completed: { title: 'Trip completed', body: 'Your invoice is ready.' },
+  ride_cancelled: { title: 'Trip cancelled', body: 'This booking was cancelled.' },
+  admin_food_order_created: {
+    title: 'New food order',
+    body: 'A customer placed a new restaurant order.',
+  },
+  merchant_food_order_created: {
+    title: 'New restaurant order',
+    body: 'A customer placed a new food order.',
+  },
+  delivery_offer: {
+    title: 'New delivery request',
+    body: 'A nearby food delivery is available. Open Smart Mappia to respond.',
+  },
+  food_rider_assigned: { title: 'A rider was assigned', body: 'The rider is heading to the restaurant.' },
+  food_delivery_assigned: { title: 'New delivery assigned', body: 'Open the driver portal for details.' },
+  food_order_accepted: { title: 'Restaurant accepted your order', body: 'Your order is being prepared.' },
+  food_order_rejected: { title: 'Order rejected', body: 'The restaurant could not accept your order.' },
+  food_order_preparing: { title: 'Your order is being prepared', body: 'The kitchen is preparing your food.' },
+  food_order_ready: { title: 'Your order is ready', body: 'Waiting for a rider to pick it up.' },
+  food_order_out_for_delivery: { title: 'Your order was picked up', body: 'Your rider is on the way.' },
+  food_order_delivered: { title: 'Order delivered', body: 'Enjoy your meal!' },
+  food_order_cancelled: { title: 'Order cancelled', body: 'This order will not be delivered.' },
+};
+
+function notificationCopy(type, title, body) {
+  const defaults = COPY[type] || {};
+  return {
+    title: title || defaults.title || 'Smart Mappia notification',
+    body: body || defaults.body || 'Open Smart Mappia to view the update.',
+  };
+}
 
 // Record that a notification was (or would be) sent. Never throws — a logging
 // failure must not break the request that triggered it.
-async function logNotification({ userId = null, bookingId = null, type, channel = 'in_app' }) {
+//
+// Besides the audit row it also sends the alert to the user's registered push
+// subscriptions. The optional `code` lets the client deep-link the alert.
+async function logNotification({
+  userId = null,
+  bookingId = null,
+  orderId = null,
+  type,
+  channel = 'in_app',
+  code = null,
+  title = null,
+  body = null,
+  url = '/notifications',
+}) {
+  if (!userId) return null;
   try {
-    await supabase.from('notification_events').insert({
-      user_id: userId,
-      booking_id: bookingId,
+    const sentAt = new Date().toISOString();
+    const copy = notificationCopy(type, title, body);
+    const { data, error } = await supabase
+      .from('notification_events')
+      .insert({
+        user_id: userId,
+        booking_id: bookingId,
+        order_id: orderId,
+        type,
+        channel,
+        code,
+        sent_at: sentAt,
+      })
+      .select('id, type, booking_id, order_id, code, channel, read_at, sent_at, created_at')
+      .single();
+    if (error) throw error;
+
+    const payload = {
+      id: data.id,
+      type: data.type,
+      code: data.code,
+      channel: data.channel,
+      read_at: data.read_at,
+      sent_at: data.sent_at,
+      created_at: data.created_at,
+    };
+    await sendWebPush(userId, {
+      ...copy,
+      ...payload,
       type,
-      channel,
-      sent_at: new Date().toISOString(),
+      url,
+      tag: `smartmappia-${data.id}`,
     });
+    return data;
   } catch (err) {
     console.error('logNotification error:', err.message || err);
+    return null;
   }
 }
 
-module.exports = { logNotification };
+async function notifyAdmins(notification) {
+  const { data, error } = await supabase.from('profiles').select('id').eq('role', 'admin');
+  if (error) {
+    console.error('notifyAdmins lookup error:', error.message || error);
+    return;
+  }
+  await Promise.all((data || []).map(({ id }) => logNotification({ ...notification, userId: id })));
+}
+
+module.exports = { logNotification, notifyAdmins };

@@ -31,6 +31,29 @@ export function notifySuccess(title, text) {
   });
 }
 
+/** SweetAlert2 confirm dialog — returns true when the user confirms. */
+export async function confirmAction({
+  title = 'Are you sure?',
+  text,
+  confirmText = 'Confirm',
+  cancelText = 'Cancel',
+  icon = 'warning',
+  danger = false,
+}) {
+  const result = await Swal.fire({
+    icon,
+    title,
+    text,
+    showCancelButton: true,
+    confirmButtonText: confirmText,
+    cancelButtonText: cancelText,
+    confirmButtonColor: danger ? '#ef4444' : '#f97316',
+    reverseButtons: true,
+    focusCancel: true,
+  });
+  return result.isConfirmed;
+}
+
 // ---------------------------------------------------------------------
 // Live ride alerts: a short chime + a corner toast. Used for "driver
 // arrived" / "on the way to drop-off" style notifications (NOTES §5).

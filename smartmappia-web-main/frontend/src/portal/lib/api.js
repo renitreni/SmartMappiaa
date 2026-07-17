@@ -61,6 +61,7 @@ export const api = {
 
   // --- passenger ---
   createBooking: (b) => request('/api/bookings', { method: 'POST', body: b }),
+  myBookings: () => request('/api/bookings', { silent: true }), // Pick & Drop history
   getBooking: (code) => request(`/api/bookings/${code}`),
   cancelBooking: (code, reason) => request(`/api/bookings/${code}/cancel`, { method: 'POST', body: { reason } }),
   paymentInstructions: (code) => request(`/api/bookings/${code}/payment-instructions`),
@@ -69,6 +70,19 @@ export const api = {
   // Tap Payments hosted-redirect charge (backend endpoint pending — see NOTES §2).
   createTapCharge: (code) => request(`/api/payments/${code}/tap-charge`, { method: 'POST' }),
   tracking: (code) => request(`/api/tracking/${code}`, { silent: true }), // polled every 8s
+
+  // --- location search / nearby places ---
+  locationSearch: (q, coords = {}) => {
+    const params = new URLSearchParams({ q });
+    if (coords.lat != null && coords.lng != null) {
+      params.set('lat', coords.lat);
+      params.set('lng', coords.lng);
+    }
+    return request(`/api/locations/search?${params}`, { silent: true });
+  },
+  locationReverse: (lat, lng) => request(`/api/locations/reverse?lat=${encodeURIComponent(lat)}&lng=${encodeURIComponent(lng)}`, { silent: true }),
+  locationNearby: (lat, lng, radius = 1200) =>
+    request(`/api/locations/nearby?lat=${encodeURIComponent(lat)}&lng=${encodeURIComponent(lng)}&radius=${encodeURIComponent(radius)}`, { silent: true }),
 
   // --- admin (role enforced by backend) ---
   adminStats: () => request('/api/admin/stats'),
@@ -93,15 +107,24 @@ export const api = {
   driverRides: () => request('/api/driver/rides', { silent: true }), // polled feed
   driverAccept: (code) => request(`/api/driver/rides/${code}/accept`, { method: 'POST' }),
   driverStatus: (code, status) => request(`/api/driver/rides/${code}/status`, { method: 'POST', body: { status } }),
+  // Give up an accepted ride before it starts -> auto re-dispatched to next-nearest.
+  driverCancelRide: (code, reason) => request(`/api/driver/rides/${code}/cancel`, { method: 'POST', body: { reason } }),
   driverLocation: (body) => request('/api/driver/location', { method: 'POST', body, silent: true }), // 12s GPS ping
+  // Which verticals this driver works: ['pick_drop','food','shop'].
+  driverServices: (service_types) =>
+    request('/api/driver/services', { method: 'PATCH', body: { service_types } }),
   // driver verification documents
   driverDocSignedUrl: (body) => request('/api/driver/documents/signed-url', { method: 'POST', body }),
   driverRecordDoc: (body) => request('/api/driver/documents', { method: 'POST', body }),
   driverDocuments: () => request('/api/driver/documents', { silent: true }),
 
-  // --- notifications (device push tokens) ---
+  // --- notifications ---
+  // The signed-in user's own notification history (last 50), powering the bell.
+  listNotifications: () => request('/api/notifications', { silent: true }),
+  notificationPushConfig: () => request('/api/notifications/push-config', { silent: true }),
   registerPushToken: (body) => request('/api/notifications/register', { method: 'POST', body, silent: true }),
   unregisterPushToken: (token) => request('/api/notifications/unregister', { method: 'POST', body: { token }, silent: true }),
+  markNotificationsRead: () => request('/api/notifications/read', { method: 'PATCH', silent: true }),
 
   // --- food delivery: customer ---
   foodRestaurants: (params = '') => request(`/api/food/restaurants${params}`, { silent: true }),
@@ -132,10 +155,31 @@ export const api = {
     return request(`/api/driver/deliveries/available${q}`, { silent: true }); // polled feed
   },
   driverClaimDelivery: (code) => request(`/api/driver/deliveries/${code}/claim`, { method: 'POST' }),
+  // Give up an accepted delivery before pickup -> auto re-dispatched to next-nearest.
+  driverCancelDelivery: (code, reason) =>
+    request(`/api/driver/deliveries/${code}/cancel`, { method: 'POST', body: { reason } }),
   // Photo proof is mandatory: upload first, then send the path with the status.
   driverDeliveryPhotoUrl: (code, body) => request(`/api/driver/deliveries/${code}/photo-url`, { method: 'POST', body }),
   driverDeliveryStatus: (code, status, photo_path) =>
     request(`/api/driver/deliveries/${code}/status`, { method: 'POST', body: { status, photo_path } }),
+
+  // --- business owner / merchant ---
+  merchantProfile: () => request('/api/merchant/profile'),
+  merchantUpdateProfile: (body) => request('/api/merchant/profile', { method: 'PATCH', body }),
+  merchantLogoSignedUrl: (body) => request('/api/merchant/logo/signed-url', { method: 'POST', body }),
+  merchantLogoConfirm: (body) => request('/api/merchant/logo/confirm', { method: 'POST', body }),
+  merchantMenuItemImageSignedUrl: (body) =>
+    request('/api/merchant/menu/items/image/signed-url', { method: 'POST', body }),
+  merchantMenuItemImageConfirm: (body) =>
+    request('/api/merchant/menu/items/image/confirm', { method: 'POST', body }),
+  merchantAnalytics: () => request('/api/merchant/analytics'),
+  merchantMenu: () => request('/api/merchant/menu'),
+  merchantAddCategory: (body) => request('/api/merchant/menu/categories', { method: 'POST', body }),
+  merchantUpdateCategory: (id, body) => request(`/api/merchant/menu/categories/${id}`, { method: 'PATCH', body }),
+  merchantDeleteCategory: (id) => request(`/api/merchant/menu/categories/${id}`, { method: 'DELETE' }),
+  merchantAddItem: (body) => request('/api/merchant/menu/items', { method: 'POST', body }),
+  merchantUpdateItem: (id, body) => request(`/api/merchant/menu/items/${id}`, { method: 'PATCH', body }),
+  merchantDeleteItem: (id) => request(`/api/merchant/menu/items/${id}`, { method: 'DELETE' }),
 
   // --- driver ratings (1-5 stars after a delivered order / completed trip) ---
   rateFoodDriver: (code, body) => request(`/api/food/orders/${code}/rate-driver`, { method: 'POST', body, silent: true }),
@@ -143,6 +187,9 @@ export const api = {
 
   // --- food delivery: admin (admins run the restaurants — no owner accounts) ---
   adminFoodOverview: () => request('/api/admin/food/overview'),
+  // Settlement report: what we owe each restaurant vs. our markup, by date range.
+  adminFoodSettlement: (from, to) =>
+    request(`/api/admin/food/settlement?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`),
   adminFoodMerchants: () => request('/api/admin/food/merchants'),
   adminFoodCreateMerchant: (body) => request('/api/admin/food/merchants', { method: 'POST', body }),
   adminFoodUpdateMerchant: (id, body) => request(`/api/admin/food/merchants/${id}`, { method: 'PATCH', body }),
@@ -167,4 +214,10 @@ export const api = {
   adminFoodRefund: (code) => request(`/api/admin/food/orders/${code}/refund`, { method: 'POST' }),
   adminFoodOrderPhotos: (code) => request(`/api/admin/food/orders/${code}/photos`),
   adminFoodAssignDriver: (code, driver_id) => request(`/api/admin/food/orders/${code}/assign-driver`, { method: 'POST', body: { driver_id } }),
+  // Merchant image upload (logo/menu photo) -> PUBLIC bucket signed URL.
+  adminFoodMerchantImageSignedUrl: (id, body) =>
+    request(`/api/admin/food/merchants/${id}/image/signed-url`, { method: 'POST', body }),
+  // Owner account provisioning (contract-signing step).
+  adminFoodSetMerchantOwner: (id, body) =>
+    request(`/api/admin/food/merchants/${id}/owner`, { method: 'POST', body }),
 };
