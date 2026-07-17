@@ -8,7 +8,9 @@ const {
   updateDriverLocation,
   listMyRides,
   updateRideStatus,
+  updateServiceTypes,
 } = require('../controllers/driverController');
+const { SERVICE_TYPES } = require('../lib/serviceTypes');
 const {
   createDocUploadUrl,
   recordDriverDocument,
@@ -21,6 +23,8 @@ const {
   listMyDeliveries,
   listOpenDeliveries,
   claimOpenDelivery,
+  cancelDelivery,
+  cancelRide,
   createDeliveryPhotoUrl,
   updateDeliveryStatus,
 } = require('../controllers/driverDispatchController');
@@ -33,8 +37,26 @@ router.get('/available', requireApprovedDriver, listAvailableRides);
 router.post('/location', locationLimiter, requireApprovedDriver, updateDriverLocation);
 router.post('/rides/:bookingCode/accept', driverAcceptLimiter, requireApprovedDriver, acceptRide);
 
+// Which verticals this driver works (pick_drop / food / shop). requireDriver,
+// not approved — a pending driver may set preferences; dispatch gates on approval.
+router.patch(
+  '/services',
+  requireDriver,
+  validateBody({
+    service_types: { type: 'array', required: true, itemEnum: SERVICE_TYPES, maxItems: 3 },
+  }),
+  updateServiceTypes
+);
+
 router.get('/rides', requireDriver, listMyRides);
 router.post('/rides/:bookingCode/status', requireDriver, updateRideStatus);
+// Give up an accepted ride (pre-start only) -> released + re-offered.
+router.post(
+  '/rides/:code/cancel',
+  requireDriver,
+  validateBody({ reason: { type: 'string', maxLength: 300, nullable: true } }),
+  cancelRide
+);
 
 // --- Grab-style dispatch: exclusive 30s offers, then the open pool ---
 router.get('/offers', requireApprovedDriver, listOffers);
@@ -45,6 +67,13 @@ router.post('/offers/:id/decline', driverAcceptLimiter, requireApprovedDriver, d
 router.get('/deliveries', requireDriver, listMyDeliveries);
 router.get('/deliveries/available', requireApprovedDriver, listOpenDeliveries);
 router.post('/deliveries/:code/claim', driverAcceptLimiter, requireApprovedDriver, claimOpenDelivery);
+// Give up an accepted delivery (pre-pickup only) -> released + re-offered.
+router.post(
+  '/deliveries/:code/cancel',
+  requireDriver,
+  validateBody({ reason: { type: 'string', maxLength: 300, nullable: true } }),
+  cancelDelivery
+);
 // Mandatory photo proof: signed upload URL, then the status change carries
 // the uploaded path (rejected without it).
 router.post(

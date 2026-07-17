@@ -5,6 +5,7 @@
 //   - updateDriverLocation: POST /api/driver/location     (live position)
 //   - listMyRides        : GET  /api/driver/rides
 //   - updateRideStatus   : POST /api/driver/rides/:code/status
+//   - updateServiceTypes : PATCH /api/driver/services (verticals worked)
 //
 // A driver may only see/update rides assigned to them. Accepting a ride is
 // first-come-first-served: the claim only succeeds while the booking is
@@ -14,6 +15,8 @@ const { supabase } = require('../lib/supabase');
 const { addTrackingEvent } = require('../lib/tracking');
 const { createLedgerEntryForBooking } = require('../lib/ledger');
 const { haversineKm, etaMinutes } = require('../lib/geo');
+const { logNotification } = require('../lib/notifications');
+const { hasService } = require('../lib/serviceTypes');
 const {
   pushBookingStatus,
   announceRequestTaken,
@@ -21,14 +24,15 @@ const {
   pushFoodOrderStatus,
 } = require('../lib/realtime');
 
-// driver_ride_status value -> resulting booking_status + human title.
+// driver_ride_status value -> resulting booking_status + human title +
+// the notification type recorded in the passenger's bell (spec section 5).
 const STATUS_FLOW = {
-  accepted:   { bookingStatus: 'driver_assigned',   title: 'Driver accepted',   message: 'Your driver accepted the trip.' },
-  on_the_way: { bookingStatus: 'driver_on_the_way', title: 'Driver on the way', message: 'Your driver is on the way to your pickup.' },
-  arrived:    { bookingStatus: 'arrived',           title: 'Driver arrived',    message: 'Your driver has arrived at the pickup point.' },
-  started:    { bookingStatus: 'in_progress',       title: 'Trip started',      message: 'Your trip has started.' },
-  completed:  { bookingStatus: 'completed',         title: 'Trip completed',    message: 'Your trip is complete. Thank you for riding with Smart Mappia.' },
-  cancelled:  { bookingStatus: 'cancelled',         title: 'Trip cancelled',    message: 'This trip was cancelled by the driver.' },
+  accepted:   { bookingStatus: 'driver_assigned',   title: 'Driver accepted',   message: 'Your driver accepted the trip.', notify: 'ride_driver_accepted' },
+  on_the_way: { bookingStatus: 'driver_on_the_way', title: 'Driver on the way', message: 'Your driver is on the way to your pickup.', notify: 'ride_driver_on_the_way' },
+  arrived:    { bookingStatus: 'arrived',           title: 'Driver arrived',    message: 'Your driver has arrived at the pickup point.', notify: 'ride_driver_arrived' },
+  started:    { bookingStatus: 'in_progress',       title: 'Trip started',      message: 'Your trip has started.', notify: 'ride_trip_started' },
+  completed:  { bookingStatus: 'completed',         title: 'Trip completed',    message: 'Your trip is complete. Thank you for riding with Smart Mappia.', notify: 'ride_completed' },
+  cancelled:  { bookingStatus: 'cancelled',         title: 'Trip cancelled',    message: 'This trip was cancelled by the driver.', notify: 'ride_cancelled' },
 };
 
 // Ride states where the driver is actively heading to / carrying the rider.
@@ -38,6 +42,12 @@ const ACTIVE_RIDE_STATUSES = ['accepted', 'on_the_way', 'arrived', 'started'];
 // Verified + confirmed + still unassigned bookings, nearest first.
 async function listAvailableRides(req, res) {
   try {
+    // Drivers who turned Pick & Drop off see an empty feed (200, not 403 —
+    // the frontend polls this silently). Admin preview bypasses.
+    if (req.role !== 'admin' && !hasService(req.profile, 'pick_drop')) {
+      return res.json({ rides: [] });
+    }
+
     const lat = req.query.lat != null ? Number(req.query.lat) : null;
     const lng = req.query.lng != null ? Number(req.query.lng) : null;
     const here = lat != null && lng != null ? { lat, lng } : null;
@@ -82,9 +92,13 @@ async function listAvailableRides(req, res) {
 // --- POST /api/driver/rides/:bookingCode/accept ----------------------
 async function acceptRide(req, res) {
   try {
+    if (req.role !== 'admin' && !hasService(req.profile, 'pick_drop')) {
+      return res.status(403).json({ error: 'Enable Pick & Drop in your services to accept rides' });
+    }
+
     const { data: booking, error } = await supabase
       .from('bookings')
-      .select('id, booking_code, payment_status, booking_status, assigned_driver_id')
+      .select('id, booking_code, payment_status, booking_status, assigned_driver_id, user_id')
       .eq('booking_code', req.params.bookingCode)
       .single();
     if (error || !booking) return res.status(404).json({ error: 'Ride not found' });
@@ -135,6 +149,12 @@ async function acceptRide(req, res) {
       driver: driverPayload,
     });
     announceRequestTaken(booking.booking_code);
+    logNotification({
+      userId: booking.user_id,
+      bookingId: booking.id,
+      type: 'ride_driver_accepted',
+      code: booking.booking_code,
+    });
 
     return res.json({
       bookingCode: claimed.booking_code,
@@ -252,7 +272,7 @@ async function updateRideStatus(req, res) {
 
     const { data: booking, error } = await supabase
       .from('bookings')
-      .select('id, booking_code, fare_amount, assigned_driver_id, driver_ride_status, booking_status')
+      .select('id, booking_code, fare_amount, assigned_driver_id, driver_ride_status, booking_status, user_id')
       .eq('booking_code', req.params.bookingCode)
       .single();
     if (error || !booking) return res.status(404).json({ error: 'Ride not found' });
@@ -300,6 +320,25 @@ async function updateRideStatus(req, res) {
     });
     pingAdmin(updated.booking_code);
 
+    // Ring the passenger's bell for this lifecycle step (spec section 5).
+    if (flow.notify) {
+      logNotification({
+        userId: booking.user_id,
+        bookingId: booking.id,
+        type: flow.notify,
+        code: booking.booking_code,
+      });
+    }
+    // A warm Thank You once the trip is done.
+    if (status === 'completed') {
+      logNotification({
+        userId: booking.user_id,
+        bookingId: booking.id,
+        type: 'ride_thank_you',
+        code: booking.booking_code,
+      });
+    }
+
     return res.json({
       bookingCode: updated.booking_code,
       driverRideStatus: updated.driver_ride_status,
@@ -312,10 +351,43 @@ async function updateRideStatus(req, res) {
   }
 }
 
+// --- PATCH /api/driver/services ---------------------------------------
+// Save which verticals this driver works (route validates: array of
+// known values). Body already cleaned by validateBody; dedupe and reject
+// empty here (belt-and-braces with the 0020 CHECK constraint).
+async function updateServiceTypes(req, res) {
+  try {
+    const cleaned = [...new Set(req.body.service_types)];
+    if (cleaned.length === 0) {
+      return res.status(400).json({ error: 'Select at least one service type' });
+    }
+
+    const { data, error } = await supabase
+      .from('profiles')
+      .update({ service_types: cleaned })
+      .eq('id', req.driverId)
+      .select('service_types')
+      .single();
+    if (error || !data) {
+      console.error('updateServiceTypes error:', error);
+      const hint = (error && error.message ? error.message : '').includes('service_types')
+        ? ' Run backend/migrations/0020_driver_service_types.sql in the Supabase SQL Editor.'
+        : '';
+      return res.status(500).json({ error: 'Could not save your services.' + hint });
+    }
+
+    return res.json({ serviceTypes: data.service_types });
+  } catch (err) {
+    console.error('updateServiceTypes error:', err);
+    return res.status(500).json({ error: 'Unexpected server error' });
+  }
+}
+
 module.exports = {
   listAvailableRides,
   acceptRide,
   updateDriverLocation,
   listMyRides,
   updateRideStatus,
+  updateServiceTypes,
 };

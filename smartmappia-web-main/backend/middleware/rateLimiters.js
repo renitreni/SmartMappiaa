@@ -12,8 +12,16 @@
 // ---------------------------------------------------------------------
 const rateLimit = require('express-rate-limit');
 
-const make = (max) =>
-  rateLimit({ windowMs: 60 * 1000, max, standardHeaders: true, legacyHeaders: false });
+const make = (max, message) =>
+  rateLimit({
+    windowMs: 60 * 1000,
+    max,
+    standardHeaders: true,
+    legacyHeaders: false,
+    // Return JSON (not the default plain text) so the frontend shows a real
+    // message instead of the bare "Request failed (429)" — api.js reads `.error`.
+    message: { error: message || 'Too many requests — please slow down and try again shortly.' },
+  });
 
 module.exports = {
   // Payment-proof endpoints (code-gated, unauthenticated) — stop upload spam.
@@ -24,6 +32,15 @@ module.exports = {
   driverAcceptLimiter: make(20),
   // Driver location pings (~5/min in normal use) — headroom, block floods.
   locationLimiter: make(30),
+  // OSM/Nominatim geocoding proxies. Split into per-endpoint buckets (they used
+  // to SHARE one 40/min bucket, which the chatty location picker exhausted ->
+  // the 429). Search is typed; reverse/nearby fire on map moves.
+  locationSearchLimiter: make(60, 'You are searching too fast — please wait a moment.'),
+  locationReverseLimiter: make(90, 'Too many location lookups — please wait a moment.'),
+  locationNearbyLimiter: make(60, 'Too many map updates — please wait a moment.'),
+  // OSRM routing proxy (map route lines). Generous — the client already only
+  // refetches on ~100m movement; keeps routing off the location buckets.
+  osrmLimiter: make(120, 'The map is updating quickly — it will catch up shortly.'),
 
   // --- Food Delivery ---
   // Restaurant browse/search — generous, but stops scraping floods.

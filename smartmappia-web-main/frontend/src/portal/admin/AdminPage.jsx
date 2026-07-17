@@ -5,6 +5,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Check, X, ExternalLink, ShieldCheck, ShieldX, Search, FileText } from 'lucide-react';
 import { api } from '../lib/api';
+import { toCsv, downloadCsv } from '../lib/csv';
 import { useBroadcast } from '../lib/useBroadcast';
 import { realtimeEnabled } from '../lib/supabaseClient';
 import { statusMeta } from '../lib/constants';
@@ -547,30 +548,12 @@ const REPORT_RANGES = [
   { id: 'year', label: '1 year' },
 ];
 
-function csvEscape(v) {
-  const s = v == null ? '' : String(v);
-  return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
-}
-
-function rowsToCsv(rows) {
-  const cols = [
-    'booking_code', 'created_at', 'booking_status', 'payment_status',
-    'fare_amount', 'currency', 'trip_type', 'passenger_name',
-  ];
-  const head = cols.join(',');
-  const body = rows.map((r) => cols.map((c) => csvEscape(r[c])).join(',')).join('\n');
-  return `${head}\n${body}`;
-}
-
-function downloadCsv(filename, csv) {
-  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = filename;
-  a.click();
-  URL.revokeObjectURL(url);
-}
+// Columns for the Reports CSV export — the escaping/download logic is the
+// shared lib/csv.js (also used by the Food settlement export).
+const REPORT_CSV_COLUMNS = [
+  'booking_code', 'created_at', 'booking_status', 'payment_status',
+  'fare_amount', 'currency', 'trip_type', 'passenger_name',
+].map((k) => ({ key: k, header: k }));
 
 function ReportStat({ label, value }) {
   return (
@@ -601,7 +584,7 @@ function ReportsView() {
   function exportCsv() {
     if (!data?.rows?.length) return;
     const stamp = new Date().toISOString().slice(0, 10);
-    downloadCsv(`smartmappia-report-${range}-${stamp}.csv`, rowsToCsv(data.rows));
+    downloadCsv(`smartmappia-report-${range}-${stamp}.csv`, toCsv(data.rows, REPORT_CSV_COLUMNS));
   }
 
   const t = data?.totals;

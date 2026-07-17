@@ -54,7 +54,8 @@ const ADMIN_ITEM_FIELDS = {
   category_id: { type: 'string', maxLength: 60, nullable: true },
   name: { type: 'string', maxLength: 120 },
   description: { type: 'string', maxLength: 1000, nullable: true },
-  price: { type: 'number', min: 0.01, max: 100000 },
+  price: { type: 'number', min: 0.01, max: 100000 }, // LIST price (shown to the customer)
+  net_price: { type: 'number', min: 0.01, max: 100000, nullable: true }, // what the restaurant keeps; markup = price - net_price
   item_type: { type: 'string', enum: ['meal_package', 'drink_dessert_addon'] },
   image_url: { type: 'string', maxLength: 500, nullable: true },
   is_available: { type: 'boolean' },
@@ -88,6 +89,29 @@ router.post(
   }),
   food.replenishCredit
 );
+// Image upload (logo / menu photo): issue a signed upload URL for the PUBLIC
+// merchant-images bucket. The frontend uploads then saves the returned public
+// URL via the normal merchant/item update endpoints.
+router.post(
+  '/food/merchants/:id/image/signed-url',
+  validateBody({
+    kind: { type: 'string', required: true, enum: ['logo', 'item'] },
+    file_name: { type: 'string', required: true, maxLength: 300 },
+    mime_type: { type: 'string', maxLength: 100, nullable: true },
+  }),
+  food.createMerchantImageUploadUrl
+);
+// Owner account provisioning (contract-signing step): create/reuse + link the
+// owner's account and grant it the merchant role.
+router.post(
+  '/food/merchants/:id/owner',
+  validateBody({
+    email: { type: 'string', required: true, maxLength: 200 },
+    full_name: { type: 'string', maxLength: 120, nullable: true },
+    phone: { type: 'string', maxLength: 40, nullable: true },
+  }),
+  food.setMerchantOwner
+);
 // Menu import + moderation (any restaurant)
 router.get('/food/merchants/:id/menu', food.getMerchantMenu);
 router.post(
@@ -109,6 +133,10 @@ router.post(
 );
 router.patch('/food/items/:id', validateBody(ADMIN_ITEM_FIELDS), food.moderateItem);
 router.delete('/food/items/:id', food.removeItem);
+// Settlement report: per-restaurant payout vs. our markup over a date range,
+// split by who collected the money (online = platform, cash = rider). Feeds
+// the "Download CSV" button in the Food Admin portal.
+router.get('/food/settlement', food.getSettlement);
 // Orders: admins run the restaurants (no owner accounts), so accept/reject
 // and the fulfillment ladder live here. Accept enforces the 300 SAR credit.
 router.get('/food/orders', food.listOrders);

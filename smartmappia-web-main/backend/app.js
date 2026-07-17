@@ -17,9 +17,11 @@ const bookingRoutes = require('./routes/bookings');
 const trackingRoutes = require('./routes/tracking');
 const adminRoutes = require('./routes/admin');
 const driverRoutes = require('./routes/driver');
+const merchantRoutes = require('./routes/merchant');
 const notificationRoutes = require('./routes/notifications');
 const osrmRoutes = require('./routes/osrm');
 const foodRoutes = require('./routes/food');
+const locationRoutes = require('./routes/locations');
 
 const app = express();
 
@@ -41,7 +43,10 @@ app.use(express.json()); // parse JSON request bodies
 
 // Rate limiting. Effective on a single server/VPS; on serverless it's best-effort
 // per-instance. General cap on the whole API, stricter on auth to slow brute force.
-const generalLimiter = rateLimit({ windowMs: 60 * 1000, max: 120, standardHeaders: true, legacyHeaders: false });
+// The general cap is 240/min because map-heavy screens (live tracking + the
+// location picker) legitimately make many small read calls per minute; the
+// sensitive endpoints keep their own tighter per-route limiters.
+const generalLimiter = rateLimit({ windowMs: 60 * 1000, max: 240, standardHeaders: true, legacyHeaders: false });
 const authLimiter = rateLimit({ windowMs: 60 * 1000, max: 20, standardHeaders: true, legacyHeaders: false });
 app.use('/api/', generalLimiter);
 app.use('/api/auth', authLimiter);
@@ -53,9 +58,11 @@ app.use('/api/bookings', bookingRoutes);
 app.use('/api/tracking', trackingRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/driver', driverRoutes);
+app.use('/api/merchant', merchantRoutes);
 app.use('/api/notifications', notificationRoutes);
 app.use('/api/osrm', osrmRoutes);
 app.use('/api/food', foodRoutes);
+app.use('/api/locations', locationRoutes);
 
 // Friendly root
 app.get('/', (req, res) => {

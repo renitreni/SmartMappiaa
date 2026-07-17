@@ -7,10 +7,11 @@ notification plumbing.
 **Node.js + Express** (plain JavaScript, no build step) on **Supabase** (Postgres + Auth + private
 Storage + Realtime). Runs the same on your laptop (`server.js`) and on the production VPS via PM2.
 
-> Quick start below. Deep dive (architecture, data model, go-live): **[DOCUMENTATION.md](DOCUMENTATION.md)**.
-> Frontend portals: **[../frontend/PORTALS.md](../frontend/PORTALS.md)**. Production feature doc:
-> **[../docs/production/PICK_AND_DROP.md](../docs/production/PICK_AND_DROP.md)**. How prod was deployed:
-> **[../docs/production/DEPLOYMENT_LOG.md](../docs/production/DEPLOYMENT_LOG.md)**.
+> Quick start below. **Full platform reference (architecture, data model, deployment, security,
+> admin runbook):** [../docs/SMARTMAPPIA.md](../docs/SMARTMAPPIA.md). **Food Delivery deep-dive:**
+> [../docs/food-delivery/FOOD_DELIVERY.md](../docs/food-delivery/FOOD_DELIVERY.md). Older docs
+> (the previous backend guide, deployment log, etc.) are archived under
+> [../docs/archive/](../docs/archive/).
 
 **Live:** API at `https://api.smartmappia.com` (behind Nginx + HTTPS, PM2 process `smartmappia-api`).
 
@@ -62,12 +63,14 @@ verifies it and reads the role from `profiles`.
 
 1. **Database** — in Supabase SQL Editor run migrations in order:
    `0001, 0002, 0003, 0005, 0006, 0007, 0008` (**skip `0004`** — pilot-only auto-approve).
-2. **Storage** — create two **private** buckets: `payment-proofs` and `driver-docs`.
+2. **Storage** — create two **private** buckets: `payment-proofs` and `driver-docs`,
+   and one **public** bucket: `merchant-images` (restaurant logos + menu photos).
 3. **Env** — `cp .env.example .env`, then fill `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`,
    `ADMIN_EMAILS`, `SMART_MAPPIA_STCPAY_NUMBER`. Keep `AUTO_VERIFY_STCPAY_TEST_MODE=true` for local
    testing; **`false` in production**.
 4. **Run** — `npm install && npm run dev` → `http://localhost:4000`.
-5. **Accounts** — `npm run seed:admin` (or `seed:accounts` for admin + ***REMOVED*** + ***REMOVED***).
+5. **Accounts** — `npm run seed:admin` (or `seed:accounts` for admin + ***REMOVED*** + ***REMOVED***);
+   `npm run seed:admins` creates the named admins (Ruth, Nawaf) with generated passwords.
    For custom admins: `ADMIN_SEED_EMAIL=you@x.com ADMIN_SEED_PASSWORD=... npm run seed:admin`.
 
 Health check: `curl http://localhost:4000/api/health`.
@@ -78,7 +81,8 @@ Health check: `curl http://localhost:4000/api/health`.
 
 Deployed on a Hostinger VPS: Node + PM2 behind Nginx + Certbot (HTTPS), with self-hosted OSRM in
 Docker. `app.set('trust proxy', 1)` is on so rate limits key on the real client IP. Full runbook +
-exact commands: **[../docs/production/DEPLOYMENT_LOG.md](../docs/production/DEPLOYMENT_LOG.md)**.
+exact commands: **[../docs/SMARTMAPPIA.md §16](../docs/SMARTMAPPIA.md#16-deployment--hosting--production)**
+(archived original: [../docs/archive/production/DEPLOYMENT_LOG.md](../docs/archive/production/DEPLOYMENT_LOG.md)).
 
 Redeploy after a change:
 ```bash
@@ -94,7 +98,8 @@ cd smartmappia-web-main/backend && npm install --omit=dev && pm2 restart smartma
   server-only, never in `VITE_*`.
 - `.env` is gitignored; never commit secrets.
 - Before public launch: turn off `AUTO_VERIFY_STCPAY_TEST_MODE`, remove test accounts, rotate seed
-  passwords. See [../docs/production/LAUNCH_CHECKLIST.md](../docs/production/LAUNCH_CHECKLIST.md).
+  passwords. See [../docs/SMARTMAPPIA.md §17](../docs/SMARTMAPPIA.md#17-security) (archived
+  checklist: [../docs/archive/production/LAUNCH_CHECKLIST.md](../docs/archive/production/LAUNCH_CHECKLIST.md)).
 
 ---
 
@@ -105,15 +110,30 @@ backend/
 │                 adminController, driverController, driverDocsController, notificationsController
 ├── middleware/   auth.js (JWT->role), rateLimiters.js
 ├── lib/          supabase, config, fare, storage, tracking, payments, ledger, realtime, geo, notifications
-├── routes/       health, auth, bookings, tracking, admin, driver, notifications, osrm
+├── routes/       health, auth, bookings, tracking, admin, driver, merchant, locations, notifications, osrm
 ├── app.js        server.js   vercel.json   package.json   .env.example
-└── migrations/   0001..0008 (+ 0004 PILOT — do not run in prod)
+└── migrations/   0001..0016 (+ 0004 PILOT — do not run in prod; 0009..0016 = Food Delivery)
 ```
+
+---
+
+## Web Push setup
+
+1. Apply migration `migrations/0017_web_push_notifications.sql`.
+2. Generate one VAPID key pair:
+   `npx web-push generate-vapid-keys`
+3. Set `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, and `VAPID_SUBJECT` in the
+   backend environment, then redeploy the backend and frontend.
+4. Serve the frontend over HTTPS. Users can then enable phone notifications
+   from the in-app prompt. iOS requires adding the site to the Home Screen.
+
+The operating system controls the background notification sound. The existing
+Web Audio chime is used while the app is visible.
 
 ---
 
 ## Still on the wishlist
 - **Tap Payments** backend (create-charge + webhook) — schema/enums ready (0006), handlers not built.
-- **Native push send** — token collection is built; the FCM sender worker is not.
+- **Native push send** — web push is live; an FCM/APNs sender is still needed for a future Capacitor app.
 - **Atomic writes** — wrap multi-table verify/complete in Postgres RPCs.
 - **Automated tests** — syntax-checked + smoke-tested by hand for now.

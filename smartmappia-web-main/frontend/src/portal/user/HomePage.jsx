@@ -4,9 +4,28 @@
 // a service. Add new services here as the platform grows.
 // ---------------------------------------------------------------------
 import { Link } from 'react-router-dom';
-import { Plane, UtensilsCrossed, ReceiptText, ArrowRight } from 'lucide-react';
+import { Plane, UtensilsCrossed, ReceiptText, ArrowRight, ShieldCheck } from 'lucide-react';
 import { useAuth } from '../lib/AuthProvider';
 import { PortalShell, Card } from '../components/ui';
+
+function QuickLink({ to, icon: Icon, title, subtitle }) {
+  return (
+    <Card className="p-4 flex items-center justify-between gap-3 hover:border-brand-orange/50 transition-colors">
+      <div className="flex items-center gap-3 min-w-0">
+        <div className="w-10 h-10 rounded-xl bg-brand-surface flex items-center justify-center shrink-0">
+          <Icon className="w-5 h-5 text-brand-grey" />
+        </div>
+        <div className="min-w-0">
+          <p className="font-bold text-brand-dark text-sm">{title}</p>
+          <p className="text-xs text-brand-grey truncate">{subtitle}</p>
+        </div>
+      </div>
+      <Link to={to} className="text-sm font-bold text-brand-orange shrink-0 flex items-center gap-1">
+        Open <ArrowRight className="w-4 h-4" />
+      </Link>
+    </Card>
+  );
+}
 
 function ServiceCard({ to, icon: Icon, title, description, cta }) {
   return (
@@ -51,20 +70,20 @@ export default function HomePage() {
           />
         </div>
 
-        <Card className="mt-4 p-4 flex items-center justify-between gap-3">
-          <div className="flex items-center gap-3 min-w-0">
-            <div className="w-10 h-10 rounded-xl bg-brand-surface flex items-center justify-center shrink-0">
-              <ReceiptText className="w-5 h-5 text-brand-grey" />
-            </div>
-            <div className="min-w-0">
-              <p className="font-bold text-brand-dark text-sm">My food orders</p>
-              <p className="text-xs text-brand-grey truncate">Track live orders and reorder favorites</p>
-            </div>
-          </div>
-          <Link to="/food/orders" className="text-sm font-bold text-brand-orange shrink-0 flex items-center gap-1">
-            Open <ArrowRight className="w-4 h-4" />
-          </Link>
-        </Card>
+        <div className="mt-4 space-y-3">
+          <QuickLink
+            to="/transactions"
+            icon={ShieldCheck}
+            title="Transaction records"
+            subtitle="Secure history & PDF receipts for every order and trip"
+          />
+          <QuickLink
+            to="/food/orders"
+            icon={ReceiptText}
+            title="My food orders"
+            subtitle="Track live orders and reorder favorites"
+          />
+        </div>
       </div>
     </PortalShell>
   );

@@ -5,6 +5,7 @@ import { Link } from 'react-router-dom';
 import { ArrowLeft, LogOut } from 'lucide-react';
 import { TONE_CLASSES } from '../lib/constants';
 import { useAuth } from '../lib/AuthProvider';
+import NotificationBell from './NotificationBell';
 
 export function PortalShell({ title, subtitle, right, onBack, children, wide = false }) {
   const { user, signOut } = useAuth();
@@ -37,6 +38,7 @@ export function PortalShell({ title, subtitle, right, onBack, children, wide = f
             {right}
             {user && (
               <>
+                <NotificationBell />
                 <span className="text-xs text-brand-grey font-medium max-w-[140px] truncate hidden md:block">{user.email}</span>
                 <button onClick={() => signOut()} title="Sign out" className="p-2 rounded-lg hover:bg-brand-surface cursor-pointer text-brand-grey">
                   <LogOut className="w-4 h-4" />

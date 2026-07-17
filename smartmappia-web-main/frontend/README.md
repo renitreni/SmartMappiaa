@@ -1,9 +1,9 @@
 # Smart Mappia — Frontend
 
-The React app for Smart Mappia's Airport **Pick & Drop**: the marketing site plus the rider, driver,
-and admin portals. **React 19 + Vite + Tailwind**, using Supabase for auth/realtime/uploads and
+The React app for Smart Mappia: the marketing site plus the rider, driver, merchant, admin, and
+food-delivery portals. **React 19 + Vite + Tailwind**, using Supabase for auth/realtime/uploads and
 Leaflet (CARTO/OpenStreetMap tiles) for maps. The same build is wrapped with **Capacitor** to ship
-the Android app — see [../docs/production/ANDROID_APP_GUIDE.md](../docs/production/ANDROID_APP_GUIDE.md).
+the Android app — see [../docs/SMARTMAPPIA.md §16](../docs/SMARTMAPPIA.md#16-deployment--hosting--production).
 
 **Live:** https://smartmappia.com (talks to `https://api.smartmappia.com`).
 
@@ -45,13 +45,13 @@ VITE_TAP_ENABLED=false                                   # "Pay online (coming s
 ## Production notes
 - Built on the VPS and served as static files by Nginx (apex + www), HTTPS via Certbot.
 - Rebuild + it's live: `git pull && npm run build` (see
-  [../docs/production/DEPLOYMENT_LOG.md](../docs/production/DEPLOYMENT_LOG.md)).
+  [../docs/SMARTMAPPIA.md §16](../docs/SMARTMAPPIA.md#16-deployment--hosting--production)).
 - Note: Vite 8 uses the rolldown bundler with a native binary — if `npm install` fails on a fresh
   Linux box with a "native binding" error, `rm -rf node_modules package-lock.json && npm install`.
 
 ## Where to read more
-- **[PORTALS.md](PORTALS.md)** — routes, roles, ride flow, map/route, admin preview, file map.
-- **[../docs/production/ANDROID_APP_GUIDE.md](../docs/production/ANDROID_APP_GUIDE.md)** — the Capacitor
-  Android app (build, native geolocation/push, payments, full API reference).
-- **[../docs/production/PICK_AND_DROP.md](../docs/production/PICK_AND_DROP.md)** — feature source of truth.
+- **[../docs/SMARTMAPPIA.md](../docs/SMARTMAPPIA.md)** — the platform master reference (architecture,
+  routes/roles, both services, dispatch, deployment, Android/Capacitor, security, admin runbook).
+- **[../docs/food-delivery/FOOD_DELIVERY.md](../docs/food-delivery/FOOD_DELIVERY.md)** — Food Delivery deep-dive.
 - **[../backend/README.md](../backend/README.md)** — the API side.
+- Older frontend/portal docs are archived under [../docs/archive/](../docs/archive/).

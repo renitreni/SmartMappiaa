@@ -28,7 +28,7 @@ async function hasExtendedProfileColumns(supabase) {
 
 function profileSelectColumns(extended) {
   const base =
-    'id, role, full_name, whatsapp_number, mobile_number, email, driver_approved';
+    'id, role, full_name, whatsapp_number, mobile_number, email, driver_approved, service_types';
   if (!extended) return base;
   return `${base}, ${EXTENDED_FIELDS.join(', ')}`;
 }

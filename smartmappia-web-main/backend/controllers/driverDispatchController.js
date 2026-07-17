@@ -28,7 +28,8 @@ const {
   pingFoodAdmin,
   broadcast,
 } = require('../lib/realtime');
-const { offerNext, loadFoodTarget, loadRideTarget } = require('../lib/dispatch');
+const { offerNext, loadFoodTarget, loadRideTarget, releaseFoodDelivery, releaseRide } = require('../lib/dispatch');
+const { hasService } = require('../lib/serviceTypes');
 
 // Order statuses during which a rider can still be working the delivery.
 const RIDER_ACTIVE_ORDER_STATUSES = ['accepted', 'preparing', 'ready', 'out_for_delivery'];
@@ -114,7 +115,7 @@ async function claimFoodDelivery(order, driverId) {
   pushMerchantFeed(order.merchantId, 'order_update', { orderCode: order.code, riderAssigned: true });
   pingFoodAdmin(order.code);
   broadcast('drivers-available', 'delivery_taken', { orderCode: order.code });
-  logNotification({ userId: order.customerId, type: 'food_rider_assigned' });
+  logNotification({ userId: order.customerId, type: 'food_rider_assigned', code: order.code });
   logAudit({
     actorId: driverId,
     action: 'driver_delivery_claimed',
@@ -135,7 +136,7 @@ async function claimRide(bookingId, driverId) {
     })
     .eq('id', bookingId)
     .is('assigned_driver_id', null)
-    .select('id, booking_code');
+    .select('id, booking_code, user_id');
   if (error || !claimed || claimed.length === 0) return { ok: false, conflict: true };
 
   const booking = claimed[0];
@@ -157,6 +158,12 @@ async function claimRide(bookingId, driverId) {
     driver: driver ? { name: driver.full_name, whatsapp: driver.whatsapp_number } : null,
   });
   announceRequestTaken(booking.booking_code);
+  logNotification({
+    userId: booking.user_id,
+    bookingId: booking.id,
+    type: 'ride_driver_accepted',
+    code: booking.booking_code,
+  });
   return { ok: true };
 }
 
@@ -307,6 +314,12 @@ async function listMyDeliveries(req, res) {
 // Open pool: deliveries every driver may claim (cascade exhausted).
 async function listOpenDeliveries(req, res) {
   try {
+    // Drivers who turned Food delivery off see an empty pool (200, not 403 —
+    // the frontend polls this silently). Admin preview bypasses.
+    if (req.role !== 'admin' && !hasService(req.profile, 'food')) {
+      return res.json({ deliveries: [] });
+    }
+
     const lat = req.query.lat != null ? Number(req.query.lat) : null;
     const lng = req.query.lng != null ? Number(req.query.lng) : null;
     const here = lat != null && lng != null ? { lat, lng } : null;
@@ -350,6 +363,10 @@ async function listOpenDeliveries(req, res) {
 
 async function claimOpenDelivery(req, res) {
   try {
+    if (req.role !== 'admin' && !hasService(req.profile, 'food')) {
+      return res.status(403).json({ error: 'Enable Food delivery in your services to claim deliveries' });
+    }
+
     const { data: order } = await supabase
       .from('orders')
       .select('id, order_code, status, merchant_id, customer_id')
@@ -365,6 +382,84 @@ async function claimOpenDelivery(req, res) {
     return res.json({ accepted: true, code: order.order_code });
   } catch (err) {
     console.error('claimOpenDelivery error:', err);
+    return res.status(500).json({ error: 'Unexpected server error' });
+  }
+}
+
+// POST /api/driver/deliveries/:code/cancel { reason? }
+// A rider gives up a delivery they accepted but has NOT picked up yet. The order
+// is released and instantly re-offered to the next-nearest driver (the canceller
+// is excluded from the cascade). After pickup this is refused — the food is with
+// the rider, so a support/admin path must handle it.
+async function cancelDelivery(req, res) {
+  try {
+    const { data: order } = await supabase
+      .from('orders')
+      .select('id, order_code, status')
+      .eq('order_code', req.params.code)
+      .maybeSingle();
+    if (!order) return res.status(404).json({ error: 'Delivery not found' });
+
+    const { data: delivery } = await supabase
+      .from('deliveries')
+      .select('id, driver_id, status')
+      .eq('order_id', order.id)
+      .maybeSingle();
+    if (!delivery || delivery.driver_id !== req.driverId) {
+      return res.status(403).json({ error: 'This delivery is not assigned to you' });
+    }
+    if (delivery.status !== 'assigned' || !['accepted', 'preparing', 'ready'].includes(order.status)) {
+      return res.status(409).json({ error: 'You can only cancel before you pick up the order' });
+    }
+
+    const released = await releaseFoodDelivery(order.id, {
+      previousDriverId: req.driverId,
+      reason: req.body.reason || null,
+      cause: 'cancelled',
+      actorId: req.driverId,
+    });
+    if (!released) {
+      return res.status(409).json({ error: 'This delivery can no longer be cancelled' });
+    }
+    return res.json({ cancelled: true, code: order.order_code });
+  } catch (err) {
+    console.error('cancelDelivery error:', err);
+    return res.status(500).json({ error: 'Unexpected server error' });
+  }
+}
+
+// POST /api/driver/rides/:code/cancel { reason? }
+// A driver gives up a Pick & Drop ride they accepted but has NOT started yet.
+// The booking is released back to 'confirmed' and re-offered to the next-nearest
+// driver (unlike the terminal 'cancelled' status, the passenger keeps their
+// trip). Once the trip has started this is refused.
+async function cancelRide(req, res) {
+  try {
+    const { data: booking } = await supabase
+      .from('bookings')
+      .select('id, booking_code, assigned_driver_id, driver_ride_status')
+      .eq('booking_code', req.params.code)
+      .maybeSingle();
+    if (!booking) return res.status(404).json({ error: 'Ride not found' });
+    if (booking.assigned_driver_id !== req.driverId) {
+      return res.status(403).json({ error: 'This ride is not assigned to you' });
+    }
+    if (!['accepted', 'on_the_way', 'arrived'].includes(booking.driver_ride_status)) {
+      return res.status(409).json({ error: 'You can only cancel before the trip starts' });
+    }
+
+    const released = await releaseRide(booking.id, {
+      previousDriverId: req.driverId,
+      reason: req.body.reason || null,
+      cause: 'cancelled',
+      actorId: req.driverId,
+    });
+    if (!released) {
+      return res.status(409).json({ error: 'This ride can no longer be cancelled' });
+    }
+    return res.json({ cancelled: true, code: booking.booking_code });
+  } catch (err) {
+    console.error('cancelRide error:', err);
     return res.status(500).json({ error: 'Unexpected server error' });
   }
 }
@@ -520,7 +615,11 @@ async function updateDeliveryStatus(req, res) {
     pushFoodOrderStatus(order.order_code, { status: flow.orderStatus });
     pushMerchantFeed(order.merchant_id, 'order_update', { orderCode: order.order_code, status: flow.orderStatus });
     pingFoodAdmin(order.order_code);
-    logNotification({ userId: order.customer_id, type: flow.notify });
+    logNotification({ userId: order.customer_id, type: flow.notify, code: order.order_code });
+    // A warm Thank You once the order is safely delivered (spec section 5).
+    if (flow.orderStatus === 'delivered') {
+      logNotification({ userId: order.customer_id, type: 'food_thank_you', code: order.order_code });
+    }
 
     return res.json({ orderCode: order.order_code, status: flow.orderStatus });
   } catch (err) {
@@ -536,6 +635,8 @@ module.exports = {
   listMyDeliveries,
   listOpenDeliveries,
   claimOpenDelivery,
+  cancelDelivery,
+  cancelRide,
   createDeliveryPhotoUrl,
   updateDeliveryStatus,
 };

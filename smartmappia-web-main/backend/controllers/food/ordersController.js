@@ -23,7 +23,7 @@ const { haversineKm, etaMinutes } = require('../../lib/geo');
 const { priceOrder } = require('../../lib/foodMoney');
 const { logFoodEvent } = require('../../lib/foodEvents');
 const { logAudit } = require('../../lib/audit');
-const { logNotification } = require('../../lib/notifications');
+const { logNotification, notifyAdmins } = require('../../lib/notifications');
 const { pushFoodOrderStatus, pushMerchantFeed, pingFoodAdmin } = require('../../lib/realtime');
 const { buildProofPath, createProofUploadUrl } = require('../../lib/storage');
 
@@ -102,7 +102,7 @@ async function checkout(req, res) {
     //    from the cart snapshot and certainly not from the client.
     const { data: menuRows, error: menuErr } = await supabase
       .from('menu_items')
-      .select('id, name, price, item_type, is_available, merchant_id')
+      .select('id, name, price, net_price, item_type, is_available, merchant_id')
       .in('id', cartLines.map((l) => l.menu_item_id));
     if (menuErr) {
       console.error('checkout menu load error:', menuErr);
@@ -121,6 +121,7 @@ async function checkout(req, res) {
           menuItemId: menu.id,
           name: menu.name,
           unitPrice: Number(menu.price),
+          netPrice: menu.net_price == null ? null : Number(menu.net_price),
           quantity: line.quantity,
           itemType: menu.item_type,
         });
@@ -223,6 +224,38 @@ async function checkout(req, res) {
     });
     pingFoodAdmin(order.order_code);
 
+    const creationAlerts = [
+      logNotification({
+        userId: req.userId,
+        orderId: order.id,
+        type: 'food_order_placed',
+        code: order.order_code,
+        title: 'Food order placed',
+        body: `Your order from ${merchant.name} was created successfully.`,
+        url: `/food/track/${order.order_code}`,
+      }),
+      notifyAdmins({
+        orderId: order.id,
+        type: 'admin_food_order_created',
+        code: order.order_code,
+        url: '/admin',
+      }),
+    ];
+    if (merchant.owner_id) {
+      creationAlerts.push(
+        logNotification({
+          userId: merchant.owner_id,
+          orderId: order.id,
+          type: 'merchant_food_order_created',
+          code: order.order_code,
+          title: 'New restaurant order',
+          body: `A customer placed order ${order.order_code}.`,
+          url: '/merchant',
+        })
+      );
+    }
+    await Promise.all(creationAlerts);
+
     return res.status(201).json({
       orderCode: order.order_code,
       status: order.status,
@@ -254,7 +287,9 @@ async function listOrders(req, res) {
       return res.status(500).json({ error: 'Could not load your orders' });
     }
     return res.json({
-      orders: (data || []).map(({ id, customer_id, ...order }) => order),
+      // platform_margin_total stays internal: with variable markup it would
+      // let the customer derive the restaurant's confidential net price.
+      orders: (data || []).map(({ id, customer_id, platform_margin_total, ...order }) => order),
     });
   } catch (err) {
     console.error('listOrders error:', err);
@@ -323,7 +358,8 @@ async function getOrder(req, res) {
       if (rating) driverRating = rating;
     }
 
-    const { id, customer_id, ...publicOrder } = order;
+    // platform_margin_total stays internal (net-price confidentiality).
+    const { id, customer_id, platform_margin_total, ...publicOrder } = order;
     return res.json({ order: publicOrder, items: items || [], merchant: merchant || null, rider, driverRating });
   } catch (err) {
     console.error('getOrder error:', err);
@@ -463,7 +499,7 @@ async function markOrderPaid(order, { provider, transactionId = null, raw = null
     resourceId: order.order_code,
     meta: { provider, amount: Number(order.total) },
   });
-  logNotification({ userId: order.customer_id, type: 'food_payment_confirmed' });
+  logNotification({ userId: order.customer_id, type: 'food_payment_confirmed', code: order.order_code });
 
   pushFoodOrderStatus(order.order_code, { paymentStatus: 'paid', status: order.status });
   pushMerchantFeed(order.merchant_id, 'payment_update', {
