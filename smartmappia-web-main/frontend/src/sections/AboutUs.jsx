@@ -23,7 +23,9 @@ const AboutUs = () => {
         >
           <h2 className="text-4xl md:text-5xl font-black mb-6 text-brand-black">Empowering the <span className="text-brand-orange">Kingdom of Saudi Arabia's</span> Daily Rhythm.</h2>
           <p className="text-brand-grey text-lg leading-relaxed">
-            SmartMappia was built on a simple vision: to bridge the gap between busy urban life and seamless service accessibility. We are more than just an app; we are your digital partner in food, delivery, and transport.
+            <span className="text-brand-black text-lg font-bold italic leading-relaxed">SmartMappia </span> 
+            was founded with a simple yet powerful vision: to bridge the gap between busy urban lifestyles and seamless access to essential services.
+            More than just and app, SmartMappia is your trusted digital partner, connecting you effortlessly to food, delivery and transportation solutions whenever and wherever you need them.
           </p>
         </motion.div>
         
@@ -34,7 +36,11 @@ const AboutUs = () => {
           className="border border-brand-orange/20 p-8 rounded-3xl bg-brand-warm"
         >
           <div className="text-brand-orange font-bold text-sm uppercase tracking-widest mb-4">Our Mission</div>
-          <p className="italic text-xl text-brand-dark">"To make every transaction in the Kingdom of Saudi Arabia effortless, secure, and instant for everyone."</p>
+          <p className="italic text-xl text-brand-dark">
+            "Our mission is to empower everyone in the Kingdom of Saudi Arabia with fast, secure, and reliable pick-up, drop-off, and delivery services.
+            To ensure a seamless and hassle free experience where every transaction is completed with ease and confidence."
+
+          </p>
         </motion.div>
         
         </div>
