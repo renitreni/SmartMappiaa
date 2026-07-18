@@ -94,12 +94,6 @@ const Hero = () => {
             >
               Explore Services
             </a>
-            <a
-              href="#see-it-in-action"
-              className="text-brand-grey hover:text-brand-orange font-semibold text-sm px-4 py-3.5 rounded-xl border border-brand-border hover:border-brand-orange/30 hover:bg-brand-warm transition-all duration-300"
-            >
-              Watch demo →
-            </a>
           </div>
 
           <div className="flex flex-wrap gap-8 pt-2 border-t border-brand-border w-full max-w-xl">

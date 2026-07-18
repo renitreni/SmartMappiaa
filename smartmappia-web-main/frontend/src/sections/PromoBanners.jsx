@@ -1,6 +1,6 @@
 import React from "react";
 import { motion } from "framer-motion";
-import { Sparkles, ArrowRight, Play } from "lucide-react";
+import { Sparkles } from "lucide-react";
 
 const promos = [
   {
@@ -108,26 +108,6 @@ const PromoBanners = () => {
             </motion.article>
           ))}
         </div>
-
-        <motion.div
-          initial={{ opacity: 0, y: 16 }}
-          whileInView={{ opacity: 1, y: 0 }}
-          viewport={{ once: true }}
-          transition={{ duration: 0.45, delay: 0.2 }}
-          className="flex flex-col sm:flex-row items-center justify-center gap-4 mt-12 md:mt-14"
-        >
-          <a
-            href="#see-it-in-action"
-            className="inline-flex items-center gap-2.5 bg-brand-orange hover:bg-brand-orange/90 text-white text-sm font-bold px-6 py-3 rounded-xl transition-all duration-300 hover:scale-[1.02] active:scale-95 shadow-md shadow-brand-orange/20"
-          >
-            <Play className="w-4 h-4 fill-current" strokeWidth={0} />
-            Watch demo
-            <ArrowRight className="w-4 h-4" strokeWidth={2.5} />
-          </a>
-          <p className="text-sm text-brand-grey text-center sm:text-left">
-            See SmartMappia in action below
-          </p>
-        </motion.div>
       </div>
     </section>
   );

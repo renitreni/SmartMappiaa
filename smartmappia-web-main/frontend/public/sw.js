@@ -1,5 +1,5 @@
-const CACHE_NAME = 'smartmappia-shell-v1';
-const SHELL = ['/', '/manifest.webmanifest', '/favicon.svg'];
+const CACHE_NAME = 'smartmappia-shell-v2';
+const SHELL = ['/', '/manifest.webmanifest', '/favicon.png'];
 
 self.addEventListener('install', (event) => {
   event.waitUntil(caches.open(CACHE_NAME).then((cache) => cache.addAll(SHELL)));
@@ -45,8 +45,8 @@ self.addEventListener('push', (event) => {
         }
         return self.registration.showNotification(data.title || 'Smart Mappia', {
           body: data.body || 'Open Smart Mappia to view the update.',
-          icon: '/favicon.svg',
-          badge: '/favicon.svg',
+          icon: '/favicon.png',
+          badge: '/favicon.png',
           tag: data.tag || `smartmappia-${Date.now()}`,
           renotify: true,
           data: { url: data.url || '/notifications' },
