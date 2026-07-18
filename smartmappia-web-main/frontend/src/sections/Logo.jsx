@@ -5,6 +5,7 @@ const partners = [
   { id: 1, name: "Chowking", logo: "brands/chowking.png" },
   { id: 2, name: "Black Pinoy", logo: "brands/black-pinoy.png" },
   { id: 3, name: "Sarap Inasal", logo: "brands/sarap-inasal.png" },
+  { id: 9, name: "Ka Inasal", logo: "brands/ka-inasal.png" },
   { id: 4, name: "Happy Ending", logo: "brands/happy-ending.png" },
   { id: 5, name: "Jollibee", logo: "brands/jollibee.png" },
   { id: 6, name: "Tianlala", logo: "brands/tianlala.png" },

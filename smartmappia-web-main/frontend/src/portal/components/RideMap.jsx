@@ -63,7 +63,7 @@ export default function RideMap({
 }) {
   return (
     <div
-      className={`relative rounded-2xl overflow-hidden border border-brand-border bg-brand-surface shadow-inner ${className}`}
+      className={`relative isolate rounded-2xl overflow-hidden border border-brand-border bg-brand-surface shadow-inner ${className}`}
       style={{ height }}
     >
       {supportsWebGL2() ? (
