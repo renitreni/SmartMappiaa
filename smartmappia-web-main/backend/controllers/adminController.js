@@ -15,6 +15,7 @@ const { addTrackingEvent } = require('../lib/tracking');
 const { verifyBookingPayment, rejectBookingPayment } = require('../lib/payments');
 const { createProofDownloadUrl, createDriverDocDownloadUrl } = require('../lib/storage');
 const { pushBookingStatus, announceRequestTaken } = require('../lib/realtime');
+const { driverCashView, settleDriverCash: settleDriverCashBalance } = require('../lib/driverCash');
 const { config } = require('../lib/config');
 
 function adminId(req) {
@@ -194,10 +195,80 @@ async function setDriverApproval(req, res) {
   }
 }
 
+// --- GET /api/admin/drivers/cash -------------------------------------
+// Drivers who hold SmartMappia's money from cash pick & drop rides: how
+// much each owes, whether they've hit the cap (blocked from new cash
+// rides), and their most recent settlement. Owing drivers first.
+async function listDriverCash(req, res) {
+  try {
+    const { data, error } = await supabase
+      .from('profiles')
+      .select('id, full_name, whatsapp_number, mobile_number, cash_owed, cash_owed_limit')
+      .eq('role', 'driver')
+      .order('cash_owed', { ascending: false });
+    if (error) { console.error('admin query error:', error); return res.status(500).json({ error: 'Unexpected server error' }); }
+
+    const drivers = (data || []).map((d) => ({
+      id: d.id,
+      fullName: d.full_name,
+      whatsapp: d.whatsapp_number,
+      mobile: d.mobile_number,
+      ...driverCashView(d),
+    }));
+    const totalOwed = drivers.reduce((sum, d) => sum + d.cashOwed, 0);
+    return res.json({ drivers, totalOwed: Math.round(totalOwed * 100) / 100 });
+  } catch (err) {
+    console.error('listDriverCash error:', err);
+    return res.status(500).json({ error: 'Unexpected server error' });
+  }
+}
+
+// --- POST /api/admin/drivers/:driverId/settle-cash -------------------
+// Record that a driver paid SmartMappia toward what they owe (weekly
+// settlement). Reduces cash_owed and writes a 'settlement' ledger row;
+// dropping back under the cap lifts their cash-ride block automatically.
+async function settleDriverCash(req, res) {
+  try {
+    const amount = Number(req.body && req.body.amount);
+    if (!Number.isFinite(amount) || amount <= 0) {
+      return res.status(400).json({ error: 'amount must be a positive number' });
+    }
+
+    const { data: driver, error: dErr } = await supabase
+      .from('profiles')
+      .select('id')
+      .eq('id', req.params.driverId)
+      .eq('role', 'driver')
+      .single();
+    if (dErr || !driver) return res.status(404).json({ error: 'Driver not found' });
+
+    const result = await settleDriverCashBalance({
+      driverId: driver.id,
+      amount,
+      adminId: adminId(req),
+      note: (req.body && req.body.note) || null,
+    });
+    if (result.error) {
+      console.error('settleDriverCash error:', result.error);
+      return res.status(500).json({ error: 'Could not record the settlement' });
+    }
+
+    const { data: fresh } = await supabase
+      .from('profiles')
+      .select('cash_owed, cash_owed_limit')
+      .eq('id', driver.id)
+      .single();
+    return res.json({ driverId: driver.id, ...driverCashView(fresh || { cash_owed: result.balanceAfter }) });
+  } catch (err) {
+    console.error('settleDriverCash error:', err);
+    return res.status(500).json({ error: 'Unexpected server error' });
+  }
+}
+
 async function loadBooking(bookingCode) {
   const { data, error } = await supabase
     .from('bookings')
-    .select('id, booking_code, fare_amount, currency, payment_status, booking_status, assigned_driver_id')
+    .select('id, booking_code, fare_amount, currency, payment_status, payment_method, booking_status, assigned_driver_id')
     .eq('booking_code', bookingCode)
     .single();
   if (error || !data) return null;
@@ -226,7 +297,7 @@ async function listBookings(req, res) {
       .from('bookings')
       .select(
         'booking_code, passenger_name, passenger_whatsapp, trip_type, pickup_datetime, ' +
-          'fare_amount, currency, payment_status, booking_status, driver_ride_status, ' +
+          'fare_amount, currency, payment_method, payment_status, booking_status, driver_ride_status, ' +
           'assigned_driver_id, created_at',
         { count: 'exact' }
       )
@@ -299,6 +370,12 @@ async function verifyPayment(req, res) {
     if (booking.payment_status === 'verified') {
       return res.status(409).json({ error: 'Payment already verified' });
     }
+    // Cash rides have no online payment to verify; the fare is collected by
+    // the driver at completion. Verifying here would reset booking_status to
+    // 'confirmed' and re-dispatch an already-assigned ride.
+    if (booking.payment_method === 'cash') {
+      return res.status(409).json({ error: 'Cash bookings are settled by the driver at pickup — nothing to verify here' });
+    }
 
     const proofId = await latestProofId(booking.id);
     const { booking: updated, error } = await verifyBookingPayment({
@@ -365,7 +442,9 @@ async function assignDriver(req, res) {
 
     const booking = await loadBooking(req.params.bookingCode);
     if (!booking) return res.status(404).json({ error: 'Booking not found' });
-    if (booking.payment_status !== 'verified') {
+    // Cash bookings are confirmed on creation (fare collected at pickup);
+    // STC Pay bookings need a verified payment before a driver is assigned.
+    if (booking.payment_status !== 'verified' && booking.payment_method !== 'cash') {
       return res.status(409).json({ error: 'Cannot assign a driver before payment is verified' });
     }
 
@@ -544,6 +623,8 @@ module.exports = {
   assignDriver,
   listDrivers,
   setDriverApproval,
+  listDriverCash,
+  settleDriverCash,
   listDriverDocuments,
   reviewDriverDocument,
 };

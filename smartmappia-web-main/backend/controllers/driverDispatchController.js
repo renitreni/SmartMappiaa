@@ -20,6 +20,7 @@ const { addTrackingEvent } = require('../lib/tracking');
 const { logAudit } = require('../lib/audit');
 const { logNotification } = require('../lib/notifications');
 const { buildDriverDocPath, createProofUploadUrl } = require('../lib/storage');
+const { isBlockedFromCash } = require('../lib/driverCash');
 const {
   pushBookingStatus,
   announceRequestTaken,
@@ -127,6 +128,23 @@ async function claimFoodDelivery(order, driverId) {
 
 // Claim a Pick & Drop booking (same atomic update as the classic accept).
 async function claimRide(bookingId, driverId) {
+  // Hard block: a driver at/over their cash-owed cap cannot take a cash ride.
+  // Checked before the claim so an over-cap driver never holds more of our
+  // money (STC rides are unaffected).
+  const { data: pay } = await supabase
+    .from('bookings')
+    .select('payment_method')
+    .eq('id', bookingId)
+    .maybeSingle();
+  if (pay && pay.payment_method === 'cash') {
+    const { data: drv } = await supabase
+      .from('profiles')
+      .select('cash_owed, cash_owed_limit')
+      .eq('id', driverId)
+      .single();
+    if (drv && isBlockedFromCash(drv)) return { ok: false, blocked: true };
+  }
+
   const { data: claimed, error } = await supabase
     .from('bookings')
     .update({
@@ -208,6 +226,12 @@ async function acceptOffer(req, res) {
     const result = await claimRide(offer.booking_id, req.driverId);
     if (!result.ok) {
       await supabase.from('dispatch_offers').update({ status: 'cancelled' }).eq('id', offer.id);
+      if (result.blocked) {
+        return res.status(403).json({
+          error: 'Settle your outstanding cash with SmartMappia before taking new cash rides',
+          failure_reason: 'cash_owed_limit_reached',
+        });
+      }
       return res.status(409).json({ error: 'This ride was already taken' });
     }
     const { data: booking } = await supabase

@@ -73,6 +73,16 @@ async function updateProfile(req, res) {
     const merchant = await requireOwnedMerchant(req, res);
     if (!merchant) return;
 
+    // Location is mandatory: drivers navigate to this pin and the 15 km
+    // delivery radius depends on it. The route rejects an explicit null, but
+    // guard here too so a legacy unpinned merchant must set one to save.
+    if (!Number.isFinite(req.body.lat) || !Number.isFinite(req.body.lng)) {
+      return res.status(400).json({
+        error: 'Set your restaurant location before saving',
+        failure_reason: 'restaurant_location_required',
+      });
+    }
+
     const { data, error } = await supabase
       .from('merchants')
       .update({
@@ -81,8 +91,8 @@ async function updateProfile(req, res) {
         description: req.body.description ?? null,
         logo_url: req.body.logo_url ?? null,
         address: req.body.address ?? null,
-        lat: req.body.lat ?? null,
-        lng: req.body.lng ?? null,
+        lat: req.body.lat,
+        lng: req.body.lng,
       })
       .eq('id', merchant.id)
       .eq('owner_id', req.merchantOwnerId)

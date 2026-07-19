@@ -47,6 +47,7 @@ import {
 } from '../lib/uploadFiles';
 import { fmtSAR, foodStatusMeta, foodPaymentMeta } from '../lib/constants';
 import { Card, Badge, Field, Spinner, btnPrimary, btnGhost, inputClass } from '../components/ui';
+import LocationPicker from '../components/LocationPicker';
 
 // --- Reusable image upload (restaurant logo / menu photo) -------------------
 // Uploads straight to the PUBLIC merchant-images bucket via a backend-issued
@@ -171,10 +172,18 @@ const BADGE_OPTIONS = [
 
 function RestaurantForm({ initial, onSave, onCancel, busy, merchantId }) {
   const [form, setForm] = useState({ ...EMPTY_RESTAURANT, ...initial });
+  const [locErr, setLocErr] = useState(null);
   const set = (k) => (e) => setForm((f) => ({ ...f, [k]: e.target.value }));
+
+  const hasPin = form.lat !== '' && form.lat != null && form.lng !== '' && form.lng != null;
 
   function submit(e) {
     e.preventDefault();
+    if (!hasPin) {
+      setLocErr('Pin the restaurant location on the map (search or use current location) so drivers know where to pick up.');
+      return;
+    }
+    setLocErr(null);
     onSave({
       name: form.name.trim(),
       cuisine_type: form.cuisine_type.trim() || null,
@@ -207,16 +216,26 @@ function RestaurantForm({ initial, onSave, onCancel, busy, merchantId }) {
           />
         </Field>
       </div>
-      <Field label="Address">
-        <input value={form.address || ''} onChange={set('address')} className={inputClass} placeholder="Street, district, city" />
-      </Field>
-      <div className="grid grid-cols-2 gap-3">
-        <Field label="Latitude (for the 15 km radius)">
-          <input type="number" step="any" value={form.lat ?? ''} onChange={set('lat')} className={inputClass} placeholder="24.7136" />
-        </Field>
-        <Field label="Longitude">
-          <input type="number" step="any" value={form.lng ?? ''} onChange={set('lng')} className={inputClass} placeholder="46.6753" />
-        </Field>
+      <div>
+        <LocationPicker
+          label="Restaurant location (pickup point for drivers)"
+          placeholder="Search the restaurant's street, district, or name"
+          address={form.address || ''}
+          coords={hasPin ? { lat: Number(form.lat), lng: Number(form.lng) } : null}
+          onChange={({ address: nextAddress, coords: nextCoords }) => {
+            setForm((f) => ({
+              ...f,
+              address: nextAddress,
+              lat: nextCoords?.lat ?? '',
+              lng: nextCoords?.lng ?? '',
+            }));
+            if (nextCoords?.lat) setLocErr(null);
+          }}
+        />
+        <p className="mt-1 text-xs text-brand-grey">
+          The pin sets the 15 km delivery radius and the driver's pickup navigation. Required.
+        </p>
+        {locErr && <p className="mt-1 text-xs font-bold text-red-600">{locErr}</p>}
       </div>
       <Field label="Description">
         <input value={form.description || ''} onChange={set('description')} className={inputClass} placeholder="Shown to customers" />
@@ -637,6 +656,7 @@ function MerchantsSection({ onError }) {
                   </div>
                   <Badge tone={m.isActive ? 'green' : 'grey'}>{m.isActive ? 'Listed' : 'Unlisted'}</Badge>
                   {m.status === 'suspended' && <Badge tone="red">Suspended</Badge>}
+                  {(m.lat == null || m.lng == null) && <Badge tone="amber">No location pin</Badge>}
                 </div>
 
                 <div className="mt-3 flex items-center gap-3">

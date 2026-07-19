@@ -10,8 +10,10 @@ const BUSINESS_FIELDS = {
   description: { type: 'string', maxLength: 1000, nullable: true },
   logo_url: { type: 'string', maxLength: 500, nullable: true },
   address: { type: 'string', maxLength: 500, nullable: true },
-  lat: { type: 'number', min: -90, max: 90, nullable: true },
-  lng: { type: 'number', min: -180, max: 180, nullable: true },
+  // Location is mandatory: absent keys are fine on a partial PATCH, but an
+  // explicit null (clearing the pin) is rejected. See updateProfile.
+  lat: { type: 'number', min: -90, max: 90 },
+  lng: { type: 'number', min: -180, max: 180 },
 };
 
 const CATEGORY_FIELDS = {

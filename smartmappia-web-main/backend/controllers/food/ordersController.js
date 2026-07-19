@@ -80,6 +80,17 @@ async function checkout(req, res) {
         failure_reason: 'restaurant_unavailable',
       });
     }
+    // A restaurant with no map pin cannot take orders: the driver would have
+    // no pickup point and the 15 km radius check below would be skipped
+    // (distance is null), letting orders slip in from any distance. New
+    // restaurants can no longer be listed unpinned, so this only guards
+    // legacy rows until an admin re-pins them.
+    if (!Number.isFinite(merchant.lat) || !Number.isFinite(merchant.lng)) {
+      return res.status(422).json({
+        error: 'This restaurant cannot take orders yet (location not set).',
+        failure_reason: 'restaurant_location_missing',
+      });
+    }
 
     // 2. Load the caller's cart for this restaurant.
     const { data: cart } = await supabase

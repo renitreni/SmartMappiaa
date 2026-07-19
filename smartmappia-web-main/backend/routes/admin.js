@@ -12,6 +12,8 @@ const {
   assignDriver,
   listDrivers,
   setDriverApproval,
+  listDriverCash,
+  settleDriverCash,
   listDriverDocuments,
   reviewDriverDocument,
 } = require('../controllers/adminController');
@@ -31,6 +33,17 @@ router.post('/bookings/:bookingCode/assign-driver', assignDriver);
 // Driver approval (verification)
 router.get('/drivers', listDrivers);
 router.post('/drivers/:driverId/approval', setDriverApproval);
+
+// Driver cash settlement (pick & drop cash rides)
+router.get('/drivers/cash', listDriverCash);
+router.post(
+  '/drivers/:driverId/settle-cash',
+  validateBody({
+    amount: { type: 'number', required: true, min: 0.01, max: 1000000 },
+    note: { type: 'string', maxLength: 500, nullable: true },
+  }),
+  settleDriverCash
+);
 router.get('/drivers/:driverId/documents', listDriverDocuments);
 router.post('/drivers/:driverId/documents/:docId/review', reviewDriverDocument);
 
@@ -44,8 +57,11 @@ const ADMIN_MERCHANT_FIELDS = {
   description: { type: 'string', maxLength: 1000, nullable: true },
   logo_url: { type: 'string', maxLength: 500, nullable: true },
   address: { type: 'string', maxLength: 500, nullable: true },
-  lat: { type: 'number', min: -90, max: 90, nullable: true },
-  lng: { type: 'number', min: -180, max: 180, nullable: true },
+  // Location is mandatory: absent keys are fine on a partial PATCH, but an
+  // explicit null (clearing the pin) is rejected. Create requires both; a
+  // merchant cannot be listed without a pin (see adminFoodController).
+  lat: { type: 'number', min: -90, max: 90 },
+  lng: { type: 'number', min: -180, max: 180 },
   is_active: { type: 'boolean' }, // listing on/off (vetting gate)
   is_featured: { type: 'boolean' }, // leads the public homepage grid
   badge: { type: 'string', enum: ['top_rated', 'popular', 'new', 'trending'], nullable: true },

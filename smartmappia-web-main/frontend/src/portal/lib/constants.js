@@ -85,7 +85,12 @@ export const RIDE_PAYMENT_STATUS = {
   refunded: { label: 'Refunded', tone: 'grey' },
 };
 
-export function ridePaymentMeta(status) {
+export function ridePaymentMeta(status, method) {
+  // Cash rides carry no online proof: until the driver collects the fare
+  // (which marks the booking verified), show a cash-specific pending label.
+  if (method === 'cash' && status !== 'verified') {
+    return { label: 'Cash — pay driver', tone: 'blue' };
+  }
   return RIDE_PAYMENT_STATUS[status] || { label: status || 'Unknown', tone: 'grey' };
 }
 

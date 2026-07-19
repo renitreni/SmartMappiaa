@@ -14,6 +14,7 @@
 const { supabase } = require('../lib/supabase');
 const { addTrackingEvent } = require('../lib/tracking');
 const { createLedgerEntryForBooking } = require('../lib/ledger');
+const { round2, isBlockedFromCash, driverCashView, chargeDriverCashOwed } = require('../lib/driverCash');
 const { haversineKm, etaMinutes } = require('../lib/geo');
 const { logNotification } = require('../lib/notifications');
 const { hasService } = require('../lib/serviceTypes');
@@ -56,15 +57,32 @@ async function listAvailableRides(req, res) {
       .from('bookings')
       .select(
         'booking_code, trip_type, airport_terminal, pickup_address, pickup_lat, pickup_lng, ' +
-          'dropoff_address, dropoff_lat, dropoff_lng, pickup_datetime, fare_amount, currency, created_at'
+          'dropoff_address, dropoff_lat, dropoff_lng, pickup_datetime, fare_amount, currency, ' +
+          'payment_method, created_at'
       )
-      .eq('payment_status', 'verified')
+      // Cash bookings are confirmed up front (no online payment to verify),
+      // so a verified payment OR a cash method makes a ride dispatchable.
+      .or('payment_status.eq.verified,payment_method.eq.cash')
       .eq('booking_status', 'confirmed')
       .is('assigned_driver_id', null)
       .order('created_at', { ascending: true });
     if (error) { console.error('driver query error:', error); return res.status(500).json({ error: 'Unexpected server error' }); }
 
-    const rides = (data || []).map((r) => {
+    // A driver over their cash-owed cap can't accept cash rides, so don't
+    // show them ones they'd only be blocked from taking (STC rides still show).
+    let feed = data || [];
+    if (req.role !== 'admin') {
+      const { data: drv } = await supabase
+        .from('profiles')
+        .select('cash_owed, cash_owed_limit')
+        .eq('id', req.driverId)
+        .single();
+      if (drv && isBlockedFromCash(drv)) {
+        feed = feed.filter((r) => r.payment_method !== 'cash');
+      }
+    }
+
+    const rides = feed.map((r) => {
       const distanceKm = here
         ? haversineKm(here, { lat: r.pickup_lat, lng: r.pickup_lng })
         : null;
@@ -98,12 +116,30 @@ async function acceptRide(req, res) {
 
     const { data: booking, error } = await supabase
       .from('bookings')
-      .select('id, booking_code, payment_status, booking_status, assigned_driver_id, user_id')
+      .select('id, booking_code, payment_status, payment_method, booking_status, assigned_driver_id, user_id')
       .eq('booking_code', req.params.bookingCode)
       .single();
     if (error || !booking) return res.status(404).json({ error: 'Ride not found' });
-    if (booking.payment_status !== 'verified') {
+    // Cash rides are ready on creation; STC Pay rides only once verified.
+    if (booking.payment_status !== 'verified' && booking.payment_method !== 'cash') {
       return res.status(409).json({ error: 'Ride is not ready to be accepted yet' });
+    }
+    // Hard block: a driver who owes SmartMappia at/over their cap cannot take
+    // on more cash (they'd be holding even more of our money). STC rides are
+    // unaffected — no cash changes hands.
+    if (booking.payment_method === 'cash') {
+      const { data: drv } = await supabase
+        .from('profiles')
+        .select('cash_owed, cash_owed_limit')
+        .eq('id', req.driverId)
+        .single();
+      if (drv && isBlockedFromCash(drv)) {
+        return res.status(403).json({
+          error: 'Settle your outstanding cash with SmartMappia before taking new cash rides',
+          failure_reason: 'cash_owed_limit_reached',
+          cash: driverCashView(drv),
+        });
+      }
     }
     if (booking.assigned_driver_id) {
       return res.status(409).json({ error: 'Ride already taken' });
@@ -272,7 +308,8 @@ async function updateRideStatus(req, res) {
 
     const { data: booking, error } = await supabase
       .from('bookings')
-      .select('id, booking_code, fare_amount, assigned_driver_id, driver_ride_status, booking_status, user_id')
+      .select('id, booking_code, fare_amount, currency, payment_method, payment_status, ' +
+        'assigned_driver_id, driver_ride_status, booking_status, user_id')
       .eq('booking_code', req.params.bookingCode)
       .single();
     if (error || !booking) return res.status(404).json({ error: 'Ride not found' });
@@ -312,6 +349,42 @@ async function updateRideStatus(req, res) {
         platformNet: result.ledger.platform_net,
         payoutStatus: result.ledger.payout_status,
       };
+
+      // Cash rides settle at handover: the driver has now collected the
+      // fare, so mark the booking paid and log the collection. Best-effort
+      // — a failure here must not fail the (already applied) completion.
+      // The ledger still models "platform holds fare, owes driver"; for cash
+      // the driver is holding it, so we ALSO record the commission they now
+      // owe SmartMappia (driver cash settlement, migration 0022).
+      if (booking.payment_method === 'cash' && booking.payment_status !== 'verified') {
+        const { error: payStatusErr } = await supabase
+          .from('bookings')
+          .update({ payment_status: 'verified' })
+          .eq('id', booking.id);
+        if (payStatusErr) console.error('cash payment_status update error:', payStatusErr);
+        const { error: payRowErr } = await supabase.from('payments').insert({
+          booking_id: booking.id,
+          provider: 'cash',
+          amount: booking.fare_amount,
+          currency: booking.currency,
+          status: 'verified',
+          verified_by_system: true,
+          verified_at: new Date().toISOString(),
+          notes: 'Cash collected by driver at completion',
+        });
+        if (payRowErr) console.error('cash payment record error:', payRowErr);
+
+        // Charge the platform commission to the driver's cash-owed balance.
+        // Only on a freshly-written ledger row (the completed-guard above
+        // already prevents re-entry, and result.skipped is a second belt).
+        if (!result.skipped) {
+          await chargeDriverCashOwed({
+            driverId: req.driverId,
+            bookingId: booking.id,
+            amount: round2(result.ledger.platform_net),
+          });
+        }
+      }
     }
 
     pushBookingStatus(updated.booking_code, {
@@ -347,6 +420,32 @@ async function updateRideStatus(req, res) {
     });
   } catch (err) {
     console.error('updateRideStatus error:', err);
+    return res.status(500).json({ error: 'Unexpected server error' });
+  }
+}
+
+// --- GET /api/driver/cash ---------------------------------------------
+// What this driver currently owes SmartMappia from cash pick & drop rides,
+// whether they're blocked from new cash rides, and their recent movements.
+async function getMyCash(req, res) {
+  try {
+    const { data: drv, error } = await supabase
+      .from('profiles')
+      .select('cash_owed, cash_owed_limit')
+      .eq('id', req.driverId)
+      .single();
+    if (error || !drv) return res.status(404).json({ error: 'Driver not found' });
+
+    const { data: ledger } = await supabase
+      .from('driver_cash_ledger')
+      .select('type, amount, balance_after, note, created_at')
+      .eq('driver_id', req.driverId)
+      .order('created_at', { ascending: false })
+      .limit(20);
+
+    return res.json({ ...driverCashView(drv), ledger: ledger || [] });
+  } catch (err) {
+    console.error('getMyCash error:', err);
     return res.status(500).json({ error: 'Unexpected server error' });
   }
 }
@@ -389,5 +488,6 @@ module.exports = {
   updateDriverLocation,
   listMyRides,
   updateRideStatus,
+  getMyCash,
   updateServiceTypes,
 };

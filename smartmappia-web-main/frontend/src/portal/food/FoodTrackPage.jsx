@@ -5,7 +5,7 @@
 // restaurant card, and the rider card (name + in-app Call and WhatsApp).
 // Payment panel appears inline while the order is awaiting payment.
 // ---------------------------------------------------------------------
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import {
   Check,
@@ -35,9 +35,16 @@ import {
   FOOD_TRACK_STEPS,
   FOOD_PAYMENT_METHODS,
 } from '../lib/constants';
+import { bearingDeg } from '../lib/geo';
 import { PortalShell, Card, Badge, Spinner, btnGhost } from '../components/ui';
 import RoutedRideMap from '../components/RoutedRideMap';
 import RateDriver from '../components/RateDriver';
+
+// Mini car glyph for the map legend's Rider chip (matches the map marker).
+const LEGEND_CAR_SVG =
+  '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round">' +
+  '<path d="M19 17h2c.6 0 1-.4 1-1v-3c0-.9-.7-1.7-1.5-1.9L18 10l-2.7-5.4A2 2 0 0 0 13.5 3h-3A2 2 0 0 0 8.7 4.6L6 10l-2.5 1.1C2.7 11.3 2 12.1 2 13v3c0 .6.4 1 1 1h2"/>' +
+  '<circle cx="7" cy="17" r="2"/><circle cx="17" cy="17" r="2"/></svg>';
 import PaymentPanel from './PaymentPanel';
 
 const POLL_MS = 8000;
@@ -208,6 +215,20 @@ export default function FoodTrackPage() {
   const [error, setError] = useState(null);
   // Live rider position, pushed on every GPS ping (~12s while online).
   const [riderLive, setRiderLive] = useState(null); // { lat, lng, at, etaMinutes }
+  // Rider heading so the car icon points along travel (mirrors TrackPage).
+  const [riderHeading, setRiderHeading] = useState(0);
+  const prevRiderRef = useRef(null);
+
+  useEffect(() => {
+    if (!riderLive?.lat || !riderLive?.lng) return;
+    const prev = prevRiderRef.current;
+    const cur = { lat: riderLive.lat, lng: riderLive.lng };
+    if (prev && (prev.lat !== cur.lat || prev.lng !== cur.lng)) {
+      const b = bearingDeg(prev, cur);
+      if (b != null) setRiderHeading(b);
+    }
+    prevRiderRef.current = cur;
+  }, [riderLive?.lat, riderLive?.lng]);
 
   const load = useCallback(async () => {
     try {
@@ -339,7 +360,7 @@ export default function FoodTrackPage() {
                     : null
                 }
                 markers={[
-                  { type: 'driver', lat: riderLive.lat, lng: riderLive.lng, key: 'rider' },
+                  { type: 'driver', lat: riderLive.lat, lng: riderLive.lng, key: 'rider', heading: riderHeading },
                   data.merchant && data.merchant.lat != null
                     ? { type: 'pickup', lat: data.merchant.lat, lng: data.merchant.lng, label: data.merchant.name, key: 'restaurant' }
                     : null,
@@ -348,7 +369,7 @@ export default function FoodTrackPage() {
                     : null,
                 ].filter(Boolean)}
                 legend={[
-                  { label: 'Rider', color: '#FF7E21', glyph: 'R' },
+                  { label: 'Rider', color: '#FF7E21', svg: LEGEND_CAR_SVG },
                   { label: 'Restaurant', color: '#FF7E21', glyph: 'P' },
                   { label: 'You', color: '#1F2937', glyph: 'D' },
                 ]}

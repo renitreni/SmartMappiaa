@@ -81,7 +81,7 @@ export default function TransactionsPage() {
     });
     const rideRows = (bookings || []).map((b) => {
       const s = statusMeta(b.booking_status);
-      const p = ridePaymentMeta(b.payment_status);
+      const p = ridePaymentMeta(b.payment_status, b.payment_method);
       return {
         key: `ride-${b.booking_code}`,
         service: 'ride',

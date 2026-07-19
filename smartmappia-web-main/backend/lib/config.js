@@ -88,6 +88,13 @@ const config = {
   ledger: {
     commissionRate: toNumber(process.env.PLATFORM_COMMISSION_RATE, 0.2),
     manualPaymentFee: toNumber(process.env.MANUAL_PAYMENT_FEE, 0),
+    // Driver cash settlement (pick & drop cash rides): the driver collects
+    // the fare and owes SmartMappia the commission. Past this running-owed
+    // cap they cannot accept new cash rides until an admin records a
+    // settlement (weekly cadence). Keep cashOwedLimit in sync with the
+    // profiles.cash_owed_limit column default in migration 0022.
+    cashOwedLimit: toNumber(process.env.DRIVER_CASH_OWED_LIMIT, 500),
+    cashOwedAlertPct: toNumber(process.env.DRIVER_CASH_ALERT_PCT, 0.8),
   },
 
   // Food Delivery business rules (docs/food-delivery/FOOD_DELIVERY_PRD.md §7).

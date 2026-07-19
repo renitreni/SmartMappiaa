@@ -10,7 +10,7 @@
 //      served (accepting is still atomic server-side).
 // ---------------------------------------------------------------------
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Bike, Check, X, MapPin, Phone, MessageCircle, Store, Timer, Camera, Banknote } from 'lucide-react';
+import { Bike, Check, X, MapPin, Phone, MessageCircle, Store, Timer, Camera, Banknote, Navigation } from 'lucide-react';
 import { api } from '../lib/api';
 import { useBroadcast } from '../lib/useBroadcast';
 import { realtimeEnabled, uploadProofFile } from '../lib/supabaseClient';
@@ -99,6 +99,10 @@ function DeliveryCard({ delivery, busy, onStatus, onCancel }) {
   const enRoute = delivery.orderStatus === 'out_for_delivery';
   const [photo, setPhoto] = useState(null);
   const nextStatus = enRoute ? 'delivered' : 'picked_up';
+  // Navigate to the restaurant before pickup, then to the customer.
+  const navTarget = enRoute
+    ? { lat: delivery.dropoffLat, lng: delivery.dropoffLng }
+    : { lat: delivery.merchant?.lat, lng: delivery.merchant?.lng };
 
   return (
     <Card className="p-4 mb-3">
@@ -147,6 +151,16 @@ function DeliveryCard({ delivery, busy, onStatus, onCancel }) {
             className={btnGhost + ' !py-2 !px-3 !text-xs !text-green-700 !border-green-200'}
           >
             <MessageCircle className="w-3.5 h-3.5" /> WhatsApp
+          </a>
+        )}
+        {navTarget.lat != null && navTarget.lng != null && (
+          <a
+            href={`https://waze.com/ul?ll=${navTarget.lat},${navTarget.lng}&navigate=yes`}
+            target="_blank"
+            rel="noreferrer"
+            className={btnGhost + ' !py-2 !px-3 !text-xs !text-white !bg-brand-dark hover:!bg-black !border-brand-dark'}
+          >
+            <Navigation className="w-3.5 h-3.5" /> {enRoute ? 'Navigate to customer' : 'Navigate to restaurant'}
           </a>
         )}
       </div>

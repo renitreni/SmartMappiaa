@@ -9,9 +9,12 @@ import {
   Upload,
   CheckCircle2,
   ArrowLeft,
+  ArrowRight,
   CreditCard,
   Copy,
   FileImage,
+  Smartphone,
+  Banknote,
 } from 'lucide-react';
 import { api } from '../lib/api';
 import { uploadProofFile } from '../lib/supabaseClient';
@@ -48,6 +51,7 @@ export default function BookPage() {
   const [datetime, setDatetime] = useState('');
   const [name, setName] = useState('');
   const [whatsapp, setWhatsapp] = useState('');
+  const [payMethod, setPayMethod] = useState('stcpay_manual');
 
   useEffect(() => {
     const dir = searchParams.get('direction');
@@ -119,8 +123,15 @@ export default function BookPage() {
         pickup_datetime: new Date(datetime).toISOString(),
         passenger_name: name,
         passenger_whatsapp: whatsapp,
+        payment_method: payMethod,
       });
       setBooking(created);
+      // Cash needs no online payment — the booking is already confirmed and
+      // a driver is being found. Skip STC instructions and confirm.
+      if (payMethod === 'cash') {
+        setStep('cash');
+        return;
+      }
       const inst = await api.paymentInstructions(created.bookingCode);
       setInstructions(inst);
       setStep('pay');
@@ -163,6 +174,47 @@ export default function BookPage() {
       subtitle={step === 'form' ? `SAR ${FARE.total.toFixed(2)} · Step ${currentStep} of 2` : `Booking ${booking?.bookingCode}`}
       onBack={step === 'pay' ? () => setStep('form') : () => navigate('/')}
     >
+      {step === 'cash' && booking && (
+        <div className="max-w-xl mx-auto">
+          <Card className="overflow-hidden">
+            <div className="px-6 py-6 bg-gradient-to-r from-green-50 to-white border-b border-brand-border text-center">
+              <div className="w-14 h-14 rounded-2xl bg-green-100 text-green-700 flex items-center justify-center mx-auto mb-3">
+                <CheckCircle2 className="w-7 h-7" />
+              </div>
+              <h2 className="font-black text-brand-black text-lg">Booking confirmed</h2>
+              <p className="text-sm text-brand-grey mt-1">
+                Booking code{' '}
+                <span className="font-mono font-bold text-brand-dark bg-brand-surface px-2 py-0.5 rounded-md">
+                  {booking.bookingCode}
+                </span>
+              </p>
+            </div>
+            <div className="p-6 space-y-5">
+              <div className="rounded-2xl border border-brand-border bg-brand-warm px-5 py-4 flex items-center justify-between gap-4">
+                <div className="flex items-center gap-3">
+                  <span className="w-10 h-10 rounded-xl bg-brand-orange text-white flex items-center justify-center shrink-0">
+                    <Banknote className="w-5 h-5" />
+                  </span>
+                  <span className="text-sm font-bold text-brand-dark">Pay your driver in cash at pickup</span>
+                </div>
+                <span className="text-2xl font-black text-brand-orange tabular-nums shrink-0">
+                  SAR {FARE.total.toFixed(2)}
+                </span>
+              </div>
+              <p className="text-sm text-brand-grey text-center">
+                We are finding you a driver now. Track your ride to see them arrive.
+              </p>
+              <button
+                onClick={() => navigate(`/track/${booking.bookingCode}`)}
+                className={btnPrimary + ' w-full py-4'}
+              >
+                Track my ride <ArrowRight className="w-4 h-4" />
+              </button>
+            </div>
+          </Card>
+        </div>
+      )}
+
       {error && (
         <div className="mb-4 p-3 rounded-xl bg-red-50 border border-red-200 text-red-700 text-sm font-medium">
           {error}
@@ -213,7 +265,47 @@ export default function BookPage() {
               </div>
               <p className="-mt-1 text-xs text-brand-grey">From your account — edit these in your Profile.</p>
 
-              <FareSummary fare={FARE} showButton buttonLabel="Continue to payment" busy={busy} compact />
+              <div>
+                <p className="text-xs font-bold text-brand-grey uppercase tracking-wide mb-2">How would you like to pay?</p>
+                <div className="space-y-2">
+                  {[
+                    { id: 'stcpay_manual', label: 'STC Pay', hint: 'Transfer + upload the screenshot', icon: Smartphone },
+                    { id: 'cash', label: 'Cash', hint: 'Pay your driver in cash at pickup', icon: Banknote },
+                  ].map(({ id, label, hint, icon: Icon }) => (
+                    <button
+                      key={id}
+                      type="button"
+                      onClick={() => setPayMethod(id)}
+                      className={`w-full flex items-center gap-3 p-3.5 rounded-xl border-2 text-left transition-colors cursor-pointer ${
+                        payMethod === id
+                          ? 'border-brand-orange bg-brand-warm'
+                          : 'border-brand-border hover:border-brand-orange/40'
+                      }`}
+                    >
+                      <div className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${
+                        payMethod === id ? 'bg-brand-orange text-white' : 'bg-brand-surface text-brand-grey'
+                      }`}>
+                        <Icon className="w-5 h-5" />
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <p className="font-bold text-brand-dark text-sm">{label}</p>
+                        <p className="text-xs text-brand-grey">{hint}</p>
+                      </div>
+                      <span className={`w-4 h-4 rounded-full border-2 shrink-0 ${
+                        payMethod === id ? 'border-brand-orange bg-brand-orange' : 'border-brand-border'
+                      }`} />
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <FareSummary
+                fare={FARE}
+                showButton
+                buttonLabel={payMethod === 'cash' ? 'Confirm booking' : 'Continue to payment'}
+                busy={busy}
+                compact
+              />
               <LegalConsentNote />
             </form>
           </Card>

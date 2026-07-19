@@ -107,6 +107,32 @@ const CHECKS = [
     },
     sqlFile: '0016_food_audit_hardening.sql',
   },
+  {
+    id: '0021',
+    name: 'ride cash payment (enum value)',
+    // Filtering on the enum value makes PostgREST cast it: errors with
+    // "invalid input value for enum payment_method" until 0021 has run.
+    run: async () => {
+      const { error } = await supabase
+        .from('bookings')
+        .select('id')
+        .eq('payment_method', 'cash')
+        .limit(0);
+      return error ? error.message : null;
+    },
+    sqlFile: '0021_ride_cash_payment.sql',
+  },
+  {
+    id: '0022',
+    name: 'driver cash settlement (cash_owed + ledger)',
+    run: async () => {
+      const e1 = (await supabase.from('profiles').select('cash_owed, cash_owed_limit').limit(0)).error;
+      if (e1) return e1.message;
+      const e2 = (await supabase.from('driver_cash_ledger').select('balance_after').limit(0)).error;
+      return e2 ? e2.message : null;
+    },
+    sqlFile: '0022_driver_cash_settlement.sql',
+  },
 ];
 
 async function main() {

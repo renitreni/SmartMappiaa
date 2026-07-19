@@ -8,6 +8,7 @@ const {
   updateDriverLocation,
   listMyRides,
   updateRideStatus,
+  getMyCash,
   updateServiceTypes,
 } = require('../controllers/driverController');
 const { SERVICE_TYPES } = require('../lib/serviceTypes');
@@ -50,6 +51,8 @@ router.patch(
 
 router.get('/rides', requireDriver, listMyRides);
 router.post('/rides/:bookingCode/status', requireDriver, updateRideStatus);
+// What the driver owes SmartMappia from cash rides (+ recent movements).
+router.get('/cash', requireDriver, getMyCash);
 // Give up an accepted ride (pre-start only) -> released + re-offered.
 router.post(
   '/rides/:code/cancel',

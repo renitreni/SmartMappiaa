@@ -79,7 +79,16 @@ function view(place) {
 async function fetchJson(url, opts = {}) {
   const res = await fetch(url, {
     ...opts,
-    headers: { 'User-Agent': USER_AGENT, Accept: 'application/json', ...(opts.headers || {}) },
+    // Accept-Language: en makes Nominatim return English/romanized names
+    // (e.g. "Al Olaya", "As Sulimaniyah") instead of Arabic for Riyadh — so
+    // pickup/delivery addresses are consistent Latin text and never garble in
+    // the PDF invoice. Overpass (/nearby) reads name tags directly, unaffected.
+    headers: {
+      'User-Agent': USER_AGENT,
+      Accept: 'application/json',
+      'Accept-Language': 'en',
+      ...(opts.headers || {}),
+    },
   });
   if (!res.ok) throw new Error(`Location provider failed (${res.status})`);
   return res.json();

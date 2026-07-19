@@ -36,8 +36,11 @@ export function resolvePinStyle(marker) {
   };
 }
 
+// Enlarged, brand-orange car so it clearly reads as a vehicle on the white
+// driver puck (not a dot). Rotated by the wrapping .sm-map-driver-heading span
+// so it points in the direction of travel.
 const CAR_SVG =
-  '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">' +
+  '<svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#FF7E21" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">' +
   '<path d="M19 17h2c.6 0 1-.4 1-1v-3c0-.9-.7-1.7-1.5-1.9L18 10l-2.7-5.4A2 2 0 0 0 13.5 3h-3A2 2 0 0 0 8.7 4.6L6 10l-2.5 1.1C2.7 11.3 2 12.1 2 13v3c0 .6.4 1 1 1h2"/>' +
   '<circle cx="7" cy="17" r="2"/><circle cx="17" cy="17" r="2"/>' +
   '</svg>';
@@ -68,7 +71,7 @@ export function pinSignature(marker) {
 function pinInnerHtml(marker) {
   const { kind, color, glyph } = resolvePinStyle(marker);
   const isDriver = kind === 'driver';
-  const size = isDriver ? 40 : 36;
+  const size = isDriver ? 46 : 36;
 
   const inner = isDriver
     ? `<div class="sm-map-driver-core">
@@ -88,7 +91,7 @@ function pinInnerHtml(marker) {
 export function buildPinEl(marker) {
   const { kind } = resolvePinStyle(marker);
   const isDriver = kind === 'driver';
-  const size = isDriver ? 40 : 36;
+  const size = isDriver ? 46 : 36;
   const el = document.createElement('div');
   el.className = `sm-map-pin-wrap ${isDriver ? 'sm-map-pin-wrap--driver' : ''}`;
   el.innerHTML = pinInnerHtml(marker);

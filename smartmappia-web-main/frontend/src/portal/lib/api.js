@@ -98,6 +98,10 @@ export const api = {
   adminDriverDocuments: (driverId) => request(`/api/admin/drivers/${driverId}/documents`),
   adminReviewDoc: (driverId, docId, body) =>
     request(`/api/admin/drivers/${driverId}/documents/${docId}/review`, { method: 'POST', body }),
+  // Driver cash settlement (pick & drop cash rides)
+  adminDriverCash: () => request('/api/admin/drivers/cash'),
+  adminSettleDriverCash: (driverId, body) =>
+    request(`/api/admin/drivers/${driverId}/settle-cash`, { method: 'POST', body }),
 
   // --- driver (identity from token) ---
   driverAvailable: (lat, lng) => {
@@ -105,6 +109,7 @@ export const api = {
     return request(`/api/driver/available${q}`, { silent: true }); // polled feed
   },
   driverRides: () => request('/api/driver/rides', { silent: true }), // polled feed
+  driverCash: () => request('/api/driver/cash', { silent: true }), // what the driver owes us
   driverAccept: (code) => request(`/api/driver/rides/${code}/accept`, { method: 'POST' }),
   driverStatus: (code, status) => request(`/api/driver/rides/${code}/status`, { method: 'POST', body: { status } }),
   // Give up an accepted ride before it starts -> auto re-dispatched to next-nearest.
