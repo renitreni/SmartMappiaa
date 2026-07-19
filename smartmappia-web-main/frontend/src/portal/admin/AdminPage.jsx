@@ -158,7 +158,10 @@ function BookingsView() {
               >
                 <div className="flex items-center justify-between gap-2">
                   <span className="font-mono text-xs font-bold text-brand-dark">{b.booking_code}</span>
-                  <Badge tone={meta.tone}>{b.payment_status}</Badge>
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    {b.payment_method === 'cash' && <Badge tone="blue">Cash</Badge>}
+                    <Badge tone={meta.tone}>{b.payment_status}</Badge>
+                  </div>
                 </div>
                 <div className="text-sm font-medium text-brand-dark mt-1 truncate">
                   {b.passenger_name} · SAR {b.fare_amount}
@@ -258,7 +261,11 @@ function BookingsView() {
                 </div>
               </div>
 
-              {detail.booking.payment_status !== 'verified' ? (
+              {detail.booking.payment_method === 'cash' ? (
+                <div className="mt-6 p-4 rounded-xl bg-blue-50 border border-blue-200 text-blue-700 text-sm font-bold flex items-center gap-2">
+                  <Check className="w-4 h-4" /> Cash booking — the driver collects the fare at pickup. Nothing to verify here.
+                </div>
+              ) : detail.booking.payment_status !== 'verified' ? (
                 <div className="flex flex-col sm:flex-row gap-3 mt-6">
                   <button
                     type="button"
@@ -385,6 +392,107 @@ function DriverDocsPanel({ driverId, onReviewed }) {
   );
 }
 
+// Cash pick & drop rides leave the driver holding SmartMappia's commission.
+// This panel shows who owes what and records weekly settlements. A driver at
+// their cap is blocked from new cash rides until they pay down under it.
+function DriverCashPanel() {
+  const [drivers, setDrivers] = useState([]);
+  const [totalOwed, setTotalOwed] = useState(0);
+  const [error, setError] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [busyId, setBusyId] = useState(null);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const res = await api.adminDriverCash();
+      setDrivers((res.drivers || []).filter((d) => d.cashOwed > 0));
+      setTotalOwed(res.totalOwed || 0);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => { load(); }, [load]);
+
+  async function settle(d) {
+    const raw = window.prompt(
+      `Record cash settlement from ${d.fullName || 'this driver'}.\n` +
+      `They owe SAR ${d.cashOwed.toFixed(2)}. Amount received (SAR)?`,
+      d.cashOwed.toFixed(2)
+    );
+    if (raw == null) return;
+    const amount = Number(raw);
+    if (!Number.isFinite(amount) || amount <= 0) {
+      setError('Enter a valid settlement amount.');
+      return;
+    }
+    setBusyId(d.id);
+    setError(null);
+    try {
+      await api.adminSettleDriverCash(d.id, { amount });
+      await load();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  return (
+    <Card className="p-5 mb-5">
+      <div className="flex items-center justify-between gap-2 mb-3">
+        <div>
+          <p className="font-black text-brand-black">Driver cash owed</p>
+          <p className="text-xs text-brand-grey">Commission from cash pick &amp; drop rides, collected by drivers.</p>
+        </div>
+        <div className="text-right">
+          <p className="text-[10px] font-bold text-brand-grey uppercase">Outstanding</p>
+          <p className="font-black text-brand-orange tabular-nums">SAR {totalOwed.toFixed(2)}</p>
+        </div>
+      </div>
+
+      {error && (
+        <div className="mb-3 p-3 rounded-xl bg-red-50 border border-red-200 text-red-700 text-sm font-medium">{error}</div>
+      )}
+      {loading && drivers.length === 0 && (
+        <div className="flex justify-center py-6"><Spinner /></div>
+      )}
+      {!loading && drivers.length === 0 && (
+        <p className="text-sm text-brand-grey text-center py-4">No drivers owe cash right now.</p>
+      )}
+
+      <div className="divide-y divide-brand-border">
+        {drivers.map((d) => (
+          <div key={d.id} className="py-2.5 flex items-center justify-between gap-3">
+            <div className="min-w-0">
+              <p className="font-bold text-brand-dark text-sm truncate">
+                {d.fullName || 'Driver'}
+                {d.blocked && <Badge tone="red" className="ml-2">Blocked</Badge>}
+                {d.warning && !d.blocked && <Badge tone="amber" className="ml-2">Near cap</Badge>}
+              </p>
+              <p className="text-xs text-brand-grey tabular-nums">
+                Owes SAR {d.cashOwed.toFixed(2)} of SAR {d.cashOwedLimit.toFixed(2)} cap
+              </p>
+            </div>
+            <button
+              type="button"
+              disabled={busyId === d.id}
+              onClick={() => settle(d)}
+              className={btnPrimary + ' !py-2 !px-3 !text-xs shrink-0'}
+            >
+              {busyId === d.id ? <Spinner className="!w-4 !h-4 !border-white/40 !border-t-white" /> : 'Record payment'}
+            </button>
+          </div>
+        ))}
+      </div>
+    </Card>
+  );
+}
+
 function DriversView() {
   const [drivers, setDrivers] = useState([]);
   const [error, setError] = useState(null);
@@ -435,6 +543,8 @@ function DriversView() {
           {error}
         </div>
       )}
+
+      <DriverCashPanel />
 
       <div className="flex flex-wrap items-center gap-2 mb-5">
         {[

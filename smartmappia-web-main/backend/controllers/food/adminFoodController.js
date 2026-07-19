@@ -155,6 +155,14 @@ const ADMIN_MERCHANT_SELECT =
 
 async function createMerchant(req, res) {
   try {
+    // Location is mandatory so drivers know where to pick up and the 15 km
+    // delivery radius is enforceable (an unpinned merchant would bypass it).
+    if (!Number.isFinite(req.body.lat) || !Number.isFinite(req.body.lng)) {
+      return res.status(400).json({
+        error: 'Restaurant location is required',
+        failure_reason: 'restaurant_location_required',
+      });
+    }
     const { data, error } = await supabase
       .from('merchants')
       .insert(req.body) // whitelisted by the route schema; unlisted by default
@@ -180,6 +188,23 @@ async function createMerchant(req, res) {
 
 async function updateMerchant(req, res) {
   try {
+    const current = await loadMerchant(req.params.id);
+    if (!current) return res.status(404).json({ error: 'Merchant not found' });
+
+    // A restaurant cannot be listed (visible + orderable) without a pin.
+    // The route already rejects an explicit null lat/lng, so this only bites
+    // legacy unpinned rows: they must be pinned in the same request that
+    // lists them (or before). Unlisting / other edits stay unblocked.
+    const nextLat = req.body.lat != null ? req.body.lat : current.lat;
+    const nextLng = req.body.lng != null ? req.body.lng : current.lng;
+    const willBeActive = req.body.is_active != null ? req.body.is_active : current.is_active;
+    if (willBeActive && (!Number.isFinite(nextLat) || !Number.isFinite(nextLng))) {
+      return res.status(400).json({
+        error: 'Set the restaurant location before listing it',
+        failure_reason: 'restaurant_location_required',
+      });
+    }
+
     const { data, error } = await supabase
       .from('merchants')
       .update(req.body) // may include is_active — listing/unlisting the restaurant

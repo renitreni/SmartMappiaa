@@ -65,7 +65,9 @@ router.post(
     delivery_address: { type: 'string', required: true, maxLength: 500 },
     delivery_lat: { type: 'number', required: true, min: -90, max: 90 },
     delivery_lng: { type: 'number', required: true, min: -180, max: 180 },
-    payment_method: { type: 'string', enum: ['stcpay', 'tap', 'cash'] },
+    // Food is STC Pay only for now. Tap arrives via the gated
+    // /orders/:code/tap-charge endpoint, never as a checkout method.
+    payment_method: { type: 'string', enum: ['stcpay'] },
   }),
   checkout
 );

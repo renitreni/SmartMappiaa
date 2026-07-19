@@ -122,7 +122,7 @@ async function loadRideTarget(bookingId) {
   const { data: b } = await supabase
     .from('bookings')
     .select('id, booking_code, booking_status, assigned_driver_id, pickup_address, pickup_lat, pickup_lng, ' +
-      'dropoff_address, dropoff_lat, dropoff_lng, trip_type, airport_terminal, pickup_datetime, fare_amount, currency')
+      'dropoff_address, dropoff_lat, dropoff_lng, trip_type, airport_terminal, pickup_datetime, fare_amount, currency, payment_method')
     .eq('id', bookingId)
     .maybeSingle();
   if (!b) return null;
@@ -131,10 +131,23 @@ async function loadRideTarget(bookingId) {
     id: b.id,
     code: b.booking_code,
     booking: b,
+    paymentMethod: b.payment_method,
     pickupAddress: b.pickup_address,
     point: b.pickup_lat != null && b.pickup_lng != null ? { lat: b.pickup_lat, lng: b.pickup_lng } : null,
     active: b.booking_status === 'confirmed' && !b.assigned_driver_id,
   };
+}
+
+// Drivers who owe SmartMappia at/over the cash cap. Coarse gate for cash-ride
+// OFFERS (uses the shared config limit, not per-driver overrides) so we don't
+// hand a cash ride to someone who'd be blocked from accepting it; the precise
+// per-driver block lives in acceptRide / claimRide.
+async function overCashCapDriverIds() {
+  const { data } = await supabase
+    .from('profiles')
+    .select('id')
+    .gte('cash_owed', config.ledger.cashOwedLimit);
+  return new Set((data || []).map((r) => r.id));
 }
 
 // --- Open pool fallback ---------------------------------------------------
@@ -173,10 +186,13 @@ async function dropToOpenPool(target) {
 async function offerNext(target) {
   if (!target || !target.active) return false;
 
-  const [locations, seen, busy] = await Promise.all([
+  // For cash rides, also exclude drivers over their cash-owed cap up front.
+  const isCashRide = target.kind === 'ride' && target.paymentMethod === 'cash';
+  const [locations, seen, busy, overCap] = await Promise.all([
     freshDriverLocations(),
     alreadyOfferedDriverIds(target),
     busyDriverIds(),
+    isCashRide ? overCashCapDriverIds() : Promise.resolve(new Set()),
   ]);
 
   // Only drivers who opted into this vertical (service_types, 0020).
@@ -184,7 +200,10 @@ async function offerNext(target) {
   const candidates = [...locations.entries()]
     .filter(
       ([driverId, loc]) =>
-        !seen.has(driverId) && !busy.has(driverId) && loc.services.includes(requiredService)
+        !seen.has(driverId) &&
+        !busy.has(driverId) &&
+        !overCap.has(driverId) &&
+        loc.services.includes(requiredService)
     )
     .map(([driverId, loc]) => ({
       driverId,

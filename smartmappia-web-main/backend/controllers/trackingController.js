@@ -23,7 +23,7 @@ async function getTracking(req, res) {
         'id, assigned_driver_id, booking_code, trip_type, airport_terminal, ' +
           'pickup_address, pickup_lat, pickup_lng, dropoff_address, dropoff_lat, dropoff_lng, ' +
           'pickup_datetime, fare_amount, currency, ' +
-          'payment_status, booking_status, verification_mode, driver_ride_status, ' +
+          'payment_method, payment_status, booking_status, verification_mode, driver_ride_status, ' +
           'confirmed_at, created_at'
       )
       .eq('booking_code', bookingCode)
@@ -91,6 +91,7 @@ async function getTracking(req, res) {
       pickupDatetime: booking.pickup_datetime,
       fareAmount: booking.fare_amount,
       currency: booking.currency,
+      paymentMethod: booking.payment_method,
       paymentStatus: booking.payment_status,
       bookingStatus: booking.booking_status,
       verificationMode: booking.verification_mode,

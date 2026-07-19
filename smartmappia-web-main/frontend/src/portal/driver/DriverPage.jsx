@@ -739,6 +739,8 @@ export default function DriverPage() {
 
   const [lastPayout, setLastPayout] = useState(null);
 
+  const [cash, setCash] = useState(null); // { cashOwed, cashOwedLimit, blocked, warning }
+
   const [driverMove, setDriverMove] = useState({ speedKmh: null, moving: false, heading: null });
 
   const prevCoordRef = useRef(null);
@@ -810,7 +812,15 @@ export default function DriverPage() {
 
 
 
-  useEffect(() => { if (driverApproved) loadActive(); }, [driverApproved, loadActive]);
+  const loadCash = useCallback(async () => {
+
+    try { setCash(await api.driverCash()); } catch { /* non-blocking */ }
+
+  }, []);
+
+
+
+  useEffect(() => { if (driverApproved) { loadActive(); loadCash(); } }, [driverApproved, loadActive, loadCash]);
 
 
 
@@ -935,6 +945,8 @@ export default function DriverPage() {
         setActiveRide(null);
 
         loadAvailable();
+
+        loadCash(); // a cash ride just added to what the driver owes us
 
       } else {
 
@@ -1145,6 +1157,27 @@ export default function DriverPage() {
               ? 'Please allow location / turn on GPS for this site so your customer can track you live on the map.'
               : 'Please turn on location so we can match you to nearby jobs.'}
             {geoError ? ` (${geoError})` : ''}
+          </div>
+        )}
+
+        {/* Cash owed to SmartMappia from cash pick & drop rides. */}
+        {cash && cash.cashOwed > 0 && (
+          <div className={`mb-4 p-3.5 rounded-2xl border text-sm ${
+            cash.blocked
+              ? 'bg-red-50 border-red-200 text-red-800'
+              : cash.warning
+                ? 'bg-amber-50 border-amber-200 text-amber-800'
+                : 'bg-brand-warm border-brand-orange/30 text-brand-dark'
+          }`}>
+            <div className="flex items-center justify-between gap-3">
+              <span className="font-bold">Cash owed to SmartMappia</span>
+              <span className="font-black tabular-nums">SAR {Number(cash.cashOwed).toFixed(2)}</span>
+            </div>
+            <p className="text-xs mt-1 opacity-90">
+              {cash.blocked
+                ? `You've hit your SAR ${Number(cash.cashOwedLimit).toFixed(2)} limit — you can't accept new cash rides until you settle with SmartMappia.`
+                : `Settle weekly with SmartMappia. Limit SAR ${Number(cash.cashOwedLimit).toFixed(2)}.`}
+            </p>
           </div>
         )}
 

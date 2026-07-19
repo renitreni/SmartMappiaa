@@ -45,9 +45,15 @@ async function createBooking(req, res) {
     if (![b.pickup_lat, b.pickup_lng, b.dropoff_lat, b.dropoff_lng].every(numOrNull)) {
       errors.push('coordinates must be numbers');
     }
+    // Tap isn't live yet: rides are manual STC Pay or cash to the driver.
+    const paymentMethod = b.payment_method ?? 'stcpay_manual';
+    if (!['stcpay_manual', 'cash'].includes(paymentMethod)) {
+      errors.push('payment_method must be "stcpay_manual" or "cash"');
+    }
     if (errors.length) {
       return res.status(400).json({ error: 'Validation failed', details: errors });
     }
+    const isCash = paymentMethod === 'cash';
 
     // --- fare snapshot (computed once, never recalculated) ---
     const { amount, currency } = quoteFare({ routeType: b.route_type });
@@ -75,8 +81,14 @@ async function createBooking(req, res) {
         passenger_email: b.passenger_email ?? null,
         fare_amount: amount,
         currency,
-        // booking_code, payment_method, payment_status, booking_status
-        // all come from database defaults.
+        payment_method: paymentMethod,
+        // Cash needs no proof upload: the booking is confirmed right away
+        // and the driver collects the fare at pickup. payment_status stays
+        // at its 'awaiting_proof' default until the ride completes, so
+        // revenue stats (which count 'verified') stay honest.
+        ...(isCash ? { booking_status: 'confirmed' } : {}),
+        // booking_code, payment_status (and booking_status for STC Pay)
+        // come from database defaults.
       })
       .select(
         'id, booking_code, fare_amount, currency, booking_status, payment_status, payment_method'
@@ -92,8 +104,10 @@ async function createBooking(req, res) {
     await supabase.from('tracking_events').insert({
       booking_id: booking.id,
       event_type: 'booking_created',
-      title: 'Booking created',
-      message: 'Your booking has been created. Please continue to payment.',
+      title: isCash ? 'Booking confirmed' : 'Booking created',
+      message: isCash
+        ? 'Your booking is confirmed. Pay the driver in cash at pickup.'
+        : 'Your booking has been created. Please continue to payment.',
     });
 
     await Promise.all([
@@ -102,9 +116,11 @@ async function createBooking(req, res) {
         bookingId: booking.id,
         type: 'ride_booking_confirmed',
         code: booking.booking_code,
-        title: 'Ride booking created',
-        body: 'Complete payment so Smart Mappia can find your driver.',
-        url: `/pay/${booking.booking_code}`,
+        title: isCash ? 'Ride booking confirmed' : 'Ride booking created',
+        body: isCash
+          ? 'Booking confirmed — pay your driver in cash at pickup.'
+          : 'Complete payment so Smart Mappia can find your driver.',
+        url: isCash ? `/track/${booking.booking_code}` : `/pay/${booking.booking_code}`,
       }),
       notifyAdmins({
         bookingId: booking.id,
@@ -114,6 +130,14 @@ async function createBooking(req, res) {
       }),
     ]);
 
+    // Cash bookings are already confirmed — find a driver right away
+    // (STC Pay bookings dispatch after the payment is verified).
+    if (isCash) {
+      // Lazy require: dispatch depends on realtime/geo (see lib/payments.js).
+      const { startRideDispatch } = require('../lib/dispatch');
+      startRideDispatch(booking.id);
+    }
+
     // We expose booking_code (public), never the internal id.
     return res.status(201).json({
       bookingCode: booking.booking_code,
@@ -122,7 +146,9 @@ async function createBooking(req, res) {
       bookingStatus: booking.booking_status,
       paymentStatus: booking.payment_status,
       paymentMethod: booking.payment_method,
-      next: `/booking/payment/stcpay/${booking.booking_code}`,
+      next: isCash
+        ? `/track/${booking.booking_code}`
+        : `/booking/payment/stcpay/${booking.booking_code}`,
     });
   } catch (err) {
     console.error('createBooking error:', err);

@@ -132,6 +132,7 @@ export default function MapLibreMap({
   const markerStoreRef = useRef(new Map()); // id -> { marker, el, sig, isDriver, label }
   const driverPosRef = useRef(null); // live (tweened) driver position
   const rafRef = useRef(null);
+  const didFollowFitRef = useRef(false); // framed the follow view once yet?
 
   const valid = markers.filter((m) => m && m.lat != null && m.lng != null);
   const driver = valid.find((m) => m.type === 'driver') || null;
@@ -329,24 +330,46 @@ export default function MapLibreMap({
   }, [pointsSig, follow, !!driver]);
 
   // --- 6. Camera: follow the driver + leg target ------------------------------
+  // Frame driver+target ONCE when follow engages, then gently PAN to the driver
+  // at a stable zoom on each subsequent GPS ping (matching the marker's 1200ms
+  // glide). Re-fitting on every ping made the camera re-zoom/jitter as the
+  // driver neared the target.
+  useEffect(() => {
+    if (!follow) { didFollowFitRef.current = false; return; }
+  }, [follow]);
+
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !follow || !driver) return;
     const bearing = map.getBearing();
-    if (followTarget && followTarget.lat != null && followTarget.lng != null) {
+    const hasTarget = followTarget && followTarget.lat != null && followTarget.lng != null;
+
+    // Test/teleport data on far-apart points: stay local, don't world-zoom.
+    if (hasTarget) {
       const dist = haversineKm(driver, followTarget);
       if (dist != null && dist > 80) {
-        map.easeTo({ center: [driver.lng, driver.lat], zoom: 14 });
+        map.easeTo({ center: [driver.lng, driver.lat], zoom: 14, duration: 1200 });
         return;
       }
-      const bounds = new maplibregl.LngLatBounds(
-        [driver.lng, driver.lat],
-        [driver.lng, driver.lat]
-      ).extend([followTarget.lng, followTarget.lat]);
-      map.fitBounds(bounds, { padding: 72, maxZoom: 15, bearing });
+    }
+
+    // First frame after follow engages: fit driver (+ target) once.
+    if (!didFollowFitRef.current) {
+      didFollowFitRef.current = true;
+      if (hasTarget) {
+        const bounds = new maplibregl.LngLatBounds(
+          [driver.lng, driver.lat],
+          [driver.lng, driver.lat]
+        ).extend([followTarget.lng, followTarget.lat]);
+        map.fitBounds(bounds, { padding: 72, maxZoom: 15, bearing });
+      } else {
+        map.easeTo({ center: [driver.lng, driver.lat], zoom: Math.max(map.getZoom(), 14) });
+      }
       return;
     }
-    map.easeTo({ center: [driver.lng, driver.lat], zoom: Math.max(map.getZoom(), 14) });
+
+    // Subsequent pings: gentle pan to the driver, keeping the current zoom.
+    map.easeTo({ center: [driver.lng, driver.lat], zoom: map.getZoom(), duration: 1200 });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [follow, driver?.lat, driver?.lng, followTarget?.lat, followTarget?.lng]);
 

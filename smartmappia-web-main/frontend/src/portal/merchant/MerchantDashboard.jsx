@@ -30,6 +30,7 @@ import {
   validateMenuImageFile,
 } from '../lib/uploadFiles';
 import { Badge, Field, Spinner, btnGhost, btnPrimary, inputClass } from '../components/ui';
+import LocationPicker from '../components/LocationPicker';
 import MerchantLayout from './MerchantLayout';
 
 const FOOD_MARGIN_MEAL = 5;
@@ -771,17 +772,28 @@ function BusinessTab({ merchant, businessForm, setBusinessForm, setMerchant, sav
 
           <div className="space-y-4">
             <p className="text-[11px] font-bold uppercase tracking-wider text-brand-grey">Location</p>
-            <Field label="Address">
-              <input className={inputClass} value={businessForm.address} onChange={(e) => setBusinessForm((f) => ({ ...f, address: e.target.value }))} />
-            </Field>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <Field label="Latitude">
-                <input type="number" step="any" className={inputClass} value={businessForm.lat} onChange={(e) => setBusinessForm((f) => ({ ...f, lat: e.target.value }))} />
-              </Field>
-              <Field label="Longitude">
-                <input type="number" step="any" className={inputClass} value={businessForm.lng} onChange={(e) => setBusinessForm((f) => ({ ...f, lng: e.target.value }))} />
-              </Field>
-            </div>
+            <LocationPicker
+              label="Restaurant location (pickup point for drivers)"
+              placeholder="Search your street, district, or business name"
+              address={businessForm.address}
+              coords={
+                businessForm.lat !== '' && businessForm.lat != null &&
+                businessForm.lng !== '' && businessForm.lng != null
+                  ? { lat: Number(businessForm.lat), lng: Number(businessForm.lng) }
+                  : null
+              }
+              onChange={({ address: nextAddress, coords: nextCoords }) =>
+                setBusinessForm((f) => ({
+                  ...f,
+                  address: nextAddress,
+                  lat: nextCoords?.lat ?? '',
+                  lng: nextCoords?.lng ?? '',
+                }))
+              }
+            />
+            <p className="text-xs text-brand-grey">
+              The pin sets your 15 km delivery radius and where drivers go to pick up. Required to stay listed.
+            </p>
           </div>
 
           <div className="space-y-4">
@@ -879,6 +891,13 @@ export default function MerchantDashboard() {
 
   async function saveBusiness(e) {
     e.preventDefault();
+    if (
+      businessForm.lat === '' || businessForm.lat == null ||
+      businessForm.lng === '' || businessForm.lng == null
+    ) {
+      setError('Pin your restaurant location on the map (search or use current location) so drivers know where to pick up.');
+      return;
+    }
     setSaving(true);
     setError(null);
     try {

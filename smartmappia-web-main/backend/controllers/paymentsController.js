@@ -33,6 +33,17 @@ async function loadBooking(bookingCode) {
   return data;
 }
 
+// Cash rides pay the driver at pickup — none of the online STC Pay proof
+// endpoints apply. The frontend never calls them for cash, so this is a
+// defensive 409 for a mismatched client.
+function cashBlocked(res, booking) {
+  if (booking.payment_method === 'cash') {
+    res.status(409).json({ error: 'This booking is cash on delivery — no online payment is needed' });
+    return true;
+  }
+  return false;
+}
+
 // --- Increment 1 -----------------------------------------------------
 async function getPaymentInstructions(req, res) {
   try {
@@ -40,6 +51,7 @@ async function getPaymentInstructions(req, res) {
     if (!booking) {
       return res.status(404).json({ error: 'Booking not found' });
     }
+    if (cashBlocked(res, booking)) return;
 
     const fare = fareBreakdown(booking.fare_amount);
 
@@ -85,6 +97,7 @@ async function createProofUploadUrlHandler(req, res) {
     if (!booking) {
       return res.status(404).json({ error: 'Booking not found' });
     }
+    if (cashBlocked(res, booking)) return;
     if (!PAYABLE_STATUSES.includes(booking.payment_status)) {
       return res.status(409).json({
         error: `Payment already ${booking.payment_status}; a new proof cannot be uploaded`,
@@ -123,6 +136,7 @@ async function recordPaymentProof(req, res) {
     if (!booking) {
       return res.status(404).json({ error: 'Booking not found' });
     }
+    if (cashBlocked(res, booking)) return;
     if (!PAYABLE_STATUSES.includes(booking.payment_status)) {
       return res.status(409).json({
         error: `Payment already ${booking.payment_status}; a new proof cannot be recorded`,

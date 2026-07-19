@@ -7,17 +7,17 @@
 // ---------------------------------------------------------------------
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useSearchParams, Link } from 'react-router-dom';
-import { MapPin, AlertCircle, ArrowRight, Smartphone, Banknote, CreditCard } from 'lucide-react';
+import { MapPin, AlertCircle, ArrowRight, Smartphone, CreditCard } from 'lucide-react';
 import { api } from '../lib/api';
 import { fmtSAR, FOOD_RADIUS_KM } from '../lib/constants';
 import { PortalShell, Card, Spinner, btnPrimary, btnGhost } from '../components/ui';
 import LocationPicker from '../components/LocationPicker';
 import PaymentPanel from './PaymentPanel';
 
-// Payment options shown at checkout. Card (Tap) ships later — placeholder.
+// Payment options shown at checkout. Food is STC Pay only for now;
+// card (Tap) ships later — placeholder.
 const PAY_METHODS = [
   { id: 'stcpay', label: 'STC Pay', hint: 'Transfer + upload the screenshot', icon: Smartphone, disabled: false },
-  { id: 'cash', label: 'Cash on delivery', hint: 'Pay the rider at your door', icon: Banknote, disabled: false },
   { id: 'card', label: 'Card', hint: 'Coming soon', icon: CreditCard, disabled: true },
 ];
 
@@ -59,11 +59,6 @@ export default function FoodCheckoutPage() {
         },
         idempotencyKey
       );
-      // Cash on delivery: nothing to pay online — straight to live tracking.
-      if (method === 'cash') {
-        navigate(`/food/track/${order.orderCode}`);
-        return;
-      }
       setPlacedCode(order.orderCode);
     } catch (err) {
       // The backend speaks in failure_reason for the designed error states.
@@ -229,8 +224,6 @@ export default function FoodCheckoutPage() {
             >
               {busy ? (
                 <Spinner className="!border-white/40 !border-t-white" />
-              ) : method === 'cash' ? (
-                <>Place order — pay cash on delivery <ArrowRight className="w-4 h-4" /></>
               ) : (
                 <>Place order & continue to payment <ArrowRight className="w-4 h-4" /></>
               )}

@@ -42,8 +42,9 @@ function MapLegend({ items }) {
           <span
             className="w-5 h-5 rounded-full flex items-center justify-center text-[10px] text-white font-black shrink-0"
             style={{ backgroundColor: item.color }}
+            {...(item.svg ? { dangerouslySetInnerHTML: { __html: item.svg } } : {})}
           >
-            {item.glyph}
+            {item.svg ? null : item.glyph}
           </span>
           {item.label}
         </span>

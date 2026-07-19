@@ -9,7 +9,7 @@
 // ---------------------------------------------------------------------
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { MessageCircle, X, MapPin, Flag, Navigation, Clock, RefreshCw, Car, Heart, Download } from 'lucide-react';
+import { MessageCircle, X, MapPin, Flag, Navigation, Clock, RefreshCw, Car, Heart, Download, Banknote } from 'lucide-react';
 import { api } from '../lib/api';
 import { downloadRideInvoice } from '../lib/invoice';
 import { useBroadcast } from '../lib/useBroadcast';
@@ -25,6 +25,12 @@ import RateDriver from '../components/RateDriver';
 
 // Round a coord to ~100m so the OSRM route only refetches on real movement.
 const r3 = (x) => (x == null ? '' : Math.round(x * 1000) / 1000);
+
+// Mini car glyph for the map legend's Driver chip (matches the map marker).
+const LEGEND_CAR_SVG =
+  '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round">' +
+  '<path d="M19 17h2c.6 0 1-.4 1-1v-3c0-.9-.7-1.7-1.5-1.9L18 10l-2.7-5.4A2 2 0 0 0 13.5 3h-3A2 2 0 0 0 8.7 4.6L6 10l-2.5 1.1C2.7 11.3 2 12.1 2 13v3c0 .6.4 1 1 1h2"/>' +
+  '<circle cx="7" cy="17" r="2"/><circle cx="17" cy="17" r="2"/></svg>';
 
 const ACTIVE = ['accepted', 'on_the_way', 'arrived', 'started'];
 
@@ -190,7 +196,7 @@ export default function TrackPage() {
   const mapLegend = [
     pickup && { glyph: 'P', color: '#FF7E21', label: 'Pickup' },
     dropoff && { glyph: 'D', color: '#1F2937', label: 'Drop-off' },
-    driverLoc && { glyph: '●', color: '#FF7E21', label: 'Driver' },
+    driverLoc && { svg: LEGEND_CAR_SVG, color: '#FF7E21', label: 'Driver' },
   ].filter(Boolean);
 
   // Prefer the real OSRM road geometry; fall back to a straight guide line
@@ -297,6 +303,21 @@ export default function TrackPage() {
             </Card>
           )}
 
+          {/* Cash trip reminder — until the fare is collected at pickup. */}
+          {data.paymentMethod === 'cash' && data.bookingStatus !== 'completed' && (
+            <Card className="p-4 flex items-center gap-3 bg-brand-warm border-brand-orange/30">
+              <span className="w-10 h-10 rounded-xl bg-brand-orange text-white flex items-center justify-center shrink-0">
+                <Banknote className="w-5 h-5" />
+              </span>
+              <div className="min-w-0">
+                <p className="font-bold text-brand-dark text-sm">Cash trip</p>
+                <p className="text-xs text-brand-grey">
+                  Pay SAR {Number(data.fareAmount).toFixed(2)} to your driver in cash at pickup.
+                </p>
+              </div>
+            </Card>
+          )}
+
           {/* Trip completed: warm thank-you + downloadable PDF invoice (spec §6). */}
           {data.bookingStatus === 'completed' && (
             <Card className="p-5 text-center bg-gradient-to-br from-brand-orange/10 to-white border-brand-orange/30">
@@ -321,7 +342,7 @@ export default function TrackPage() {
                       fare_amount: data.fareAmount,
                       currency: data.currency,
                       payment_status: data.paymentStatus,
-                      payment_method: 'STC Pay',
+                      payment_method: data.paymentMethod === 'cash' ? 'Cash' : 'STC Pay',
                     },
                     customerName: profile?.fullName || user?.email || 'Smart Mappia customer',
                   })
