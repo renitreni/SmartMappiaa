@@ -96,11 +96,16 @@ async function busyDriverIds() {
 //        | { kind: 'ride', id, code, point: {lat,lng} | null }
 
 async function loadFoodTarget(orderId) {
-  const { data: order } = await supabase
+  const { data: order, error } = await supabase
     .from('orders')
     .select('id, order_code, status, payment_status, payment_method, merchant_id, merchants ( lat, lng, name, address )')
     .eq('id', orderId)
     .maybeSingle();
+  // A dropped error here used to be indistinguishable from "order not found"
+  // — a DB blip could silently orphan a job (never re-offered, never dropped
+  // to the open pool). Not fixed to retry (that's a bigger change to the
+  // sweep loop); logged so it's visible instead of invisible.
+  if (error) console.error('loadFoodTarget error:', error);
   if (!order) return null;
   const m = order.merchants;
   // Dispatchable once accepted and either paid up front or cash on delivery
@@ -119,12 +124,15 @@ async function loadFoodTarget(orderId) {
 }
 
 async function loadRideTarget(bookingId) {
-  const { data: b } = await supabase
+  const { data: b, error } = await supabase
     .from('bookings')
     .select('id, booking_code, booking_status, assigned_driver_id, pickup_address, pickup_lat, pickup_lng, ' +
       'dropoff_address, dropoff_lat, dropoff_lng, trip_type, airport_terminal, pickup_datetime, fare_amount, currency, payment_method')
     .eq('id', bookingId)
     .maybeSingle();
+  // Same reasoning as loadFoodTarget: log rather than silently treat a DB
+  // blip as "booking not found."
+  if (error) console.error('loadRideTarget error:', error);
   if (!b) return null;
   return {
     kind: 'ride',
@@ -376,13 +384,19 @@ async function sweepAbandonedDeliveries() {
     return;
   }
   for (const row of rows || []) {
-    const { data: loc } = await supabase
+    const { data: loc, error: locError } = await supabase
       .from('driver_locations')
       .select('recorded_at')
       .eq('driver_id', row.driver_id)
       .order('recorded_at', { ascending: false })
       .limit(1)
       .maybeSingle();
+    if (locError) {
+      // A blip here must NOT read as "never seen" (lastSeen=0) — that would
+      // reclaim a live delivery out from under a driver who is actually fine.
+      console.error('sweepAbandonedDeliveries location lookup error:', locError);
+      continue;
+    }
     const lastSeen = loc ? new Date(loc.recorded_at).getTime() : 0;
     if (lastSeen < staleBefore) {
       await releaseFoodDelivery(row.order_id, {
@@ -455,13 +469,19 @@ async function sweepAbandonedRides() {
     return;
   }
   for (const b of rows || []) {
-    const { data: loc } = await supabase
+    const { data: loc, error: locError } = await supabase
       .from('driver_locations')
       .select('recorded_at')
       .eq('driver_id', b.assigned_driver_id)
       .order('recorded_at', { ascending: false })
       .limit(1)
       .maybeSingle();
+    if (locError) {
+      // Same reasoning as sweepAbandonedDeliveries — a blip must not look
+      // like "never seen" and pull an active ride out from under the driver.
+      console.error('sweepAbandonedRides location lookup error:', locError);
+      continue;
+    }
     const lastSeen = loc ? new Date(loc.recorded_at).getTime() : 0;
     if (lastSeen < staleBefore) {
       await releaseRide(b.id, {

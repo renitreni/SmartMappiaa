@@ -31,7 +31,22 @@ module.exports = {
   // Driver accepting a ride — limit race/retry amplification.
   driverAcceptLimiter: make(20),
   // Driver location pings (~5/min in normal use) — headroom, block floods.
-  locationLimiter: make(30),
+  // Logged (unlike the other limiters): a driver hitting 30/min on a 12s
+  // ping cadence means something's wrong (retry storm, clock issue, shared
+  // IP) and the failure is otherwise invisible — the frontend ping is silent
+  // on purpose so it doesn't nag the driver every interval.
+  locationLimiter: rateLimit({
+    windowMs: 60 * 1000,
+    max: 30,
+    standardHeaders: true,
+    legacyHeaders: false,
+    handler: (req, res, _next, options) => {
+      // Runs before requireApprovedDriver, so req.driverId isn't set yet.
+      console.warn('[rate-limit] location ping blocked', { ip: req.ip });
+      res.status(options.statusCode).json(options.message);
+    },
+    message: { error: 'Too many requests — please slow down and try again shortly.' },
+  }),
   // OSM/Nominatim geocoding proxies. Split into per-endpoint buckets (they used
   // to SHARE one 40/min bucket, which the chatty location picker exhausted ->
   // the 429). Search is typed; reverse/nearby fire on map moves.

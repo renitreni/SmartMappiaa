@@ -343,18 +343,24 @@ async function getOrder(req, res) {
         etaMinutes: null,
       };
       // Live pin: the rider's most recent GPS fix (their device pings every
-      // ~12s while online) + a rough ETA to the drop-off point.
-      const { data: lastFix } = await supabase
-        .from('driver_locations')
-        .select('lat, lng, recorded_at')
-        .eq('driver_id', delivery.driver_id)
-        .order('recorded_at', { ascending: false })
-        .limit(1)
-        .maybeSingle();
-      if (lastFix) {
-        rider.location = { lat: lastFix.lat, lng: lastFix.lng, at: lastFix.recorded_at };
-        const dist = haversineKm(lastFix, { lat: order.delivery_lat, lng: order.delivery_lng });
-        rider.etaMinutes = etaMinutes(dist);
+      // ~12s while online) + a rough ETA to the drop-off point. Only while
+      // the delivery is actually active — otherwise a past customer could
+      // keep polling this endpoint and track the rider's live position long
+      // after their own order was delivered (mirrors the ride-tracking gate
+      // in trackingController.js's ACTIVE_RIDE_STATUSES).
+      if (['assigned', 'picked_up'].includes(delivery.status)) {
+        const { data: lastFix } = await supabase
+          .from('driver_locations')
+          .select('lat, lng, recorded_at')
+          .eq('driver_id', delivery.driver_id)
+          .order('recorded_at', { ascending: false })
+          .limit(1)
+          .maybeSingle();
+        if (lastFix) {
+          rider.location = { lat: lastFix.lat, lng: lastFix.lng, at: lastFix.recorded_at };
+          const dist = haversineKm(lastFix, { lat: order.delivery_lat, lng: order.delivery_lng });
+          rider.etaMinutes = etaMinutes(dist);
+        }
       }
     }
 
