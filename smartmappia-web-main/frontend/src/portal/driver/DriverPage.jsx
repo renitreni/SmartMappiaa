@@ -745,6 +745,13 @@ export default function DriverPage() {
 
   const prevCoordRef = useRef(null);
 
+  // Visibility for the location ping (previously failed 100% silently — see
+  // the tick() effect below): a short streak of failures, or a definitive
+  // 401/403 that won't self-heal by just trying again.
+  const [pingFailStreak, setPingFailStreak] = useState(0);
+
+  const [pingAuthIssue, setPingAuthIssue] = useState(false);
+
 
 
   // Keep GPS on whenever the rider has live work — an active ride (Pick & Drop)
@@ -834,7 +841,41 @@ export default function DriverPage() {
 
       const c = coordsRef.current;
 
-      if (c) { try { await api.driverLocation({ lat: c.lat, lng: c.lng, accuracy: c.accuracy }); } catch { /* ignore */ } }
+      if (c) {
+
+        try {
+
+          await api.driverLocation({ lat: c.lat, lng: c.lng, accuracy: c.accuracy });
+
+          if (!stop) { setPingFailStreak(0); setPingAuthIssue(false); }
+
+        } catch (err) {
+
+          // Previously swallowed completely — a driver could move for their
+          // whole shift while every ping silently failed (expired session,
+          // revoked approval, a transient 500/429) and nothing on screen or
+          // in the logs would show it. Surface it instead of hiding it.
+
+          console.error('driver location ping failed:', err.status, err.message);
+
+          if (!stop) setPingFailStreak((n) => n + 1);
+
+          if (err.status === 401 || err.status === 403) {
+
+            if (!stop) setPingAuthIssue(true);
+
+            // The dashboard's "online/approved" view may be running on a stale
+            // cached profile — re-sync so it reflects what the backend just
+            // enforced (e.g. approval revoked mid-shift) instead of continuing
+            // to look normal while every ping is rejected.
+
+            refreshProfile?.();
+
+          }
+
+        }
+
+      }
 
       if (online && ridesEnabled && !activeRide && !stop) loadAvailable();
 
@@ -991,6 +1032,11 @@ export default function DriverPage() {
 
 
   const here = coords ? { lat: coords.lat, lng: coords.lng } : null;
+
+  // ~36s of sustained failure (3 ticks at 12s) — long enough to ignore a
+  // one-off network blip, short enough to warn before a customer notices a
+  // frozen dot on their tracking page.
+  const pingBroken = pingAuthIssue || pingFailStreak >= 3;
 
 
 
@@ -1150,12 +1196,18 @@ export default function DriverPage() {
 
 
 
-        {(geoError || ((hasActiveDelivery || activeRide) && !coords)) && (online || hasActiveDelivery || activeRide) && (
+        {(geoError || pingBroken || ((hasActiveDelivery || activeRide) && !coords)) && (online || hasActiveDelivery || activeRide) && (
           <div className="mb-4 p-3 rounded-2xl bg-amber-50 border border-amber-200 text-amber-800 text-sm">
-            <span className="font-bold">Location access is needed.</span>{' '}
-            {hasActiveDelivery || activeRide
-              ? 'Please allow location / turn on GPS for this site so your customer can track you live on the map.'
-              : 'Please turn on location so we can match you to nearby jobs.'}
+            <span className="font-bold">
+              {pingBroken ? "Your live location isn't reaching SmartMappia." : 'Location access is needed.'}
+            </span>{' '}
+            {pingAuthIssue
+              ? 'Your driver approval or session may have changed — please sign out and back in.'
+              : pingBroken
+                ? 'Customers may see you stuck on the map until this clears up — check your connection.'
+                : hasActiveDelivery || activeRide
+                  ? 'Please allow location / turn on GPS for this site so your customer can track you live on the map.'
+                  : 'Please turn on location so we can match you to nearby jobs.'}
             {geoError ? ` (${geoError})` : ''}
           </div>
         )}

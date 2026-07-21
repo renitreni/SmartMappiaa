@@ -261,6 +261,21 @@ The canceller is automatically excluded from the re-offer (they already appear i
 `ride_finding_new_driver`) and the old driver; the customer's tracking page reverts to a
 "finding a new rider/driver" state.
 
+### 8.3 Backlog — ETA-based ranking (once driver volume grows)
+
+Straight-line haversine (8.1) is fine while there are only a handful of online drivers per area —
+but it will start picking the **wrong** nearest candidate once volume grows enough that "closest
+as the crow flies" regularly diverges from "closest by road" (river/highway with no direct
+crossing, one-way street grids, heavy localized traffic). That's the point to revisit, not before.
+
+Sketch for when it's warranted: re-rank only the top ~6 haversine-nearest candidates (not every
+online driver — bound the cost) by real driving ETA from the self-hosted OSRM instance's
+`/table/v1/driving/...` endpoint (one request per dispatch round returns the whole
+duration matrix, not one call per candidate). Must degrade to the current haversine order with
+zero behavior change if OSRM is slow/unreachable — same best-effort philosophy as the existing
+`frontend/src/portal/lib/osrm.js` route-fetching. Needs a deploy-time check that `/table` is
+enabled on the VPS's OSRM build before turning it on.
+
 ---
 
 ## 9. Payments

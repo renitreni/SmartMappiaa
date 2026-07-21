@@ -99,6 +99,10 @@ function requireApprovedDriver(req, res, next) {
   requireDriver(req, res, () => {
     // Admin bypasses the approval gate (admins are implicitly approved).
     if (req.role !== 'admin' && !req.profile.driver_approved) {
+      // Otherwise-invisible rejection (e.g. the driver's location pings just
+      // vanish client-side) — log it so a revoked/pending approval shows up
+      // in server logs instead of looking like a random dead GPS feed.
+      console.warn('[auth] 403 not-approved-driver', { userId: req.userId, path: req.originalUrl });
       return res.status(403).json({ error: 'Your driver account is pending admin approval' });
     }
     return next();

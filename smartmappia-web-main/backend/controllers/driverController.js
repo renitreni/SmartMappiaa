@@ -223,11 +223,12 @@ async function updateDriverLocation(req, res) {
     if (error) { console.error('driver query error:', error); return res.status(500).json({ error: 'Unexpected server error' }); }
 
     // Push live position to any active ride this driver is on.
-    const { data: activeRides } = await supabase
+    const { data: activeRides, error: activeRidesError } = await supabase
       .from('bookings')
       .select('booking_code, pickup_lat, pickup_lng')
       .eq('assigned_driver_id', req.driverId)
       .in('driver_ride_status', ACTIVE_RIDE_STATUSES);
+    if (activeRidesError) console.error('updateDriverLocation activeRides query error:', activeRidesError);
 
     const at = new Date().toISOString();
     (activeRides || []).forEach((r) => {
@@ -243,11 +244,12 @@ async function updateDriverLocation(req, res) {
 
     // Same for any food delivery this driver is carrying — the customer's
     // tracking map moves the rider pin on every ping (Grab-style).
-    const { data: activeDeliveries } = await supabase
+    const { data: activeDeliveries, error: activeDeliveriesError } = await supabase
       .from('deliveries')
       .select('order_id, orders!inner ( order_code, status, delivery_lat, delivery_lng )')
       .eq('driver_id', req.driverId)
       .in('orders.status', ['accepted', 'preparing', 'ready', 'out_for_delivery']);
+    if (activeDeliveriesError) console.error('updateDriverLocation activeDeliveries query error:', activeDeliveriesError);
 
     (activeDeliveries || []).forEach((d) => {
       const o = d.orders;
