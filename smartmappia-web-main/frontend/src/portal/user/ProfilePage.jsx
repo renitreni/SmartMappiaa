@@ -1,0 +1,266 @@
+// ---------------------------------------------------------------------
+// My Profile — /profile
+// Edit personal info (name, phones, delivery address), upload a profile
+// picture, and change email/password (Supabase Auth). Saves PATCH
+// /api/auth/profile then refreshes the AuthProvider profile so the navbar
+// picks the changes up instantly.
+// ---------------------------------------------------------------------
+import { useEffect, useRef, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { Camera, User, Phone, MapPin, Mail, KeyRound, Save, History } from 'lucide-react';
+import { api } from '../lib/api';
+import { useAuth } from '../lib/AuthProvider';
+import { supabase, uploadProofFile } from '../lib/supabaseClient';
+import { notifySuccess, notifyError } from '../lib/notify';
+import { PortalShell, Card, Field, Spinner, inputClass, btnPrimary, btnGhost } from '../components/ui';
+
+function initialsOf(name, email) {
+  const source = (name || email || '?').trim();
+  const parts = source.split(/\s+/).slice(0, 2);
+  return parts.map((p) => p[0]).join('').toUpperCase();
+}
+
+export default function ProfilePage() {
+  const navigate = useNavigate();
+  const { user, profile, refreshProfile } = useAuth();
+  const fileRef = useRef(null);
+
+  const [form, setForm] = useState({
+    fullName: profile?.fullName || '',
+    mobile: profile?.mobile || '',
+    whatsapp: profile?.whatsapp || '',
+    address: profile?.address || '',
+  });
+  const [savingInfo, setSavingInfo] = useState(false);
+  const [uploadingAvatar, setUploadingAvatar] = useState(false);
+  const [avatarPreview, setAvatarPreview] = useState(null);
+
+  const [email, setEmail] = useState(user?.email || '');
+  const [password, setPassword] = useState('');
+  const [password2, setPassword2] = useState('');
+  const [savingSecurity, setSavingSecurity] = useState(false);
+
+  const set = (k) => (e) => setForm((f) => ({ ...f, [k]: e.target.value }));
+
+  // "Settings" in the navbar dropdown deep-links to /profile#settings.
+  useEffect(() => {
+    if (window.location.hash === '#settings') {
+      document.getElementById('settings')?.scrollIntoView({ behavior: 'smooth' });
+    }
+  }, []);
+
+  async function saveInfo(e) {
+    e.preventDefault();
+    setSavingInfo(true);
+    try {
+      await api.updateProfile({
+        full_name: form.fullName.trim() || null,
+        mobile_number: form.mobile.trim() || null,
+        whatsapp_number: form.whatsapp.trim() || null,
+        address: form.address.trim() || null,
+      });
+      await refreshProfile();
+      notifySuccess('Profile updated', 'Your information was saved.');
+    } catch {
+      /* api.js already showed the error popup */
+    } finally {
+      setSavingInfo(false);
+    }
+  }
+
+  async function pickAvatar(e) {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    setUploadingAvatar(true);
+    try {
+      const { bucket, path, token, publicUrl, maxBytes } = await api.avatarSignedUrl({
+        file_name: file.name,
+        mime_type: file.type,
+      });
+      if (file.size > maxBytes) throw new Error('The image is too large (max 5 MB).');
+      await uploadProofFile(bucket, path, token, file);
+      await api.updateProfile({ avatar_url: publicUrl });
+      setAvatarPreview(publicUrl);
+      await refreshProfile();
+      notifySuccess('Photo updated', 'Your profile picture was saved.');
+    } catch (err) {
+      if (err?.message && !err.status) notifyError(err.message);
+    } finally {
+      setUploadingAvatar(false);
+    }
+  }
+
+  async function saveSecurity(e) {
+    e.preventDefault();
+    if (!supabase) return;
+    const wantsEmail = email.trim() && email.trim().toLowerCase() !== (user?.email || '').toLowerCase();
+    const wantsPassword = password.length > 0;
+    if (!wantsEmail && !wantsPassword) return;
+    if (wantsPassword && password.length < 6) {
+      notifyError('Password must be at least 6 characters.');
+      return;
+    }
+    if (wantsPassword && password !== password2) {
+      notifyError('Passwords do not match.');
+      return;
+    }
+    setSavingSecurity(true);
+    try {
+      const { error } = await supabase.auth.updateUser({
+        ...(wantsEmail ? { email: email.trim() } : {}),
+        ...(wantsPassword ? { password } : {}),
+      });
+      if (error) throw error;
+      setPassword('');
+      setPassword2('');
+      notifySuccess(
+        'Account updated',
+        wantsEmail
+          ? 'Check your inbox — the email change must be confirmed from the new address.'
+          : 'Your password was changed.'
+      );
+    } catch (err) {
+      notifyError(err.message || 'Could not update your account.');
+    } finally {
+      setSavingSecurity(false);
+    }
+  }
+
+  const avatarUrl = avatarPreview || profile?.avatarUrl || null;
+
+  return (
+    <PortalShell title="My profile" subtitle="Manage your account" onBack={() => navigate(-1)}>
+      <div className="max-w-2xl mx-auto space-y-5 pb-10">
+        {/* Avatar + identity header */}
+        <Card className="p-6 flex flex-col sm:flex-row items-center gap-5">
+          <div className="relative shrink-0">
+            <div className="w-24 h-24 rounded-full overflow-hidden bg-gradient-to-br from-brand-orange to-brand-red flex items-center justify-center ring-4 ring-brand-orange/15">
+              {avatarUrl ? (
+                <img src={avatarUrl} alt="Profile" className="w-full h-full object-cover" />
+              ) : (
+                <span className="text-white text-2xl font-black">
+                  {initialsOf(profile?.fullName, user?.email)}
+                </span>
+              )}
+            </div>
+            <button
+              type="button"
+              disabled={uploadingAvatar}
+              onClick={() => fileRef.current?.click()}
+              className="absolute -bottom-1 -right-1 w-9 h-9 rounded-full bg-brand-orange text-white flex items-center justify-center shadow-lg cursor-pointer hover:bg-brand-orange/90 disabled:opacity-60"
+              title="Change photo"
+            >
+              {uploadingAvatar ? (
+                <Spinner className="!w-4 !h-4 !border-white/40 !border-t-white" />
+              ) : (
+                <Camera className="w-4 h-4" />
+              )}
+            </button>
+            <input
+              ref={fileRef}
+              type="file"
+              accept="image/jpeg,image/png,image/webp"
+              className="hidden"
+              onChange={pickAvatar}
+            />
+          </div>
+          <div className="text-center sm:text-left min-w-0">
+            <p className="font-black text-brand-black text-xl truncate">
+              {profile?.fullName || 'Add your name'}
+            </p>
+            <p className="text-sm text-brand-grey truncate">{user?.email}</p>
+            <button
+              type="button"
+              onClick={() => navigate('/transactions')}
+              className={btnGhost + ' !py-2 !px-3.5 !text-xs mt-3'}
+            >
+              <History className="w-3.5 h-3.5" /> Order history
+            </button>
+          </div>
+        </Card>
+
+        {/* Personal info */}
+        <Card className="p-6">
+          <p className="font-black text-brand-black mb-4 flex items-center gap-2">
+            <User className="w-4 h-4 text-brand-orange" /> Personal information
+          </p>
+          <form onSubmit={saveInfo} className="space-y-3">
+            <Field label="Full name">
+              <input value={form.fullName} onChange={set('fullName')} className={inputClass} placeholder="Your name" />
+            </Field>
+            <div className="grid sm:grid-cols-2 gap-3">
+              <Field label="Mobile number">
+                <div className="relative">
+                  <Phone className="w-4 h-4 text-brand-grey absolute left-3.5 top-1/2 -translate-y-1/2" />
+                  <input value={form.mobile} onChange={set('mobile')} className={inputClass + ' !pl-10'} placeholder="05XXXXXXXX" />
+                </div>
+              </Field>
+              <Field label="WhatsApp number">
+                <div className="relative">
+                  <Phone className="w-4 h-4 text-brand-grey absolute left-3.5 top-1/2 -translate-y-1/2" />
+                  <input value={form.whatsapp} onChange={set('whatsapp')} className={inputClass + ' !pl-10'} placeholder="05XXXXXXXX" />
+                </div>
+              </Field>
+            </div>
+            <Field label="Delivery address">
+              <div className="relative">
+                <MapPin className="w-4 h-4 text-brand-grey absolute left-3.5 top-3.5" />
+                <textarea
+                  value={form.address}
+                  onChange={set('address')}
+                  rows={2}
+                  className={inputClass + ' !pl-10 resize-none'}
+                  placeholder="Building, street, district, city"
+                />
+              </div>
+            </Field>
+            <button type="submit" disabled={savingInfo} className={btnPrimary + ' w-full'}>
+              {savingInfo ? <Spinner className="!border-white/40 !border-t-white" /> : (<><Save className="w-4 h-4" /> Save changes</>)}
+            </button>
+          </form>
+        </Card>
+
+        {/* Account security (email + password) */}
+        <Card className="p-6" id="settings">
+          <p className="font-black text-brand-black mb-4 flex items-center gap-2">
+            <KeyRound className="w-4 h-4 text-brand-orange" /> Account &amp; security
+          </p>
+          <form onSubmit={saveSecurity} className="space-y-3">
+            <Field label="Email address">
+              <div className="relative">
+                <Mail className="w-4 h-4 text-brand-grey absolute left-3.5 top-1/2 -translate-y-1/2" />
+                <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} className={inputClass + ' !pl-10'} />
+              </div>
+            </Field>
+            <div className="grid sm:grid-cols-2 gap-3">
+              <Field label="New password">
+                <input
+                  type="password"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  className={inputClass}
+                  placeholder="Leave blank to keep"
+                  autoComplete="new-password"
+                />
+              </Field>
+              <Field label="Confirm new password">
+                <input
+                  type="password"
+                  value={password2}
+                  onChange={(e) => setPassword2(e.target.value)}
+                  className={inputClass}
+                  placeholder="Repeat the password"
+                  autoComplete="new-password"
+                />
+              </Field>
+            </div>
+            <button type="submit" disabled={savingSecurity} className={btnPrimary + ' w-full'}>
+              {savingSecurity ? <Spinner className="!border-white/40 !border-t-white" /> : (<><Save className="w-4 h-4" /> Update account</>)}
+            </button>
+          </form>
+        </Card>
+      </div>
+    </PortalShell>
+  );
+}

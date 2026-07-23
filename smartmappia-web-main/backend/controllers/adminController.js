@@ -355,7 +355,30 @@ async function getBookingDetail(req, res) {
       .eq('booking_id', booking.id)
       .order('created_at', { ascending: false });
 
-    return res.json({ booking, proofs: proofsWithUrls, payments: payments || [] });
+    // Assigned driver (name/phone) + when the assignment happened, so the
+    // admin sees Accepted Time / Assigned Driver / delivery status at a
+    // glance and can reassign if the driver goes quiet.
+    let driver = null;
+    let driverAssignedAt = null;
+    if (booking.assigned_driver_id) {
+      const { data: d } = await supabase
+        .from('profiles')
+        .select('id, full_name, mobile_number, whatsapp_number')
+        .eq('id', booking.assigned_driver_id)
+        .maybeSingle();
+      driver = d || null;
+      const { data: ev } = await supabase
+        .from('tracking_events')
+        .select('created_at')
+        .eq('booking_id', booking.id)
+        .eq('event_type', 'driver_assigned')
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      driverAssignedAt = ev ? ev.created_at : null;
+    }
+
+    return res.json({ booking, proofs: proofsWithUrls, payments: payments || [], driver, driverAssignedAt });
   } catch (err) {
     console.error('getBookingDetail error:', err);
     return res.status(500).json({ error: 'Unexpected server error' });

@@ -279,7 +279,7 @@ async function listMyRides(req, res) {
       .select(
         'booking_code, trip_type, airport_terminal, pickup_address, pickup_lat, pickup_lng, ' +
           'dropoff_address, dropoff_lat, dropoff_lng, pickup_datetime, passenger_name, ' +
-          'passenger_whatsapp, fare_amount, currency, booking_status, driver_ride_status, created_at'
+          'passenger_mobile, passenger_whatsapp, fare_amount, currency, booking_status, driver_ride_status, created_at'
       )
       .eq('assigned_driver_id', req.driverId)
       .order('pickup_datetime', { ascending: true });

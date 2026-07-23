@@ -21,6 +21,7 @@ const { supabase } = require('../../lib/supabase');
 const { config } = require('../../lib/config');
 const { haversineKm, etaMinutes } = require('../../lib/geo');
 const { priceOrder } = require('../../lib/foodMoney');
+const { findSizeOption } = require('../../lib/foodSizes');
 const { logFoodEvent } = require('../../lib/foodEvents');
 const { logAudit } = require('../../lib/audit');
 const { logNotification, notifyAdmins } = require('../../lib/notifications');
@@ -33,7 +34,10 @@ const PAYABLE_STATUSES = ['awaiting', 'failed'];
 const ORDER_SELECT =
   'id, order_code, customer_id, merchant_id, status, subtotal, delivery_fee, ' +
   'platform_margin_total, total, distance_km, delivery_address, delivery_lat, delivery_lng, ' +
-  'payment_status, payment_method, created_at, accepted_at, ready_at, delivered_at, reject_reason';
+  'contact_phone, payment_status, payment_method, created_at, accepted_at, ready_at, delivered_at, reject_reason';
+
+// Statuses during which the customer may still edit their contact number.
+const CONTACT_EDITABLE_STATUSES = ['pending', 'accepted', 'preparing', 'ready', 'out_for_delivery'];
 
 // Small helper: load an order by code, or null.
 async function loadOrder(orderCode) {
@@ -102,7 +106,7 @@ async function checkout(req, res) {
     const { data: cartLines } = cart
       ? await supabase
           .from('cart_items')
-          .select('menu_item_id, quantity')
+          .select('menu_item_id, quantity, size')
           .eq('cart_id', cart.id)
       : { data: [] };
     if (!cartLines || cartLines.length === 0) {
@@ -113,7 +117,7 @@ async function checkout(req, res) {
     //    from the cart snapshot and certainly not from the client.
     const { data: menuRows, error: menuErr } = await supabase
       .from('menu_items')
-      .select('id, name, price, net_price, item_type, is_available, merchant_id')
+      .select('id, name, price, net_price, item_type, is_available, merchant_id, size_options')
       .in('id', cartLines.map((l) => l.menu_item_id));
     if (menuErr) {
       console.error('checkout menu load error:', menuErr);
@@ -125,13 +129,19 @@ async function checkout(req, res) {
     const items = [];
     for (const line of cartLines) {
       const menu = menuById.get(line.menu_item_id);
-      if (!menu || !menu.is_available || menu.merchant_id !== merchant.id) {
+      // A sized cart line must still map to an ENABLED size option — if the
+      // admin disabled/removed that size since it was added, treat the line
+      // as unavailable rather than silently charging the wrong price.
+      const sizeOption = menu && line.size ? findSizeOption(menu.size_options, line.size) : null;
+      if (!menu || !menu.is_available || menu.merchant_id !== merchant.id || (line.size && !sizeOption)) {
         unavailable.push(menu ? menu.name : 'a removed item');
       } else {
         items.push({
           menuItemId: menu.id,
           name: menu.name,
-          unitPrice: Number(menu.price),
+          size: sizeOption ? sizeOption.id : null,
+          sizeLabel: sizeOption ? sizeOption.label : null,
+          unitPrice: sizeOption ? Number(sizeOption.price) : Number(menu.price),
           netPrice: menu.net_price == null ? null : Number(menu.net_price),
           quantity: line.quantity,
           itemType: menu.item_type,
@@ -183,6 +193,7 @@ async function checkout(req, res) {
         delivery_address: b.delivery_address,
         delivery_lat: b.delivery_lat ?? null,
         delivery_lng: b.delivery_lng ?? null,
+        contact_phone: b.contact_phone || null,
         payment_method: b.payment_method || 'stcpay',
       })
       .select(ORDER_SELECT)
@@ -197,6 +208,7 @@ async function checkout(req, res) {
         order_id: order.id,
         menu_item_id: line.menuItemId,
         name_snapshot: line.name,
+        size_snapshot: line.sizeLabel || null,
         unit_price: line.unitPrice,
         quantity: line.quantity,
         line_total: line.lineTotal,
@@ -284,6 +296,47 @@ async function checkout(req, res) {
   }
 }
 
+// PATCH /api/food/orders/:code/contact — the customer may fix their contact
+// number even while the order is IN PROGRESS (out for delivery); the rider
+// and admin views pick it up via broadcast + their normal refresh.
+async function updateOrderContact(req, res) {
+  try {
+    const order = await loadOrder(req.params.code);
+    if (!assertOwner(req, res, order)) return undefined;
+    if (!CONTACT_EDITABLE_STATUSES.includes(order.status)) {
+      return res.status(409).json({
+        error: `The contact number can no longer be changed (order is ${order.status})`,
+      });
+    }
+
+    const contactPhone = (req.body.contact_phone || '').trim();
+    if (!contactPhone) return res.status(400).json({ error: 'contact_phone is required' });
+
+    const { error } = await supabase
+      .from('orders')
+      .update({ contact_phone: contactPhone })
+      .eq('id', order.id);
+    if (error) {
+      console.error('updateOrderContact error:', error);
+      return res.status(500).json({ error: 'Could not update the contact number' });
+    }
+
+    logAudit({
+      actorId: req.userId,
+      action: 'food_order_contact_updated',
+      resourceType: 'order',
+      resourceId: order.order_code,
+    });
+    pushFoodOrderStatus(order.order_code, { contactPhone });
+    pingFoodAdmin(order.order_code);
+
+    return res.json({ orderCode: order.order_code, contactPhone });
+  } catch (err) {
+    console.error('updateOrderContact error:', err);
+    return res.status(500).json({ error: 'Unexpected server error' });
+  }
+}
+
 // --- History + tracking ----------------------------------------------
 async function listOrders(req, res) {
   try {
@@ -316,7 +369,7 @@ async function getOrder(req, res) {
     const [{ data: items }, { data: merchant }, { data: delivery }] = await Promise.all([
       supabase
         .from('order_items')
-        .select('name_snapshot, unit_price, quantity, line_total')
+        .select('name_snapshot, size_snapshot, unit_price, quantity, line_total')
         .eq('order_id', order.id),
       supabase
         .from('merchants')
@@ -724,4 +777,5 @@ module.exports = {
   createTapCharge,
   tapWebhook,
   markOrderPaid,
+  updateOrderContact,
 };

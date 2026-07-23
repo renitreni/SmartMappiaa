@@ -3,7 +3,7 @@
 // Access is gated by RequireAuth role="admin"; identity from the session.
 // ---------------------------------------------------------------------
 import { useCallback, useEffect, useState } from 'react';
-import { Check, X, ExternalLink, ShieldCheck, ShieldX, Search, FileText } from 'lucide-react';
+import { Check, X, ExternalLink, ShieldCheck, ShieldX, Search, FileText, Bike } from 'lucide-react';
 import { api } from '../lib/api';
 import { toCsv, downloadCsv } from '../lib/csv';
 import { useBroadcast } from '../lib/useBroadcast';
@@ -21,6 +21,16 @@ const FILTERS = [
   { id: 'pending', label: 'Awaiting payment', q: '?payment_status=awaiting_proof' },
 ];
 
+// Human labels for the driver's ride ladder shown in the booking detail.
+const RIDE_STATUS_LABEL = {
+  assigned: 'Assigned',
+  accepted: 'Accepted',
+  on_the_way: 'On the way',
+  arrived: 'Arrived at pickup',
+  started: 'Trip started',
+  completed: 'Completed',
+};
+
 function BookingsView() {
   const [filter, setFilter] = useState(FILTERS[0]);
   const [list, setList] = useState([]);
@@ -30,6 +40,15 @@ function BookingsView() {
   const [loading, setLoading] = useState(false);
   const [busy, setBusy] = useState(false);
   const [search, setSearch] = useState('');
+  const [drivers, setDrivers] = useState([]);
+  const [assigning, setAssigning] = useState(false);
+  const [driverId, setDriverId] = useState('');
+
+  useEffect(() => {
+    api.adminDrivers()
+      .then((r) => setDrivers((r.drivers || []).filter((d) => d.driver_approved)))
+      .catch(() => {});
+  }, []);
 
   const loadList = useCallback(async () => {
     setLoading(true);
@@ -46,12 +65,31 @@ function BookingsView() {
   const loadDetail = useCallback(async (code) => {
     setSelected(code);
     setDetail(null);
+    setAssigning(false);
+    setDriverId('');
     try {
       setDetail(await api.adminDetail(code));
     } catch (err) {
       setError(err.message);
     }
   }, []);
+
+  async function assign(code) {
+    if (!driverId) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await api.adminAssign(code, driverId);
+      setAssigning(false);
+      setDriverId('');
+      await loadList();
+      await loadDetail(code);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setBusy(false);
+    }
+  }
 
   useEffect(() => { loadList(); }, [loadList]);
   useBroadcast('admin-bookings', { changed: () => { loadList(); if (selected) loadDetail(selected); } }, realtimeEnabled);
@@ -197,7 +235,8 @@ function BookingsView() {
                 <div>
                   <div className="font-mono font-black text-xl text-brand-black">{detail.booking.booking_code}</div>
                   <div className="text-sm text-brand-grey mt-1">
-                    {detail.booking.passenger_name} · {detail.booking.passenger_whatsapp}
+                    {detail.booking.passenger_name} ·{' '}
+                    {detail.booking.passenger_mobile || detail.booking.passenger_whatsapp}
                   </div>
                 </div>
                 <Badge tone={statusMeta(detail.booking.booking_status).tone}>
@@ -224,6 +263,80 @@ function BookingsView() {
                     ? new Date(detail.booking.pickup_datetime).toLocaleString()
                     : '—'}
                 </div>
+              </div>
+
+              {/* Driver panel: assigned driver, accepted time, delivery status,
+                  and manual (re)assignment. */}
+              <div className="mt-4 p-3 rounded-xl border border-brand-border">
+                <div className="flex items-center justify-between gap-2 flex-wrap">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <Bike className="w-4 h-4 text-brand-orange shrink-0" />
+                    <div className="min-w-0 text-sm">
+                      {detail.driver ? (
+                        <>
+                          <span className="font-bold text-brand-dark">{detail.driver.full_name || 'Driver'}</span>
+                          {(detail.driver.mobile_number || detail.driver.whatsapp_number) && (
+                            <span className="text-brand-grey"> · {detail.driver.mobile_number || detail.driver.whatsapp_number}</span>
+                          )}
+                        </>
+                      ) : (
+                        <span className="text-brand-grey">No driver assigned yet.</span>
+                      )}
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    {detail.booking.driver_ride_status && (
+                      <Badge tone={detail.booking.driver_ride_status === 'completed' ? 'green' : 'blue'}>
+                        {RIDE_STATUS_LABEL[detail.booking.driver_ride_status] || detail.booking.driver_ride_status}
+                      </Badge>
+                    )}
+                    {!['completed', 'cancelled'].includes(detail.booking.booking_status) && (
+                      <button
+                        type="button"
+                        onClick={() => setAssigning((v) => !v)}
+                        className="text-xs font-bold text-brand-dark border border-brand-border rounded-lg px-2.5 py-1.5 hover:bg-brand-muted cursor-pointer"
+                      >
+                        {detail.driver ? 'Reassign' : 'Assign driver'}
+                      </button>
+                    )}
+                  </div>
+                </div>
+                {detail.driverAssignedAt && (
+                  <p className="text-xs text-brand-grey mt-1.5">
+                    Accepted / assigned: {new Date(detail.driverAssignedAt).toLocaleString()}
+                  </p>
+                )}
+                {assigning && (
+                  <div className="mt-2 flex gap-2 items-center flex-wrap">
+                    <select
+                      value={driverId}
+                      onChange={(e) => setDriverId(e.target.value)}
+                      className="flex-1 min-w-[200px] px-3 py-2 rounded-xl border border-brand-border text-sm focus:outline-none focus:border-brand-orange"
+                    >
+                      <option value="">Choose an approved driver</option>
+                      {drivers
+                        .filter((d) => d.id !== detail.booking.assigned_driver_id)
+                        .map((d) => (
+                          <option key={d.id} value={d.id}>{d.full_name || d.email}</option>
+                        ))}
+                    </select>
+                    <button
+                      type="button"
+                      disabled={!driverId || busy}
+                      onClick={() => assign(detail.booking.booking_code)}
+                      className={btnPrimary + ' !py-2 !px-3.5 !text-xs'}
+                    >
+                      Assign
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setAssigning(false)}
+                      className="text-xs font-bold text-brand-grey border border-brand-border rounded-lg px-2.5 py-1.5 hover:bg-brand-muted cursor-pointer"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                )}
               </div>
 
               <div className="mt-6">

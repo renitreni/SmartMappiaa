@@ -279,7 +279,7 @@ async function declineOffer(req, res) {
 const DELIVERY_SELECT =
   'id, status, delivered_at, pickup_photo_path, delivery_photo_path, ' +
   'orders!inner ( order_code, status, payment_status, payment_method, total, delivery_fee, ' +
-  'delivery_address, delivery_lat, delivery_lng, created_at, ' +
+  'delivery_address, delivery_lat, delivery_lng, contact_phone, created_at, ' +
   'merchants ( name, address, lat, lng ), ' +
   'profiles!orders_customer_id_fkey ( full_name, mobile_number, whatsapp_number ) )';
 
@@ -299,9 +299,17 @@ function shapeDelivery(d) {
     merchant: o.merchants
       ? { name: o.merchants.name, address: o.merchants.address, lat: o.merchants.lat, lng: o.merchants.lng }
       : null,
+    // The order's own contact number (editable mid-delivery) wins over the
+    // profile's stored one, so the rider always calls the current number.
     customer: o.profiles
-      ? { name: o.profiles.full_name, mobile: o.profiles.mobile_number, whatsapp: o.profiles.whatsapp_number }
-      : null,
+      ? {
+          name: o.profiles.full_name,
+          mobile: o.contact_phone || o.profiles.mobile_number,
+          whatsapp: o.profiles.whatsapp_number,
+        }
+      : o.contact_phone
+        ? { name: null, mobile: o.contact_phone, whatsapp: null }
+        : null,
     dropoffAddress: o.delivery_address,
     dropoffLat: o.delivery_lat,
     dropoffLng: o.delivery_lng,

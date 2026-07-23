@@ -26,6 +26,7 @@ const {
   recordPayment,
   createTapCharge,
   tapWebhook,
+  updateOrderContact,
 } = require('../controllers/food/ordersController');
 const { recordEvent } = require('../controllers/food/eventsController');
 const { rateFoodDriver } = require('../controllers/ratingsController');
@@ -42,6 +43,7 @@ router.post(
   validateBody({
     menu_item_id: { type: 'string', required: true, maxLength: 60 },
     quantity: { type: 'integer', min: 1, max: 50 },
+    size: { type: 'string', maxLength: 30, nullable: true },
   }),
   addCartItem
 );
@@ -65,6 +67,7 @@ router.post(
     delivery_address: { type: 'string', required: true, maxLength: 500 },
     delivery_lat: { type: 'number', required: true, min: -90, max: 90 },
     delivery_lng: { type: 'number', required: true, min: -180, max: 180 },
+    contact_phone: { type: 'string', maxLength: 40, nullable: true },
     // Food is STC Pay only for now. Tap arrives via the gated
     // /orders/:code/tap-charge endpoint, never as a checkout method.
     payment_method: { type: 'string', enum: ['stcpay'] },
@@ -75,6 +78,13 @@ router.post(
 // --- Tracking + history ---
 router.get('/orders', requireAuth, listOrders);
 router.get('/orders/:code', requireAuth, getOrder);
+// Contact number stays editable while the order is in progress.
+router.patch(
+  '/orders/:code/contact',
+  requireAuth,
+  validateBody({ contact_phone: { type: 'string', required: true, maxLength: 40 } }),
+  updateOrderContact
+);
 
 // --- Payment (STC Pay manual proof; Tap deferred) ---
 router.get('/orders/:code/pay', requireAuth, getPaymentInfo);

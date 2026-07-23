@@ -133,6 +133,30 @@ const CHECKS = [
     },
     sqlFile: '0022_driver_cash_settlement.sql',
   },
+  {
+    id: '0023',
+    name: 'menu item drink sizes (size_options + cart/order size)',
+    run: async () => {
+      const e1 = (await supabase.from('menu_items').select('size_options').limit(0)).error;
+      if (e1) return e1.message;
+      const e2 = (await supabase.from('cart_items').select('size').limit(0)).error;
+      if (e2) return e2.message;
+      const e3 = (await supabase.from('order_items').select('size_snapshot').limit(0)).error;
+      return e3 ? e3.message : null;
+    },
+    sqlFile: '0023_menu_item_sizes.sql',
+  },
+  {
+    id: '0024',
+    name: 'profile avatar/address + order contact phone',
+    run: async () => {
+      const e1 = (await supabase.from('profiles').select('avatar_url, address').limit(0)).error;
+      if (e1) return e1.message;
+      const e2 = (await supabase.from('orders').select('contact_phone').limit(0)).error;
+      return e2 ? e2.message : null;
+    },
+    sqlFile: '0024_profile_and_contact.sql',
+  },
 ];
 
 async function main() {

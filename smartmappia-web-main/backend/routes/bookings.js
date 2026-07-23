@@ -9,6 +9,7 @@ const {
   listMyBookings,
   getBookingByCode,
   cancelBooking,
+  updateBookingContact,
 } = require('../controllers/bookingsController');
 const {
   getPaymentInstructions,
@@ -27,6 +28,18 @@ router.get('/:bookingCode', lookupLimiter, getBookingByCode);
 
 // POST /api/bookings/:bookingCode/cancel -> owner cancels the trip
 router.post('/:bookingCode/cancel', requireAuth, cancelBooking);
+
+// PATCH /api/bookings/:bookingCode/contact -> owner edits their contact
+// number while the trip is active (even in progress).
+router.patch(
+  '/:bookingCode/contact',
+  requireAuth,
+  validateBody({
+    passenger_mobile: { type: 'string', maxLength: 40, nullable: true },
+    passenger_whatsapp: { type: 'string', maxLength: 40 },
+  }),
+  updateBookingContact
+);
 
 // POST /api/bookings/:code/rate-driver -> 1-5 stars after a completed trip
 router.post(

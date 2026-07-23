@@ -122,7 +122,7 @@ async function getRestaurant(req, res) {
       // them greyed out instead of silently vanishing.
       supabase
         .from('menu_items')
-        .select('id, category_id, name, description, price, item_type, image_url, is_available')
+        .select('id, category_id, name, description, price, item_type, image_url, is_available, size_options')
         .eq('merchant_id', id)
         .order('name'),
     ]);

@@ -24,6 +24,7 @@ import FoodTrackPage from './portal/food/FoodTrackPage.jsx'
 import FoodOrdersPage from './portal/food/FoodOrdersPage.jsx'
 import NotificationsPage from './portal/user/NotificationsPage.jsx'
 import TransactionsPage from './portal/user/TransactionsPage.jsx'
+import ProfilePage from './portal/user/ProfilePage.jsx'
 import { registerServiceWorker } from './portal/lib/pushNotifications.js'
 
 if (import.meta.env.PROD) {
@@ -47,6 +48,8 @@ createRoot(document.getElementById('root')).render(
             {/* Notification inbox + transaction records (any signed-in user). */}
             <Route path="/notifications" element={<RequireAuth><NotificationsPage /></RequireAuth>} />
             <Route path="/transactions" element={<RequireAuth><TransactionsPage /></RequireAuth>} />
+            {/* Profile management (any signed-in user). */}
+            <Route path="/profile" element={<RequireAuth><ProfilePage /></RequireAuth>} />
             {/* Booking is for passengers only — drivers/admins are redirected to their dashboard. */}
             <Route path="/book" element={<RequireAuth role="passenger" redirectWrongRole><BookPage /></RequireAuth>} />
             {/* Payment + tracking stay open by booking code. */}

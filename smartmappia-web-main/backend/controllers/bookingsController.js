@@ -269,4 +269,70 @@ async function cancelBooking(req, res) {
   }
 }
 
-module.exports = { createBooking, listMyBookings, getBookingByCode, cancelBooking };
+// PATCH /api/bookings/:bookingCode/contact  -> owner edits their contact
+// number(s) while the trip is still active (even mid-delivery), so the
+// driver/admin always reach the right number. Broadcast refreshes both views.
+const CONTACT_EDITABLE_STATUSES = [...CANCELLABLE_STATUSES, 'in_progress'];
+
+async function updateBookingContact(req, res) {
+  try {
+    const { bookingCode } = req.params;
+    const b = req.body; // validated by the route schema
+
+    const { data: booking, error } = await supabase
+      .from('bookings')
+      .select('id, booking_code, booking_status, user_id')
+      .eq('booking_code', bookingCode)
+      .single();
+    if (error || !booking) return res.status(404).json({ error: 'Booking not found' });
+    if (booking.user_id && req.userId !== booking.user_id && req.role !== 'admin') {
+      return res.status(403).json({ error: 'You can only edit your own booking' });
+    }
+    if (!CONTACT_EDITABLE_STATUSES.includes(booking.booking_status)) {
+      return res.status(409).json({
+        error: `The contact number can no longer be changed (status: ${booking.booking_status})`,
+      });
+    }
+
+    const patch = {};
+    if ('passenger_mobile' in b) patch.passenger_mobile = b.passenger_mobile || null;
+    if ('passenger_whatsapp' in b && b.passenger_whatsapp) patch.passenger_whatsapp = b.passenger_whatsapp;
+    if (Object.keys(patch).length === 0) {
+      return res.status(400).json({ error: 'Nothing to update' });
+    }
+
+    const { data: updated, error: updErr } = await supabase
+      .from('bookings')
+      .update(patch)
+      .eq('id', booking.id)
+      .select('booking_code, passenger_mobile, passenger_whatsapp')
+      .single();
+    if (updErr) {
+      console.error('updateBookingContact error:', updErr);
+      return res.status(500).json({ error: 'Could not update the contact number' });
+    }
+
+    await addTrackingEvent(booking.id, {
+      eventType: 'contact_updated',
+      title: 'Contact number updated',
+      message: 'The passenger updated their contact number.',
+    });
+    // Driver + admin views refresh over the same channels they already watch.
+    pushBookingStatus(booking.booking_code, {
+      contact: { mobile: updated.passenger_mobile, whatsapp: updated.passenger_whatsapp },
+    });
+    const { pingAdmin } = require('../lib/realtime');
+    pingAdmin(booking.booking_code);
+
+    return res.json({
+      bookingCode: updated.booking_code,
+      passengerMobile: updated.passenger_mobile,
+      passengerWhatsapp: updated.passenger_whatsapp,
+    });
+  } catch (err) {
+    console.error('updateBookingContact error:', err);
+    return res.status(500).json({ error: 'Unexpected server error' });
+  }
+}
+
+module.exports = { createBooking, listMyBookings, getBookingByCode, cancelBooking, updateBookingContact };
