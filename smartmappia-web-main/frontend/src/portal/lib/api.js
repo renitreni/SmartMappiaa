@@ -58,12 +58,18 @@ export const api = {
   // --- auth ---
   authSignup: (body) => request('/api/auth/signup', { method: 'POST', body }),
   authSync: (body = {}) => request('/api/auth/sync', { method: 'POST', body, silent: true }),
+  // Profile page: name / phones / address / avatar (email + password go
+  // through Supabase Auth on the client).
+  updateProfile: (body) => request('/api/auth/profile', { method: 'PATCH', body }),
+  avatarSignedUrl: (body) => request('/api/auth/avatar/signed-url', { method: 'POST', body }),
 
   // --- passenger ---
   createBooking: (b) => request('/api/bookings', { method: 'POST', body: b }),
   myBookings: () => request('/api/bookings', { silent: true }), // Pick & Drop history
   getBooking: (code) => request(`/api/bookings/${code}`),
   cancelBooking: (code, reason) => request(`/api/bookings/${code}/cancel`, { method: 'POST', body: { reason } }),
+  // Contact number stays editable while the trip is active (even in progress).
+  updateBookingContact: (code, body) => request(`/api/bookings/${code}/contact`, { method: 'PATCH', body }),
   paymentInstructions: (code) => request(`/api/bookings/${code}/payment-instructions`),
   proofSignedUrl: (code, body) => request(`/api/bookings/${code}/payment-proof/signed-url`, { method: 'POST', body }),
   recordProof: (code, body) => request(`/api/bookings/${code}/payment-proof`, { method: 'POST', body }),
@@ -144,6 +150,8 @@ export const api = {
     request('/api/food/orders', { method: 'POST', body, headers: idempotencyKey ? { 'Idempotency-Key': idempotencyKey } : {}, silent: true }),
   foodOrders: () => request('/api/food/orders'),
   foodOrder: (code) => request(`/api/food/orders/${code}`, { silent: true }), // polled on tracking
+  foodOrderContact: (code, contact_phone) =>
+    request(`/api/food/orders/${code}/contact`, { method: 'PATCH', body: { contact_phone } }),
   foodPaymentInfo: (code) => request(`/api/food/orders/${code}/pay`),
   foodPaySignedUrl: (code, body) => request(`/api/food/orders/${code}/pay/signed-url`, { method: 'POST', body }),
   foodRecordPayment: (code, body) => request(`/api/food/orders/${code}/pay`, { method: 'POST', body }),

@@ -39,6 +39,7 @@ import { bearingDeg } from '../lib/geo';
 import { PortalShell, Card, Badge, Spinner, btnGhost } from '../components/ui';
 import RoutedRideMap from '../components/RoutedRideMap';
 import RateDriver from '../components/RateDriver';
+import EditableContact from '../components/EditableContact';
 
 // Mini car glyph for the map legend's Rider chip (matches the map marker).
 const LEGEND_CAR_SVG =
@@ -424,6 +425,7 @@ export default function FoodTrackPage() {
                       items: data.items,
                       merchant: data.merchant,
                       customerName: profile?.fullName || user?.email || 'Smart Mappia customer',
+                      driverName: data.rider?.name,
                     })
                   }
                   className="w-full inline-flex items-center justify-center gap-2 bg-brand-orange hover:bg-brand-orange/90 text-white font-black py-3 rounded-xl transition-all shadow-lg shadow-brand-orange/20 text-sm cursor-pointer"
@@ -464,6 +466,16 @@ export default function FoodTrackPage() {
               </Card>
             )}
 
+            {/* Contact number — editable even while the order is on its way. */}
+            <EditableContact
+              value={order.contact_phone}
+              editable={!failed && order.status !== 'delivered'}
+              onSave={async (phone) => {
+                await api.foodOrderContact(code, phone);
+                await load();
+              }}
+            />
+
             {/* Order details block (order number / from / address / total). */}
             <OrderMetaCard
               code={code}
@@ -480,7 +492,10 @@ export default function FoodTrackPage() {
               <div className="space-y-1.5 text-sm">
                 {(data.items || []).map((line, i) => (
                   <div key={i} className="flex justify-between gap-3">
-                    <span className="text-brand-dark truncate">{line.quantity} × {line.name_snapshot}</span>
+                    <span className="text-brand-dark truncate">
+                      {line.quantity} × {line.name_snapshot}
+                      {line.size_snapshot ? <span className="text-brand-grey"> ({line.size_snapshot})</span> : null}
+                    </span>
                     <span className="tabular-nums font-medium shrink-0">{fmtSAR(line.line_total)}</span>
                   </div>
                 ))}

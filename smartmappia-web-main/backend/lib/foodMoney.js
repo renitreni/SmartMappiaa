@@ -64,6 +64,8 @@ function priceOrder({ items, distanceKm }) {
     return {
       menuItemId: item.menuItemId,
       name: item.name,
+      size: item.size ?? null,
+      sizeLabel: item.sizeLabel ?? null,
       unitPrice,
       quantity,
       lineTotal: round2(unitPrice * quantity),

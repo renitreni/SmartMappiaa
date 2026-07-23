@@ -30,6 +30,8 @@ const ITEM_FIELDS = {
   item_type: { type: 'string', enum: ['meal_package', 'drink_dessert_addon'] },
   image_url: { type: 'string', maxLength: 500, nullable: true },
   is_available: { type: 'boolean' },
+  // Drink sizes: validated field-by-field in lib/foodSizes.
+  size_options: { type: 'array', itemType: 'object', maxItems: 6, nullable: true },
 };
 
 router.use(requireMerchant);

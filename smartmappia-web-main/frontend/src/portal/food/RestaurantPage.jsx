@@ -6,14 +6,22 @@
 // ---------------------------------------------------------------------
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { UtensilsCrossed, Plus, ShoppingCart, RefreshCw, MapPin } from 'lucide-react';
+import { AnimatePresence, motion } from 'framer-motion';
+import { UtensilsCrossed, Plus, ShoppingCart, RefreshCw, MapPin, X, CupSoda, Check } from 'lucide-react';
 import { api } from '../lib/api';
 import { useAuth } from '../lib/AuthProvider';
 import { fmtSAR } from '../lib/constants';
 import { PortalShell, Card, Badge, Spinner, btnPrimary } from '../components/ui';
 
+// Enabled size options of a menu item (empty array = no sizes / one-tap add).
+export function enabledSizes(item) {
+  return (item?.size_options || []).filter((s) => s && s.enabled !== false);
+}
+
 function ItemCard({ item, onAdd, busy }) {
   const unavailable = !item.is_available;
+  const sizes = enabledSizes(item);
+  const fromPrice = sizes.length ? Math.min(...sizes.map((s) => Number(s.price))) : Number(item.price);
   return (
     <Card className={`p-4 flex gap-3 ${unavailable ? 'opacity-60' : ''}`}>
       <div className="w-20 h-20 rounded-xl bg-gradient-to-br from-brand-orange/15 to-brand-red/10 flex items-center justify-center shrink-0 overflow-hidden">
@@ -31,8 +39,19 @@ function ItemCard({ item, onAdd, busy }) {
         {item.description && (
           <p className="text-xs text-brand-grey mt-0.5 line-clamp-2">{item.description}</p>
         )}
+        {sizes.length > 0 && (
+          <div className="flex items-center gap-1 mt-1">
+            <CupSoda className="w-3 h-3 text-brand-orange/70" />
+            <span className="text-[11px] font-semibold text-brand-grey">
+              {sizes.map((s) => s.label).join(' · ')}
+            </span>
+          </div>
+        )}
         <div className="mt-auto pt-2 flex items-center justify-between gap-2">
-          <span className="font-black text-brand-orange">{fmtSAR(item.price)}</span>
+          <span className="font-black text-brand-orange">
+            {sizes.length > 0 && <span className="text-[10px] font-bold text-brand-grey mr-1">from</span>}
+            {fmtSAR(fromPrice)}
+          </span>
           <button
             type="button"
             disabled={unavailable || busy}
@@ -48,6 +67,112 @@ function ItemCard({ item, onAdd, busy }) {
   );
 }
 
+// Modern bottom-sheet size picker for sized drinks (Milk Tea).
+// The price on the confirm button follows the selected size live.
+function SizePickerSheet({ item, onClose, onConfirm, busy }) {
+  const sizes = enabledSizes(item);
+  const [sizeId, setSizeId] = useState(sizes[0]?.id || null);
+  const selected = sizes.find((s) => s.id === sizeId) || null;
+
+  return (
+    <AnimatePresence>
+      <motion.div
+        key="backdrop"
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        exit={{ opacity: 0 }}
+        onClick={onClose}
+        className="fixed inset-0 z-50 bg-black/40 backdrop-blur-[2px] flex items-end sm:items-center sm:justify-center"
+      >
+        <motion.div
+          key="sheet"
+          initial={{ y: 80, opacity: 0 }}
+          animate={{ y: 0, opacity: 1 }}
+          exit={{ y: 80, opacity: 0 }}
+          transition={{ type: 'spring', damping: 28, stiffness: 350 }}
+          onClick={(e) => e.stopPropagation()}
+          className="bg-white w-full sm:max-w-md rounded-t-3xl sm:rounded-3xl shadow-2xl overflow-hidden"
+        >
+          {/* Header */}
+          <div className="relative p-5 pb-4 flex items-center gap-4 border-b border-brand-border">
+            <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-brand-orange/15 to-brand-red/10 flex items-center justify-center shrink-0 overflow-hidden">
+              {item.image_url ? (
+                <img src={item.image_url} alt="" className="w-full h-full object-cover" />
+              ) : (
+                <CupSoda className="w-7 h-7 text-brand-orange/60" />
+              )}
+            </div>
+            <div className="min-w-0">
+              <p className="font-black text-brand-black truncate">{item.name}</p>
+              <p className="text-xs text-brand-grey mt-0.5">Choose your size</p>
+            </div>
+            <button
+              type="button"
+              onClick={onClose}
+              className="absolute top-4 right-4 p-2 rounded-full text-brand-grey hover:bg-brand-surface cursor-pointer"
+              aria-label="Close"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+
+          {/* Size options */}
+          <div className="p-5 space-y-2.5">
+            {sizes.map((s) => {
+              const active = s.id === sizeId;
+              return (
+                <button
+                  key={s.id}
+                  type="button"
+                  onClick={() => setSizeId(s.id)}
+                  className={`w-full flex items-center gap-3 p-3.5 rounded-2xl border-2 text-left cursor-pointer transition-all ${
+                    active
+                      ? 'border-brand-orange bg-brand-orange/5 shadow-sm'
+                      : 'border-brand-border hover:border-brand-orange/40'
+                  }`}
+                >
+                  <span
+                    className={`w-5 h-5 rounded-full border-2 flex items-center justify-center shrink-0 transition-colors ${
+                      active ? 'border-brand-orange bg-brand-orange' : 'border-brand-border'
+                    }`}
+                  >
+                    {active && <Check className="w-3 h-3 text-white" strokeWidth={3.5} />}
+                  </span>
+                  <span className={`font-bold flex-1 ${active ? 'text-brand-black' : 'text-brand-dark'}`}>
+                    {s.label}
+                  </span>
+                  <span className={`font-black tabular-nums ${active ? 'text-brand-orange' : 'text-brand-grey'}`}>
+                    {fmtSAR(s.price)}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+
+          {/* Confirm */}
+          <div className="p-5 pt-0">
+            <button
+              type="button"
+              disabled={!selected || busy}
+              onClick={() => selected && onConfirm(item, selected.id)}
+              className={btnPrimary + ' w-full !py-3.5'}
+            >
+              {busy ? (
+                <Spinner className="!w-4 !h-4 !border-white/40 !border-t-white" />
+              ) : (
+                <>
+                  <Plus className="w-4 h-4" />
+                  Add to cart{selected ? ` · ${fmtSAR(selected.price)}` : ''}
+                </>
+              )}
+            </button>
+          </div>
+        </motion.div>
+      </motion.div>
+    </AnimatePresence>
+  );
+}
+
 export default function RestaurantPage() {
   const { id } = useParams();
   const navigate = useNavigate();
@@ -58,6 +183,7 @@ export default function RestaurantPage() {
   const [activeCat, setActiveCat] = useState('all');
   const [addingId, setAddingId] = useState(null);
   const [addError, setAddError] = useState(null);
+  const [sizeItem, setSizeItem] = useState(null); // item awaiting a size choice
 
   async function load() {
     setError(null);
@@ -76,15 +202,21 @@ export default function RestaurantPage() {
     api.foodCart(id).then(setCart).catch(() => {});
   }, [id, session]);
 
-  async function addToCart(item) {
+  async function addToCart(item, size = null) {
     if (!session) {
       navigate(`/login?next=${encodeURIComponent(`/food/r/${id}`)}`);
+      return;
+    }
+    // Sized drinks (Milk Tea) go through the size picker first.
+    if (!size && enabledSizes(item).length > 0) {
+      setSizeItem(item);
       return;
     }
     setAddingId(item.id);
     setAddError(null);
     try {
-      setCart(await api.foodCartAdd({ menu_item_id: item.id, quantity: 1 }));
+      setCart(await api.foodCartAdd({ menu_item_id: item.id, quantity: 1, ...(size ? { size } : {}) }));
+      setSizeItem(null);
     } catch (err) {
       setAddError(err.message);
     } finally {
@@ -194,6 +326,16 @@ export default function RestaurantPage() {
             </div>
           )}
         </div>
+      )}
+
+      {/* Size picker (Milk Tea sizes) */}
+      {sizeItem && (
+        <SizePickerSheet
+          item={sizeItem}
+          busy={addingId === sizeItem.id}
+          onClose={() => setSizeItem(null)}
+          onConfirm={(item, size) => addToCart(item, size)}
+        />
       )}
 
       {/* Sticky cart bar */}

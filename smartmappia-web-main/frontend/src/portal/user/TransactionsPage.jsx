@@ -120,6 +120,7 @@ export default function TransactionsPage() {
           items: full.items,
           merchant: full.merchant,
           customerName,
+          driverName: full.rider?.name,
         });
       }
     } catch {

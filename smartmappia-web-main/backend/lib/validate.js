@@ -103,6 +103,22 @@ function checkField(name, value, rule, errors) {
         errors.push(`${name} must have at most ${maxItems} items`);
         return undefined;
       }
+      // itemType 'object': array of plain objects (size-capped as JSON);
+      // the controller does the per-field validation.
+      if (rule.itemType === 'object') {
+        const maxLength = rule.maxLength || 4000;
+        if (JSON.stringify(value).length > maxLength) {
+          errors.push(`${name} is too large`);
+          return undefined;
+        }
+        for (const item of value) {
+          if (!item || typeof item !== 'object' || Array.isArray(item)) {
+            errors.push(`${name} items must be objects`);
+            return undefined;
+          }
+        }
+        return value;
+      }
       const items = [];
       for (const item of value) {
         if (typeof item !== 'string') {

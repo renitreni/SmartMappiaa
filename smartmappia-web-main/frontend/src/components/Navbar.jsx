@@ -12,9 +12,11 @@ import {
   HelpCircle,
   LogOut,
   LayoutDashboard,
+  UserCircle,
 } from "lucide-react";
 import { useAuth } from "../portal/lib/AuthProvider";
 import { roleHome } from "../portal/lib/constants";
+import { UserMenu } from "../portal/components/ui";
 
 const menuLinks = [
   { name: "Home",         href: "#home",         Icon: Home },
@@ -28,7 +30,7 @@ const menuLinks = [
 ];
 
 function AuthActions({ mobile = false, onNavigate }) {
-  const { session, user, role, profileLoading, signOut } = useAuth();
+  const { session, user, profile, role, profileLoading, signOut } = useAuth();
 
   const wrapClass = mobile
     ? "flex flex-col gap-2"
@@ -52,16 +54,9 @@ function AuthActions({ mobile = false, onNavigate }) {
           : role === "merchant"
             ? "Business dashboard"
             : null;
-    const displayName = user?.email?.split("@")[0] || "Account";
 
     return (
       <div className={wrapClass}>
-        {!mobile && (
-          <span className="hidden xl:inline text-xs font-bold text-brand-grey max-w-[120px] truncate">
-            {displayName}
-          </span>
-        )}
-
         {dashboardPath && (
           <Link
             to={dashboardPath}
@@ -96,21 +91,33 @@ function AuthActions({ mobile = false, onNavigate }) {
           </Link>
         )}
 
-        <button
-          type="button"
-          onClick={() => {
-            onNavigate?.();
-            signOut();
-          }}
-          className={
-            mobile
-              ? "flex items-center justify-center gap-2 w-full font-black py-3 rounded-2xl text-sm text-brand-grey border border-brand-border cursor-pointer"
-              : "inline-flex items-center gap-1.5 whitespace-nowrap text-sm font-bold px-3 py-2 rounded-full cursor-pointer text-brand-grey hover:text-brand-dark hover:bg-brand-surface transition-colors"
-          }
-        >
-          <LogOut className="w-4 h-4" />
-          Sign out
-        </button>
+        {mobile ? (
+          <>
+            <Link
+              to="/profile"
+              onClick={onNavigate}
+              className="flex items-center justify-center gap-2 w-full font-black py-3 rounded-2xl text-sm text-brand-dark border border-brand-border cursor-pointer"
+            >
+              <UserCircle className="w-4 h-4" />
+              {profile?.fullName || user?.email?.split("@")[0] || "My Profile"}
+            </Link>
+            <button
+              type="button"
+              onClick={() => {
+                onNavigate?.();
+                signOut();
+              }}
+              className="flex items-center justify-center gap-2 w-full font-black py-3 rounded-2xl text-sm text-brand-grey border border-brand-border cursor-pointer"
+            >
+              <LogOut className="w-4 h-4" />
+              Sign out
+            </button>
+          </>
+        ) : (
+          // Desktop: avatar + name dropdown (My Profile / Order History /
+          // Settings / Logout) — same menu as the portal header.
+          <UserMenu />
+        )}
       </div>
     );
   }

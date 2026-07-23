@@ -5,12 +5,78 @@
 // exactly how much more to add. (The backend re-enforces this at
 // checkout — this is the friendly first line.)
 // ---------------------------------------------------------------------
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useNavigate, useSearchParams, Link } from 'react-router-dom';
 import { Minus, Plus, Trash2, ShoppingCart, AlertCircle, ArrowRight } from 'lucide-react';
 import { api } from '../lib/api';
 import { fmtSAR } from '../lib/constants';
 import { PortalShell, Card, Badge, Spinner, btnPrimary, btnGhost } from '../components/ui';
+
+const MAX_QTY = 50;
+
+// Editable quantity: +/- steppers AND a manually typeable number. Typing is
+// debounced so each keystroke doesn't fire a PATCH; blur/Enter commits
+// immediately. Empty or 0 falls back to the server value (delete via trash).
+function QtyControl({ line, busy, onChange }) {
+  const [text, setText] = useState(String(line.quantity));
+  const timer = useRef(null);
+
+  // Server value changed (another stepper press, refresh) -> resync the input.
+  useEffect(() => { setText(String(line.quantity)); }, [line.quantity]);
+
+  function commit(raw) {
+    const n = Math.min(Math.max(parseInt(raw, 10) || 0, 0), MAX_QTY);
+    if (!n) { setText(String(line.quantity)); return; }
+    if (n !== line.quantity) onChange(line, n);
+    setText(String(n));
+  }
+
+  function handleType(value) {
+    if (!/^\d{0,2}$/.test(value)) return;
+    setText(value);
+    clearTimeout(timer.current);
+    if (value !== '') timer.current = setTimeout(() => commit(value), 700);
+  }
+
+  useEffect(() => () => clearTimeout(timer.current), []);
+
+  return (
+    <div className="flex items-center gap-1.5">
+      <button
+        type="button"
+        disabled={busy}
+        onClick={() => { clearTimeout(timer.current); onChange(line, line.quantity - 1); }}
+        className="w-8 h-8 rounded-lg border border-brand-border flex items-center justify-center text-brand-dark hover:bg-brand-surface cursor-pointer disabled:opacity-50"
+        title="Decrease"
+      >
+        <Minus className="w-3.5 h-3.5" />
+      </button>
+      {busy ? (
+        <span className="w-11 flex justify-center"><Spinner className="!w-4 !h-4" /></span>
+      ) : (
+        <input
+          type="text"
+          inputMode="numeric"
+          value={text}
+          onChange={(e) => handleType(e.target.value)}
+          onBlur={() => { clearTimeout(timer.current); commit(text); }}
+          onKeyDown={(e) => { if (e.key === 'Enter') { clearTimeout(timer.current); commit(text); e.target.blur(); } }}
+          className="w-11 h-8 text-center font-black text-brand-dark tabular-nums rounded-lg border border-brand-border focus:border-brand-orange focus:ring-2 focus:ring-brand-orange/20 outline-none"
+          aria-label="Quantity"
+        />
+      )}
+      <button
+        type="button"
+        disabled={busy || !line.isAvailable || line.quantity >= MAX_QTY}
+        onClick={() => { clearTimeout(timer.current); onChange(line, line.quantity + 1); }}
+        className="w-8 h-8 rounded-lg border border-brand-border flex items-center justify-center text-brand-dark hover:bg-brand-surface cursor-pointer disabled:opacity-50"
+        title="Increase"
+      >
+        <Plus className="w-3.5 h-3.5" />
+      </button>
+    </div>
+  );
+}
 
 export default function FoodCartPage() {
   const navigate = useNavigate();
@@ -97,34 +163,19 @@ export default function FoodCartPage() {
                 <div key={line.id} className="p-4 flex items-center gap-3">
                   <div className="min-w-0 flex-1">
                     <p className="font-bold text-brand-dark truncate">{line.name}</p>
-                    <p className="text-xs text-brand-grey">{fmtSAR(line.unitPrice)} each</p>
+                    <p className="text-xs text-brand-grey">
+                      {line.sizeLabel && (
+                        <span className="inline-block mr-1.5 px-1.5 py-0.5 rounded-md bg-brand-orange/10 text-brand-orange font-bold text-[10px] uppercase tracking-wide">
+                          {line.sizeLabel}
+                        </span>
+                      )}
+                      {fmtSAR(line.unitPrice)} each
+                    </p>
                     {!line.isAvailable && (
                       <Badge tone="red" className="mt-1">No longer available</Badge>
                     )}
                   </div>
-                  <div className="flex items-center gap-1.5">
-                    <button
-                      type="button"
-                      disabled={busyId === line.id}
-                      onClick={() => changeQty(line, line.quantity - 1)}
-                      className="w-8 h-8 rounded-lg border border-brand-border flex items-center justify-center text-brand-dark hover:bg-brand-surface cursor-pointer disabled:opacity-50"
-                      title="Decrease"
-                    >
-                      <Minus className="w-3.5 h-3.5" />
-                    </button>
-                    <span className="w-8 text-center font-black text-brand-dark tabular-nums">
-                      {busyId === line.id ? <Spinner className="!w-4 !h-4" /> : line.quantity}
-                    </span>
-                    <button
-                      type="button"
-                      disabled={busyId === line.id || !line.isAvailable}
-                      onClick={() => changeQty(line, line.quantity + 1)}
-                      className="w-8 h-8 rounded-lg border border-brand-border flex items-center justify-center text-brand-dark hover:bg-brand-surface cursor-pointer disabled:opacity-50"
-                      title="Increase"
-                    >
-                      <Plus className="w-3.5 h-3.5" />
-                    </button>
-                  </div>
+                  <QtyControl line={line} busy={busyId === line.id} onChange={changeQty} />
                   <div className="w-20 text-right font-bold text-brand-dark tabular-nums">
                     {fmtSAR(line.lineTotal)}
                   </div>

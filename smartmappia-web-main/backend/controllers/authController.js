@@ -13,9 +13,28 @@ const { supabase } = require('../lib/supabase');
 const { config } = require('../lib/config');
 const {
   hasExtendedProfileColumns,
+  hasProfileV2Columns,
   profileSelectColumns,
   buildProfileUpsert,
 } = require('../lib/profileSchema');
+const { buildAvatarPath, createAvatarUploadUrl, avatarPublicUrl } = require('../lib/storage');
+
+// The camelCase profile JSON every auth endpoint returns to the UI.
+function profileJson(profile, merchant = null) {
+  return {
+    id: profile.id,
+    role: profile.role,
+    fullName: profile.full_name,
+    whatsapp: profile.whatsapp_number,
+    mobile: profile.mobile_number,
+    email: profile.email,
+    driverApproved: profile.driver_approved,
+    serviceTypes: profile.service_types,
+    avatarUrl: profile.avatar_url ?? null,
+    address: profile.address ?? null,
+    merchant,
+  };
+}
 
 // Roles a user may pick for themselves at signup. Admin is env-list only.
 // Merchant (restaurant owner) accounts are provisioned by admins after partnership
@@ -144,6 +163,7 @@ async function syncProfile(req, res) {
     const driverApproved = role === 'admin' ? true : (existing ? existing.driver_approved : false);
 
     const extended = await hasExtendedProfileColumns(supabase);
+    const v2 = await hasProfileV2Columns(supabase);
     const upsertRow = buildProfileUpsert({
       id,
       role,
@@ -157,7 +177,7 @@ async function syncProfile(req, res) {
     const { data: profile, error } = await supabase
       .from('profiles')
       .upsert(upsertRow, { onConflict: 'id' })
-      .select(profileSelectColumns(extended))
+      .select(profileSelectColumns(extended, v2))
       .single();
 
     if (error) {
@@ -181,21 +201,84 @@ async function syncProfile(req, res) {
       }
     }
 
-    return res.json({
-      id: profile.id,
-      role: profile.role,
-      fullName: profile.full_name,
-      whatsapp: profile.whatsapp_number,
-      mobile: profile.mobile_number,
-      email: profile.email,
-      driverApproved: profile.driver_approved,
-      serviceTypes: profile.service_types,
-      merchant,
-    });
+    return res.json(profileJson(profile, merchant));
   } catch (err) {
     console.error('syncProfile error:', err);
     return res.status(500).json({ error: 'Unexpected server error' });
   }
 }
 
-module.exports = { signup, syncProfile };
+// PATCH /api/auth/profile  (requireAuth)
+// The Profile page: update name / phones / address / avatar. Email and
+// password changes go through Supabase Auth on the client — never here.
+async function updateProfile(req, res) {
+  try {
+    const b = req.body; // whitelisted by the route schema
+    const v2 = await hasProfileV2Columns(supabase);
+
+    const patch = {};
+    for (const key of ['full_name', 'mobile_number', 'whatsapp_number']) {
+      if (key in b) patch[key] = b[key] || null;
+    }
+    if (v2) {
+      for (const key of ['address', 'avatar_url']) {
+        if (key in b) patch[key] = b[key] || null;
+      }
+    } else if ('address' in b || 'avatar_url' in b) {
+      return res.status(409).json({
+        error: 'Address/profile picture need a database update — run backend/migrations/0024_profile_and_contact.sql in the Supabase SQL Editor.',
+      });
+    }
+    if (Object.keys(patch).length === 0) {
+      return res.status(400).json({ error: 'Nothing to update' });
+    }
+
+    const extended = await hasExtendedProfileColumns(supabase);
+    const { data: profile, error } = await supabase
+      .from('profiles')
+      .update(patch)
+      .eq('id', req.userId)
+      .select(profileSelectColumns(extended, v2))
+      .single();
+    if (error || !profile) {
+      console.error('updateProfile error:', error);
+      return res.status(500).json({ error: 'Could not update your profile' });
+    }
+
+    return res.json(profileJson(profile));
+  } catch (err) {
+    console.error('updateProfile error:', err);
+    return res.status(500).json({ error: 'Unexpected server error' });
+  }
+}
+
+// POST /api/auth/avatar/signed-url  (requireAuth)
+// Signed upload for the PUBLIC avatars bucket; the client uploads then
+// saves the returned publicUrl via PATCH /api/auth/profile.
+async function createAvatarUploadUrlHandler(req, res) {
+  try {
+    const { file_name, mime_type } = req.body;
+    if (!mime_type || !config.avatars.allowedMimeTypes.includes(mime_type)) {
+      return res.status(400).json({
+        error: `mime_type must be one of: ${config.avatars.allowedMimeTypes.join(', ')}`,
+      });
+    }
+
+    const path = buildAvatarPath(req.userId, file_name);
+    const { token, signedUrl } = await createAvatarUploadUrl(path);
+
+    return res.status(201).json({
+      bucket: config.avatars.bucket,
+      path,
+      token,
+      signedUrl,
+      publicUrl: avatarPublicUrl(path),
+      maxBytes: config.avatars.maxBytes,
+    });
+  } catch (err) {
+    console.error('createAvatarUploadUrl error:', err);
+    return res.status(500).json({ error: 'Could not create upload URL' });
+  }
+}
+
+module.exports = { signup, syncProfile, updateProfile, createAvatarUploadUrlHandler };

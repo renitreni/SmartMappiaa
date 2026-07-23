@@ -117,10 +117,55 @@ function merchantImagePublicUrl(path) {
   return data.publicUrl;
 }
 
+// --- User avatars (profile pictures, PUBLIC `avatars` bucket) ---------------
+//
+// Same signed-upload pattern as merchant images. The bucket is created
+// lazily on first use so no manual Supabase setup step is needed.
+
+let avatarBucketReady = false;
+async function ensureAvatarBucket() {
+  if (avatarBucketReady) return;
+  const { error } = await supabase.storage.createBucket(config.avatars.bucket, {
+    public: true,
+    fileSizeLimit: config.avatars.maxBytes,
+    allowedMimeTypes: config.avatars.allowedMimeTypes,
+  });
+  // "already exists" is fine — anything else propagates.
+  if (error && !/already exists/i.test(error.message || '')) throw error;
+  avatarBucketReady = true;
+}
+
+// avatars/<userId>/avatar-1718352000000-3f9a2c.jpg
+function buildAvatarPath(userId, originalName) {
+  const safeId = String(userId).replace(/[^A-Za-z0-9-]/g, '');
+  const ext = (originalName && originalName.includes('.'))
+    ? originalName.slice(originalName.lastIndexOf('.')).toLowerCase().replace(/[^.a-z0-9]/g, '')
+    : '';
+  const rand = crypto.randomBytes(4).toString('hex');
+  return `${safeId}/avatar-${Date.now()}-${rand}${ext}`;
+}
+
+async function createAvatarUploadUrl(path) {
+  await ensureAvatarBucket();
+  const { data, error } = await supabase.storage
+    .from(config.avatars.bucket)
+    .createSignedUploadUrl(path);
+  if (error) throw error;
+  return { path, token: data.token, signedUrl: data.signedUrl };
+}
+
+function avatarPublicUrl(path) {
+  const { data } = supabase.storage.from(config.avatars.bucket).getPublicUrl(path);
+  return data.publicUrl;
+}
+
 module.exports = {
   buildProofPath,
   createProofUploadUrl,
   createProofDownloadUrl,
+  buildAvatarPath,
+  createAvatarUploadUrl,
+  avatarPublicUrl,
   buildDriverDocPath,
   createDriverDocUploadUrl,
   createDriverDocDownloadUrl,

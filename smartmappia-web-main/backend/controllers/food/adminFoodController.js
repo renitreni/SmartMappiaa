@@ -25,8 +25,10 @@ const {
   buildMerchantImagePath,
   createMerchantImageUploadUrl,
   merchantImagePublicUrl,
+  createProofDownloadUrl,
 } = require('../../lib/storage');
 const { validateImageFile, validateMenuImageFile } = require('../../lib/uploadValidation');
+const { normalizeSizeOptions } = require('../../lib/foodSizes');
 
 // Credit summary for a restaurant (used / limit / warning / suspended).
 function creditView(merchant) {
@@ -328,6 +330,11 @@ async function addItemForMerchant(req, res) {
     if (b.net_price != null && Number(b.net_price) > Number(b.price)) {
       return res.status(400).json({ error: 'net_price must be <= price' });
     }
+    if ('size_options' in b) {
+      const sized = normalizeSizeOptions(b.size_options);
+      if (!sized.ok) return res.status(400).json({ error: sized.error });
+      b.size_options = sized.value;
+    }
     if (b.category_id) {
       const { data: cat } = await supabase
         .from('menu_categories')
@@ -341,7 +348,7 @@ async function addItemForMerchant(req, res) {
     const { data, error } = await supabase
       .from('menu_items')
       .insert({ merchant_id: merchant.id, ...b })
-      .select('id, category_id, name, description, price, net_price, item_type, image_url, is_available')
+      .select('id, category_id, name, description, price, net_price, item_type, image_url, is_available, size_options')
       .single();
     if (error) {
       console.error('admin addItem error:', error);
@@ -494,7 +501,7 @@ async function getMerchantMenu(req, res) {
         .order('sort_order'),
       supabase
         .from('menu_items')
-        .select('id, category_id, name, description, price, net_price, item_type, image_url, is_available')
+        .select('id, category_id, name, description, price, net_price, item_type, image_url, is_available, size_options')
         .eq('merchant_id', merchant.id)
         .order('name'),
     ]);
@@ -512,6 +519,11 @@ async function getMerchantMenu(req, res) {
 async function moderateItem(req, res) {
   try {
     const b = req.body;
+    if ('size_options' in b) {
+      const sized = normalizeSizeOptions(b.size_options);
+      if (!sized.ok) return res.status(400).json({ error: sized.error });
+      b.size_options = sized.value;
+    }
     // Guard markup >= 0 (net_price <= price). EITHER field may arrive alone on a
     // PATCH — including a price-only lowering below a stored net_price — so
     // resolve the effective PAIR: a field PRESENT in the body (even an explicit
@@ -543,7 +555,7 @@ async function moderateItem(req, res) {
       .from('menu_items')
       .update(req.body)
       .eq('id', req.params.id)
-      .select('id, name, price, net_price, is_available')
+      .select('id, name, price, net_price, is_available, size_options')
       .single();
     // 23514 = the net_price <= price CHECK — surface it as a clean 400, not a 404.
     if (error && error.code === '23514') {
@@ -595,10 +607,10 @@ async function listOrders(req, res) {
       .from('orders')
       .select(
         'id, order_code, status, payment_status, payment_method, subtotal, delivery_fee, ' +
-          'platform_margin_total, total, delivery_address, created_at, ' +
+          'platform_margin_total, total, delivery_address, contact_phone, created_at, accepted_at, ' +
           'merchants ( id, name ), profiles!orders_customer_id_fkey ( full_name, mobile_number ), ' +
           'deliveries ( driver_id, status, pickup_photo_path, delivery_photo_path, profiles ( full_name ) ), ' +
-          'order_items ( name_snapshot, quantity, line_total )'
+          'order_items ( name_snapshot, size_snapshot, quantity, line_total )'
       )
       .order('created_at', { ascending: false })
       .limit(100);
@@ -628,6 +640,22 @@ async function listOrders(req, res) {
       if (!latestPayment.has(p.order_id)) latestPayment.set(p.order_id, p);
     }
 
+    // Short-lived signed download URLs so the admin can VIEW the uploaded
+    // STC Pay screenshots (mirrors the rides implementation). Best-effort:
+    // a broken path must not take the whole list down.
+    const proofUrlByOrder = new Map();
+    await Promise.all(
+      [...latestPayment.entries()].map(async ([orderId, p]) => {
+        const proofPath = p.gateway_raw && p.gateway_raw.proof_path;
+        if (!proofPath) return;
+        try {
+          proofUrlByOrder.set(orderId, await createProofDownloadUrl(proofPath));
+        } catch (urlErr) {
+          console.error('food listOrders proof url error:', urlErr.message || urlErr);
+        }
+      })
+    );
+
     logAudit({ actorId: req.adminId, action: 'admin_food_orders_read', resourceType: 'orders' });
     return res.json({
       orders: (data || []).map((o) => {
@@ -646,14 +674,18 @@ async function listOrders(req, res) {
           merchantId: o.merchants ? o.merchants.id : null,
           merchantName: o.merchants ? o.merchants.name : null,
           customerName: o.profiles ? o.profiles.full_name : null,
-          customerMobile: o.profiles ? o.profiles.mobile_number : null,
+          // Prefer the order's own (editable) contact number over the profile.
+          customerMobile: o.contact_phone || (o.profiles ? o.profiles.mobile_number : null),
           items: o.order_items || [],
           riderName: delivery && delivery.profiles ? delivery.profiles.full_name : null,
+          deliveryStatus: delivery ? delivery.status : null,
           hasPickupPhoto: !!(delivery && delivery.pickup_photo_path),
           hasDeliveryPhoto: !!(delivery && delivery.delivery_photo_path),
           paymentReference: payment ? payment.gateway_transaction_id : null,
           proofPath: payment && payment.gateway_raw ? payment.gateway_raw.proof_path : null,
+          proofUrl: proofUrlByOrder.get(o.id) || null,
           createdAt: o.created_at,
+          acceptedAt: o.accepted_at,
         };
       }),
     });

@@ -13,6 +13,7 @@ const { supabase } = require('../../lib/supabase');
 const { config } = require('../../lib/config');
 const { round2 } = require('../../lib/foodMoney');
 const { logFoodEvent } = require('../../lib/foodEvents');
+const { hasEnabledSizes, findSizeOption } = require('../../lib/foodSizes');
 
 const MAX_QTY = 50;
 
@@ -20,21 +21,33 @@ const MAX_QTY = 50;
 async function buildCartSummary(cart) {
   const { data: lines, error } = await supabase
     .from('cart_items')
-    .select('id, quantity, unit_price, menu_item_id, menu_items ( id, name, price, image_url, is_available, item_type )')
+    .select('id, quantity, unit_price, size, menu_item_id, menu_items ( id, name, price, image_url, is_available, item_type, size_options )')
     .eq('cart_id', cart.id)
     .order('created_at');
   if (error) throw error;
 
-  const items = (lines || []).map((line) => ({
-    id: line.id,
-    menuItemId: line.menu_item_id,
-    name: line.menu_items ? line.menu_items.name : 'Removed item',
-    imageUrl: line.menu_items ? line.menu_items.image_url : null,
-    unitPrice: line.menu_items ? Number(line.menu_items.price) : Number(line.unit_price),
-    quantity: line.quantity,
-    isAvailable: line.menu_items ? line.menu_items.is_available : false,
-    lineTotal: round2((line.menu_items ? Number(line.menu_items.price) : Number(line.unit_price)) * line.quantity),
-  }));
+  const items = (lines || []).map((line) => {
+    const menu = line.menu_items;
+    // A sized line prices from its (still enabled) size option; if the admin
+    // disabled that size since, the line shows as unavailable.
+    const sizeOption = menu && line.size ? findSizeOption(menu.size_options, line.size) : null;
+    const unitPrice = sizeOption
+      ? Number(sizeOption.price)
+      : menu ? Number(menu.price) : Number(line.unit_price);
+    const sizeStillValid = !line.size || !!sizeOption;
+    return {
+      id: line.id,
+      menuItemId: line.menu_item_id,
+      name: menu ? menu.name : 'Removed item',
+      imageUrl: menu ? menu.image_url : null,
+      unitPrice,
+      quantity: line.quantity,
+      size: line.size || null,
+      sizeLabel: sizeOption ? sizeOption.label : null,
+      isAvailable: (menu ? menu.is_available : false) && sizeStillValid,
+      lineTotal: round2(unitPrice * line.quantity),
+    };
+  });
 
   const subtotal = round2(items.reduce((sum, i) => sum + i.lineTotal, 0));
   const minOrder = config.food.minOrderSar;
@@ -90,11 +103,12 @@ async function getCart(req, res) {
 async function addCartItem(req, res) {
   try {
     const { menu_item_id, quantity = 1 } = req.body;
+    const size = req.body.size || null;
 
     // Server reads the item + restaurant state itself.
     const { data: item, error: itemErr } = await supabase
       .from('menu_items')
-      .select('id, merchant_id, name, price, is_available, merchants ( is_active, status )')
+      .select('id, merchant_id, name, price, is_available, size_options, merchants ( is_active, status )')
       .eq('id', menu_item_id)
       .maybeSingle();
     if (itemErr) {
@@ -108,6 +122,20 @@ async function addCartItem(req, res) {
     if (!item.merchants || !item.merchants.is_active || item.merchants.status !== 'active') {
       return res.status(409).json({ error: 'This restaurant is not accepting orders right now' });
     }
+
+    // Size handling: a sized item requires a valid ENABLED size; a size-less
+    // item rejects any size the client sends. The size price becomes the
+    // line's unit price (still only a display snapshot — checkout re-reads).
+    let sizeOption = null;
+    if (hasEnabledSizes(item.size_options)) {
+      sizeOption = findSizeOption(item.size_options, size);
+      if (!sizeOption) {
+        return res.status(400).json({ error: 'Please pick a size for this item' });
+      }
+    } else if (size) {
+      return res.status(400).json({ error: 'This item does not have size options' });
+    }
+    const unitPrice = sizeOption ? sizeOption.price : item.price;
 
     // Find or create the customer's cart for this restaurant.
     let cart = await loadOwnCart(req.userId, item.merchant_id);
@@ -127,19 +155,21 @@ async function addCartItem(req, res) {
       cart = created;
     }
 
-    // Same item again = bump the quantity (capped).
-    const { data: existing } = await supabase
+    // Same item + same size again = bump the quantity (capped). A different
+    // size is a separate line (unique index covers cart+item+size).
+    let existingQuery = supabase
       .from('cart_items')
       .select('id, quantity')
       .eq('cart_id', cart.id)
-      .eq('menu_item_id', item.id)
-      .maybeSingle();
+      .eq('menu_item_id', item.id);
+    existingQuery = sizeOption ? existingQuery.eq('size', sizeOption.id) : existingQuery.is('size', null);
+    const { data: existing } = await existingQuery.maybeSingle();
 
     if (existing) {
       const nextQty = Math.min(existing.quantity + quantity, MAX_QTY);
       const { error: updErr } = await supabase
         .from('cart_items')
-        .update({ quantity: nextQty, unit_price: item.price })
+        .update({ quantity: nextQty, unit_price: unitPrice })
         .eq('id', existing.id);
       if (updErr) {
         console.error('addCartItem update error:', updErr);
@@ -150,7 +180,8 @@ async function addCartItem(req, res) {
         cart_id: cart.id,
         menu_item_id: item.id,
         quantity: Math.min(quantity, MAX_QTY),
-        unit_price: item.price, // display snapshot; checkout re-reads live prices
+        size: sizeOption ? sizeOption.id : null,
+        unit_price: unitPrice, // display snapshot; checkout re-reads live prices
       });
       if (insErr) {
         console.error('addCartItem insert error:', insErr);
@@ -162,7 +193,7 @@ async function addCartItem(req, res) {
       eventName: 'add_to_cart',
       userId: req.userId,
       merchantId: item.merchant_id,
-      params: { item_id: item.id, price: Number(item.price), quantity },
+      params: { item_id: item.id, price: Number(unitPrice), quantity, size: sizeOption ? sizeOption.id : null },
     });
 
     return res.status(201).json(await buildCartSummary(cart));

@@ -7,10 +7,11 @@
 // ---------------------------------------------------------------------
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useSearchParams, Link } from 'react-router-dom';
-import { MapPin, AlertCircle, ArrowRight, Smartphone, CreditCard } from 'lucide-react';
+import { MapPin, AlertCircle, ArrowRight, Smartphone, CreditCard, Phone } from 'lucide-react';
 import { api } from '../lib/api';
+import { useAuth } from '../lib/AuthProvider';
 import { fmtSAR, FOOD_RADIUS_KM } from '../lib/constants';
-import { PortalShell, Card, Spinner, btnPrimary, btnGhost } from '../components/ui';
+import { PortalShell, Card, Spinner, inputClass, btnPrimary, btnGhost } from '../components/ui';
 import LocationPicker from '../components/LocationPicker';
 import PaymentPanel from './PaymentPanel';
 
@@ -25,11 +26,13 @@ export default function FoodCheckoutPage() {
   const navigate = useNavigate();
   const [params] = useSearchParams();
   const merchantId = params.get('m');
+  const { profile } = useAuth();
 
   const [cart, setCart] = useState(null);
   const [loadErr, setLoadErr] = useState(null);
   const [address, setAddress] = useState('');
   const [coords, setCoords] = useState(null); // { lat, lng }
+  const [contactPhone, setContactPhone] = useState(profile?.mobile || '');
   const [method, setMethod] = useState('stcpay');
   const [error, setError] = useState(null);
   const [busy, setBusy] = useState(false);
@@ -42,9 +45,15 @@ export default function FoodCheckoutPage() {
     api.foodCart(merchantId).then(setCart).catch((e) => setLoadErr(e.message));
   }, [merchantId]);
 
+  // Prefill the contact number from the profile once it loads.
+  useEffect(() => {
+    if (profile?.mobile) setContactPhone((v) => v || profile.mobile);
+  }, [profile?.mobile]);
+
   async function placeOrder() {
     if (!address.trim()) return setError('Please enter your delivery address.');
     if (!coords) return setError('Please tap "Use my location" so we can check the delivery radius.');
+    if (!contactPhone.trim()) return setError('Please enter a contact number for the rider.');
 
     setError(null);
     setBusy(true);
@@ -55,6 +64,7 @@ export default function FoodCheckoutPage() {
           delivery_address: address.trim(),
           delivery_lat: coords.lat,
           delivery_lng: coords.lng,
+          contact_phone: contactPhone.trim(),
           payment_method: method,
         },
         idempotencyKey
@@ -160,6 +170,25 @@ export default function FoodCheckoutPage() {
               </p>
             </Card>
 
+            {/* Contact number — editable later while the order is in progress */}
+            <Card className="p-5 space-y-2">
+              <p className="font-black text-brand-black flex items-center gap-2">
+                <Phone className="w-4 h-4 text-brand-orange" /> Contact number
+              </p>
+              <input
+                type="tel"
+                value={contactPhone}
+                onChange={(e) => setContactPhone(e.target.value)}
+                className={inputClass}
+                placeholder="05XXXXXXXX"
+                maxLength={40}
+              />
+              <p className="text-xs text-brand-grey">
+                The rider calls this number at your door. You can still change it while the order
+                is on its way.
+              </p>
+            </Card>
+
             {/* Payment method */}
             <Card className="p-5">
               <p className="font-black text-brand-black mb-3">How would you like to pay?</p>
@@ -201,7 +230,10 @@ export default function FoodCheckoutPage() {
               <div className="space-y-1.5 text-sm">
                 {items.map((line) => (
                   <div key={line.id} className="flex justify-between gap-3">
-                    <span className="text-brand-dark truncate">{line.quantity} × {line.name}</span>
+                    <span className="text-brand-dark truncate">
+                      {line.quantity} × {line.name}
+                      {line.sizeLabel ? <span className="text-brand-grey"> ({line.sizeLabel})</span> : null}
+                    </span>
                     <span className="tabular-nums font-medium shrink-0">{fmtSAR(line.lineTotal)}</span>
                   </div>
                 ))}

@@ -12,6 +12,7 @@ const {
   getMerchantMediaPublicUrl,
 } = require('../lib/storage');
 const { validateImageFile, validateMenuImageFile } = require('../lib/uploadValidation');
+const { normalizeSizeOptions } = require('../lib/foodSizes');
 
 const MERCHANT_SELECT =
   'id, name, cuisine_type, description, logo_url, address, lat, lng, ' +
@@ -227,7 +228,7 @@ async function getMenu(req, res) {
         .order('sort_order'),
       supabase
         .from('menu_items')
-        .select('id, category_id, name, description, price, item_type, image_url, is_available')
+        .select('id, category_id, name, description, price, item_type, image_url, is_available, size_options')
         .eq('merchant_id', merchant.id)
         .order('name'),
     ]);
@@ -313,11 +314,16 @@ async function addItem(req, res) {
     if (!(await assertCategoryOwned(req.body.category_id, merchant.id))) {
       return res.status(400).json({ error: 'category_id does not belong to this business' });
     }
+    if ('size_options' in req.body) {
+      const sized = normalizeSizeOptions(req.body.size_options);
+      if (!sized.ok) return res.status(400).json({ error: sized.error });
+      req.body.size_options = sized.value;
+    }
 
     const { data, error } = await supabase
       .from('menu_items')
       .insert({ merchant_id: merchant.id, ...req.body })
-      .select('id, category_id, name, description, price, item_type, image_url, is_available')
+      .select('id, category_id, name, description, price, item_type, image_url, is_available, size_options')
       .single();
     if (error) return res.status(500).json({ error: 'Could not create the item' });
     return res.status(201).json({ item: data });
@@ -334,13 +340,18 @@ async function updateItem(req, res) {
     if (!(await assertCategoryOwned(req.body.category_id, merchant.id))) {
       return res.status(400).json({ error: 'category_id does not belong to this business' });
     }
+    if ('size_options' in req.body) {
+      const sized = normalizeSizeOptions(req.body.size_options);
+      if (!sized.ok) return res.status(400).json({ error: sized.error });
+      req.body.size_options = sized.value;
+    }
 
     const { data, error } = await supabase
       .from('menu_items')
       .update(req.body)
       .eq('id', req.params.id)
       .eq('merchant_id', merchant.id)
-      .select('id, category_id, name, description, price, item_type, image_url, is_available')
+      .select('id, category_id, name, description, price, item_type, image_url, is_available, size_options')
       .single();
     if (error || !data) return res.status(404).json({ error: 'Menu item not found' });
     return res.json({ item: data });

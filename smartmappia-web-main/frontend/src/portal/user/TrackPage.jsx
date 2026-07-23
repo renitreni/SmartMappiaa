@@ -22,6 +22,7 @@ import { useAuth } from '../lib/AuthProvider';
 import { PortalShell, Card, Badge, Spinner, btnGhost } from '../components/ui';
 import RideMap from '../components/RideMap';
 import RateDriver from '../components/RateDriver';
+import EditableContact from '../components/EditableContact';
 
 // Round a coord to ~100m so the OSRM route only refetches on real movement.
 const r3 = (x) => (x == null ? '' : Math.round(x * 1000) / 1000);
@@ -343,8 +344,10 @@ export default function TrackPage() {
                       currency: data.currency,
                       payment_status: data.paymentStatus,
                       payment_method: data.paymentMethod === 'cash' ? 'Cash' : 'STC Pay',
+                      passenger_mobile: data.passengerMobile || data.passengerWhatsapp,
                     },
                     customerName: profile?.fullName || user?.email || 'Smart Mappia customer',
+                    driverName: data.driver?.name,
                   })
                 }
                 className="w-full inline-flex items-center justify-center gap-2 bg-brand-orange hover:bg-brand-orange/90 text-white font-black py-3 rounded-xl transition-all shadow-lg shadow-brand-orange/20 text-sm cursor-pointer"
@@ -381,6 +384,17 @@ export default function TrackPage() {
               <span className="font-black text-brand-orange">SAR {data.fareAmount}</span>
             </div>
           </Card>
+
+          {/* Contact number — the owner may edit it even mid-trip so the
+              driver/admin always reach the right number. */}
+          <EditableContact
+            value={data.passengerMobile || data.passengerWhatsapp}
+            editable={!!session && !['completed', 'cancelled'].includes(data.bookingStatus)}
+            onSave={async (phone) => {
+              await api.updateBookingContact(code, { passenger_mobile: phone });
+              await refetch();
+            }}
+          />
 
           {canCancel && (
             <button onClick={onCancel} disabled={cancelling}

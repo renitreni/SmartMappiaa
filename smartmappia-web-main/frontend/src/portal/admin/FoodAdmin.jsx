@@ -274,7 +274,19 @@ function RestaurantForm({ initial, onSave, onCancel, busy, merchantId }) {
 }
 
 // --- Menu item form ---------------------------------------------------------
-const EMPTY_ITEM = { name: '', description: '', price: '', net_price: '', item_type: 'meal_package', category_id: '', image_url: '' };
+const EMPTY_ITEM = { name: '', description: '', price: '', net_price: '', item_type: 'meal_package', category_id: '', image_url: '', size_options: null };
+
+// Drink sizes are a Milk Tea feature: the editor only appears when the item
+// sits in a category whose name contains "milk tea" / "milktea".
+function isMilkTeaCategory(category) {
+  return /milk\s*tea|milktea/i.test(category?.name || '');
+}
+
+const DEFAULT_SIZE_ROWS = [
+  { id: 'small', label: 'Small', price: '', enabled: true },
+  { id: 'medium', label: 'Medium', price: '', enabled: true },
+  { id: 'large', label: 'Large', price: '', enabled: true },
+];
 
 // Live markup preview for the item form: list price - net price.
 function markupHint(price, netPrice) {
@@ -293,6 +305,27 @@ function ItemForm({ initial, categories, onSave, onCancel, busy, merchantId }) {
   const [form, setForm] = useState({ ...EMPTY_ITEM, ...initial });
   const set = (k) => (e) => setForm((f) => ({ ...f, [k]: e.target.value }));
 
+  const selectedCategory = categories.find((c) => c.id === form.category_id);
+  const milkTea = isMilkTeaCategory(selectedCategory);
+  const sizeRows = Array.isArray(form.size_options) ? form.size_options : null;
+  const sizesOn = milkTea && !!sizeRows && sizeRows.length > 0;
+
+  function toggleSizes(on) {
+    setForm((f) => ({
+      ...f,
+      size_options: on
+        ? DEFAULT_SIZE_ROWS.map((s) => ({ ...s, price: s.price || f.price || '' }))
+        : null,
+    }));
+  }
+
+  function setSizeRow(index, patch) {
+    setForm((f) => ({
+      ...f,
+      size_options: f.size_options.map((s, i) => (i === index ? { ...s, ...patch } : s)),
+    }));
+  }
+
   function submit(e) {
     e.preventDefault();
     onSave({
@@ -303,6 +336,14 @@ function ItemForm({ initial, categories, onSave, onCancel, busy, merchantId }) {
       item_type: form.item_type,
       category_id: form.category_id || null,
       image_url: (form.image_url || '').trim() || null,
+      size_options: sizesOn
+        ? sizeRows.map((s) => ({
+            id: s.id,
+            label: (s.label || '').trim(),
+            price: Number(s.price),
+            enabled: s.enabled !== false,
+          }))
+        : null,
     });
   }
 
@@ -341,6 +382,66 @@ function ItemForm({ initial, categories, onSave, onCancel, busy, merchantId }) {
           </select>
         </Field>
       </div>
+      {/* Drink sizes — Milk Tea categories only */}
+      {milkTea && (
+        <div className="rounded-xl border border-brand-border bg-white p-3.5">
+          <label className="flex items-center justify-between cursor-pointer">
+            <span className="text-xs font-bold text-brand-dark uppercase tracking-wider">
+              Size options (Small / Medium / Large)
+            </span>
+            <span className="relative inline-flex items-center">
+              <input
+                type="checkbox"
+                checked={sizesOn}
+                onChange={(e) => toggleSizes(e.target.checked)}
+                className="peer sr-only"
+              />
+              <span className="w-9 h-5 rounded-full bg-brand-border peer-checked:bg-brand-orange transition-colors" />
+              <span className="absolute left-0.5 w-4 h-4 rounded-full bg-white shadow transition-transform peer-checked:translate-x-4" />
+            </span>
+          </label>
+          {sizesOn && (
+            <div className="mt-3 space-y-2">
+              {sizeRows.map((s, i) => (
+                <div key={s.id} className={`flex items-center gap-2 ${s.enabled === false ? 'opacity-50' : ''}`}>
+                  <input
+                    type="checkbox"
+                    checked={s.enabled !== false}
+                    onChange={(e) => setSizeRow(i, { enabled: e.target.checked })}
+                    className="w-4 h-4 accent-orange-500 cursor-pointer shrink-0"
+                    title={s.enabled !== false ? 'Disable this size' : 'Enable this size'}
+                  />
+                  <input
+                    value={s.label}
+                    onChange={(e) => setSizeRow(i, { label: e.target.value })}
+                    className={inputClass + ' !py-2 flex-1'}
+                    placeholder="Label"
+                    maxLength={40}
+                    required={s.enabled !== false}
+                  />
+                  <div className="relative w-32 shrink-0">
+                    <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-[10px] font-bold text-brand-grey">SAR</span>
+                    <input
+                      type="number"
+                      min="0.01"
+                      step="0.01"
+                      value={s.price}
+                      onChange={(e) => setSizeRow(i, { price: e.target.value })}
+                      className={inputClass + ' !py-2 !pl-9'}
+                      placeholder="Price"
+                      required
+                    />
+                  </div>
+                </div>
+              ))}
+              <p className="text-[11px] text-brand-grey">
+                Customers pick a size before adding; the size price replaces the list price.
+                Untick a size to hide it without deleting it.
+              </p>
+            </div>
+          )}
+        </div>
+      )}
       <Field label="Photo">
         <ImageUploadField
           merchantId={merchantId}
@@ -505,6 +606,11 @@ function MenuEditor({ merchant, onClose, onError }) {
                       {fmtSAR(item.price)} · {item.item_type === 'meal_package' ? 'Meal' : 'Drink/add-on'}
                       {item.net_price != null && (
                         <span className="text-green-700 font-bold"> · +{fmtSAR(item.price - item.net_price)} markup</span>
+                      )}
+                      {Array.isArray(item.size_options) && item.size_options.length > 0 && (
+                        <span className="text-brand-orange font-bold">
+                          {' '}· {item.size_options.filter((s) => s.enabled !== false).map((s) => s.label).join('/')}
+                        </span>
                       )}
                     </p>
                   </div>
@@ -808,6 +914,20 @@ function MerchantsSection({ onError }) {
 }
 
 // --- Orders section --------------------------------------------------------------
+// STC Pay screenshot review status: awaiting = still needs a human eye.
+function proofReviewMeta(paymentStatus) {
+  if (paymentStatus === 'paid') return { label: 'Verified', tone: 'green' };
+  if (paymentStatus === 'failed') return { label: 'Rejected', tone: 'red' };
+  if (paymentStatus === 'refunded') return { label: 'Refunded', tone: 'grey' };
+  return { label: 'Pending review', tone: 'amber' };
+}
+
+const DELIVERY_STATUS_LABEL = {
+  assigned: 'Rider assigned',
+  picked_up: 'Picked up',
+  delivered: 'Delivered',
+};
+
 function OrdersSection({ onError }) {
   const [orders, setOrders] = useState(null);
   const [drivers, setDrivers] = useState([]);
@@ -815,6 +935,7 @@ function OrdersSection({ onError }) {
   const [busyCode, setBusyCode] = useState(null);
   const [assigning, setAssigning] = useState(null);
   const [driverId, setDriverId] = useState('');
+  const [proofView, setProofView] = useState(null); // full-size screenshot lightbox
 
   const load = useCallback(async () => {
     try {
@@ -908,13 +1029,72 @@ function OrdersSection({ onError }) {
 
             {(o.items || []).length > 0 && (
               <p className="text-xs text-brand-grey mt-2 truncate">
-                {o.items.map((i) => `${i.quantity} × ${i.name_snapshot}`).join(', ')}
+                {o.items
+                  .map((i) => `${i.quantity} × ${i.name_snapshot}${i.size_snapshot ? ` (${i.size_snapshot})` : ''}`)
+                  .join(', ')}
               </p>
             )}
-            {o.riderName && (
-              <p className="text-xs text-brand-grey mt-1 flex items-center gap-1">
-                <Bike className="w-3 h-3 text-brand-orange" /> Rider: <span className="font-bold text-brand-dark">{o.riderName}</span>
+            {o.customerMobile && (
+              <p className="text-xs text-brand-grey mt-1">
+                Contact: <span className="font-bold text-brand-dark">{o.customerMobile}</span>
               </p>
+            )}
+            {(o.riderName || o.acceptedAt || o.deliveryStatus) && (
+              <div className="mt-1 flex items-center gap-x-3 gap-y-1 flex-wrap text-xs text-brand-grey">
+                {o.riderName && (
+                  <span className="flex items-center gap-1">
+                    <Bike className="w-3 h-3 text-brand-orange" /> Rider:{' '}
+                    <span className="font-bold text-brand-dark">{o.riderName}</span>
+                  </span>
+                )}
+                {o.acceptedAt && (
+                  <span>
+                    Accepted{' '}
+                    <span className="font-bold text-brand-dark">
+                      {new Date(o.acceptedAt).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                    </span>
+                  </span>
+                )}
+                {o.deliveryStatus && (
+                  <Badge tone={o.deliveryStatus === 'delivered' ? 'green' : 'blue'}>
+                    {DELIVERY_STATUS_LABEL[o.deliveryStatus] || o.deliveryStatus}
+                  </Badge>
+                )}
+              </div>
+            )}
+
+            {/* STC Pay screenshot review — thumbnail, full-size lightbox, and
+                Pending / Verified / Rejected badge next to it. */}
+            {o.paymentMethod === 'stcpay' && (o.proofUrl || o.proofPath || o.paymentReference) && (
+              <div className="mt-2 flex items-center gap-3 p-2.5 rounded-xl border border-brand-border bg-brand-surface/60">
+                {o.proofUrl ? (
+                  <button
+                    type="button"
+                    onClick={() => setProofView(o.proofUrl)}
+                    className="shrink-0 cursor-pointer rounded-lg overflow-hidden border border-brand-border hover:ring-2 hover:ring-brand-orange/50 transition-shadow"
+                    title="View full size"
+                  >
+                    <img src={o.proofUrl} alt="STC Pay payment screenshot" className="w-14 h-14 object-cover" />
+                  </button>
+                ) : (
+                  <div className="w-14 h-14 rounded-lg bg-white border border-brand-border flex items-center justify-center shrink-0">
+                    <ImageIcon className="w-5 h-5 text-brand-grey/50" />
+                  </div>
+                )}
+                <div className="min-w-0 text-xs">
+                  <p className="font-bold text-brand-dark flex items-center gap-1.5 flex-wrap">
+                    STC Pay screenshot
+                    {(() => {
+                      const review = proofReviewMeta(o.paymentStatus);
+                      return <Badge tone={review.tone}>{review.label}</Badge>;
+                    })()}
+                  </p>
+                  {o.paymentReference && <p className="text-brand-grey truncate">Ref: {o.paymentReference}</p>}
+                  <p className="text-brand-grey">
+                    {o.proofUrl ? 'Click the image to view it full size.' : 'No screenshot uploaded yet.'}
+                  </p>
+                </div>
+              </div>
             )}
             {refundable && (
               <p className="text-xs font-bold text-amber-700 mt-2">
@@ -929,7 +1109,7 @@ function OrdersSection({ onError }) {
                   <button type="button" disabled={busy}
                     onClick={() => run(o.orderCode, () => api.adminFoodVerifyPayment(o.orderCode))}
                     className={btnPrimary + ' !py-2 !px-3.5 !text-xs'}>
-                    <Check className="w-3.5 h-3.5" /> Verify payment
+                    <Check className="w-3.5 h-3.5" /> Approve payment
                   </button>
                   <button type="button" disabled={busy}
                     onClick={() => {
@@ -1047,6 +1227,29 @@ function OrdersSection({ onError }) {
           </Card>
         );
       })}
+
+      {/* Full-size payment screenshot lightbox */}
+      {proofView && (
+        <div
+          className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-6"
+          onClick={() => setProofView(null)}
+        >
+          <button
+            type="button"
+            onClick={() => setProofView(null)}
+            className="absolute top-4 right-4 p-2 rounded-full bg-white/10 text-white hover:bg-white/20 cursor-pointer"
+            aria-label="Close"
+          >
+            <X className="w-5 h-5" />
+          </button>
+          <img
+            src={proofView}
+            alt="STC Pay payment screenshot (full size)"
+            className="max-w-full max-h-full rounded-2xl shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          />
+        </div>
+      )}
     </div>
   );
 }

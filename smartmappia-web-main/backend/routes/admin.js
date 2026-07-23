@@ -75,6 +75,9 @@ const ADMIN_ITEM_FIELDS = {
   item_type: { type: 'string', enum: ['meal_package', 'drink_dessert_addon'] },
   image_url: { type: 'string', maxLength: 500, nullable: true },
   is_available: { type: 'boolean' },
+  // Drink sizes (Milk Tea): [{ id, label, price, enabled }] — per-entry
+  // validation happens in lib/foodSizes.normalizeSizeOptions.
+  size_options: { type: 'array', itemType: 'object', maxItems: 6, nullable: true },
 };
 const ADMIN_CATEGORY_FIELDS = {
   name: { type: 'string', maxLength: 80 },

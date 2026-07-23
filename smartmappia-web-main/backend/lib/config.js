@@ -53,6 +53,17 @@ const config = {
     kinds: ['logo', 'item'],
   },
 
+  // Supabase Storage bucket holding user profile pictures (PUBLIC bucket —
+  // the avatar URL is stored on profiles.avatar_url and rendered with a
+  // plain <img src> in the navbar/profile page). The bucket is created
+  // lazily by the backend if it doesn't exist yet.
+  avatars: {
+    bucket: process.env.AVATARS_BUCKET || 'avatars',
+    uploadUrlTtlSeconds: toNumber(process.env.AVATARS_UPLOAD_TTL, 900),
+    maxBytes: toNumber(process.env.AVATARS_MAX_BYTES, 5 * 1024 * 1024), // 5 MB
+    allowedMimeTypes: ['image/jpeg', 'image/png', 'image/webp'],
+  },
+
   // Supabase Storage bucket holding driver verification documents (PRIVATE bucket).
   driverDocs: {
     bucket: process.env.DRIVER_DOCS_BUCKET || 'driver-docs',
