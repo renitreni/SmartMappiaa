@@ -2,6 +2,8 @@
 // Geo helpers + a browser geolocation hook.
 // ---------------------------------------------------------------------
 import { useEffect, useRef, useState } from 'react';
+import { Capacitor } from '@capacitor/core';
+import { Geolocation } from '@capacitor/geolocation';
 import { AIRPORTS, RIYADH_CENTER } from './constants';
 import { confirmAction } from './notify';
 
@@ -90,13 +92,11 @@ export function useGeolocation({ watch = false, enabled = true } = {}) {
 
   useEffect(() => {
     if (!enabled) return undefined;
-    if (typeof navigator === 'undefined' || !('geolocation' in navigator)) {
-      setError('Geolocation is not available in this browser.');
-      return undefined;
-    }
+
     const onOk = (pos) => {
       // A fresh fix clears any earlier transient error (e.g. a watch "Timeout
       // expired") so we don't keep showing a stale warning once we have a spot.
+      if (!pos) return;
       setError(null);
       setCoords({
         lat: pos.coords.latitude,
@@ -104,9 +104,51 @@ export function useGeolocation({ watch = false, enabled = true } = {}) {
         accuracy: pos.coords.accuracy,
       });
     };
-    const onErr = (e) => setError(e.message || 'Could not get your location.');
+    const onErr = (e) => setError(e?.message || 'Could not get your location.');
     const opts = { enableHighAccuracy: true, maximumAge: 10000, timeout: 20000 };
 
+    // Native (Capacitor) path: the Geolocation plugin gives reliable GPS and
+    // triggers the Android runtime permission prompt. watchPosition() resolves a
+    // watch id asynchronously, so guard against teardown while awaiting.
+    if (Capacitor.isNativePlatform()) {
+      let watchId = null;
+      let cancelled = false;
+      (async () => {
+        try {
+          let perm = await Geolocation.checkPermissions();
+          if (perm.location !== 'granted' && perm.coarseLocation !== 'granted') {
+            perm = await Geolocation.requestPermissions();
+          }
+          if (perm.location !== 'granted' && perm.coarseLocation !== 'granted') {
+            setError('Location permission denied.');
+            return;
+          }
+          if (watch) {
+            const id = await Geolocation.watchPosition(opts, (pos, err) => {
+              if (err) onErr(err);
+              else onOk(pos);
+            });
+            if (cancelled) Geolocation.clearWatch({ id });
+            else watchId = id;
+          } else {
+            const pos = await Geolocation.getCurrentPosition(opts);
+            if (!cancelled) onOk(pos);
+          }
+        } catch (e) {
+          if (!cancelled) onErr(e);
+        }
+      })();
+      return () => {
+        cancelled = true;
+        if (watchId != null) Geolocation.clearWatch({ id: watchId });
+      };
+    }
+
+    // Web/browser path.
+    if (typeof navigator === 'undefined' || !('geolocation' in navigator)) {
+      setError('Geolocation is not available in this browser.');
+      return undefined;
+    }
     if (watch) {
       idRef.current = navigator.geolocation.watchPosition(onOk, onErr, opts);
     } else {
@@ -120,6 +162,38 @@ export function useGeolocation({ watch = false, enabled = true } = {}) {
   return { coords, error };
 }
 
+// One-shot high-accuracy fix, Capacitor-aware. Unlike useGeolocation (a React
+// hook for continuous watching), this is a plain promise for button actions like
+// the location picker's "Use current location". On native it uses the Capacitor
+// plugin (Fused Location Provider + runtime permission), on web the browser API —
+// so merchant/user pin-drop gets the SAME high-accuracy GPS the driver already has.
+export async function getCurrentPositionOnce(opts = {}) {
+  const options = { enableHighAccuracy: true, timeout: 15000, maximumAge: 10000, ...opts };
+
+  if (Capacitor.isNativePlatform()) {
+    let perm = await Geolocation.checkPermissions();
+    if (perm.location !== 'granted' && perm.coarseLocation !== 'granted') {
+      perm = await Geolocation.requestPermissions();
+    }
+    if (perm.location !== 'granted' && perm.coarseLocation !== 'granted') {
+      throw new Error('Location permission denied.');
+    }
+    const pos = await Geolocation.getCurrentPosition(options);
+    return { lat: pos.coords.latitude, lng: pos.coords.longitude, accuracy: pos.coords.accuracy };
+  }
+
+  if (typeof navigator === 'undefined' || !('geolocation' in navigator)) {
+    throw new Error('Location is not available in this browser.');
+  }
+  return new Promise((resolve, reject) => {
+    navigator.geolocation.getCurrentPosition(
+      (pos) => resolve({ lat: pos.coords.latitude, lng: pos.coords.longitude, accuracy: pos.coords.accuracy }),
+      (err) => reject(new Error(err?.message || 'Could not get your location.')),
+      options
+    );
+  });
+}
+
 // Proactively ask for location permission ONCE (e.g. right after sign-in), with
 // a friendly explainer before the browser's native prompt. Safe to call
 // repeatedly and never throws: it no-ops if geolocation is unavailable, the
@@ -129,11 +203,27 @@ const GEO_PROMPT_KEY = 'sm_geo_prompted';
 
 export async function ensureLocationPermission() {
   try {
-    if (typeof navigator === 'undefined' || !('geolocation' in navigator)) return;
+    const native = Capacitor.isNativePlatform();
+    if (!native && (typeof navigator === 'undefined' || !('geolocation' in navigator))) return;
     if (localStorage.getItem(GEO_PROMPT_KEY)) return; // asked before — don't nag
 
     // If the user already granted/denied, record it and skip the explainer.
-    if (navigator.permissions?.query) {
+    if (native) {
+      try {
+        const perm = await Geolocation.checkPermissions();
+        // Treat "granted if either fine OR coarse is granted" — same rule as
+        // useGeolocation, so the stored prompt flag matches actual behavior.
+        const granted = perm.location === 'granted' || perm.coarseLocation === 'granted';
+        const denied = perm.location === 'denied' && perm.coarseLocation === 'denied';
+        const state = granted ? 'granted' : denied ? 'denied' : 'prompt';
+        if (state === 'granted' || state === 'denied') {
+          localStorage.setItem(GEO_PROMPT_KEY, state);
+          return;
+        }
+      } catch {
+        /* not decidable here — fall through and ask. */
+      }
+    } else if (navigator.permissions?.query) {
       try {
         const status = await navigator.permissions.query({ name: 'geolocation' });
         if (status.state === 'granted' || status.state === 'denied') {
@@ -156,12 +246,17 @@ export async function ensureLocationPermission() {
     });
     if (!ok) return;
 
-    // Fire the browser's native prompt (result handled elsewhere when needed).
-    navigator.geolocation.getCurrentPosition(
-      () => {},
-      () => {},
-      { enableHighAccuracy: false, timeout: 12000, maximumAge: 60000 }
-    );
+    if (native) {
+      // Native: this is what actually surfaces the Android runtime prompt.
+      try { await Geolocation.requestPermissions(); } catch { /* ignore */ }
+    } else {
+      // Fire the browser's native prompt (result handled elsewhere when needed).
+      navigator.geolocation.getCurrentPosition(
+        () => {},
+        () => {},
+        { enableHighAccuracy: false, timeout: 12000, maximumAge: 60000 }
+      );
+    }
   } catch {
     /* never let the permission prompt break sign-in */
   }

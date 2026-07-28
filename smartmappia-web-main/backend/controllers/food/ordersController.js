@@ -736,7 +736,13 @@ async function tapWebhook(req, res) {
         .createHmac('sha256', config.tap.webhookSecret)
         .update(payload)
         .digest('hex');
-      if (!signature || signature !== expected) {
+      // Constant-time compare so the signature can't be recovered by timing.
+      const sigBuf = Buffer.from(signature, 'utf8');
+      const expBuf = Buffer.from(expected, 'utf8');
+      if (
+        sigBuf.length !== expBuf.length ||
+        !crypto.timingSafeEqual(sigBuf, expBuf)
+      ) {
         return res.status(401).json({ error: 'Invalid webhook signature' });
       }
     }

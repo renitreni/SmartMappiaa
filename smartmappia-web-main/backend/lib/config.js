@@ -138,6 +138,22 @@ const config = {
     abandonMinutes: toNumber(process.env.DISPATCH_ABANDON_MINUTES, 5),
   },
 
+  // GPS-vicinity check before a driver can mark arrived/picked_up/delivered
+  // (backend/lib/geofence.js). airportRadiusMeters is larger because a Pick
+  // & Drop pickup point at an airport is a whole terminal building (King
+  // Khalid's terminals span several hundred meters of curb/apron frontage,
+  // and GPS multipath near large structures degrades accuracy further) —
+  // the default radius would false-reject a driver legitimately waiting
+  // there. enabled is a kill switch if field GPS accuracy causes issues.
+  geofence: {
+    enabled: toBool(process.env.GEOFENCE_ENABLED, true),
+    defaultRadiusMeters: toNumber(process.env.GEOFENCE_RADIUS_METERS, 300),
+    airportRadiusMeters: toNumber(process.env.GEOFENCE_AIRPORT_RADIUS_METERS, 800),
+    // How old a fallback driver_locations row may be before it's untrusted
+    // (the status-change request itself is expected to carry a fresh fix).
+    maxFixAgeMinutes: toNumber(process.env.GEOFENCE_MAX_FIX_AGE_MINUTES, 3),
+  },
+
   // Tap Payments (deferred online path — PLACEHOLDER until go-live: keep
   // these unset and every Tap endpoint answers "not configured" while the
   // manual STC Pay path stays the live one).

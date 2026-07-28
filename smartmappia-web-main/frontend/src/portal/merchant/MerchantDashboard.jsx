@@ -32,6 +32,7 @@ import {
 import { Badge, Field, Spinner, btnGhost, btnPrimary, inputClass } from '../components/ui';
 import LocationPicker from '../components/LocationPicker';
 import MerchantLayout from './MerchantLayout';
+import MerchantOrders from './MerchantOrders';
 
 const FOOD_MARGIN_MEAL = 5;
 const FOOD_MARGIN_DRINK = 3;
@@ -1018,6 +1019,8 @@ export default function MerchantDashboard() {
           {activeTab === 'overview' && (
             <OverviewTab merchant={merchant} analytics={analytics} categories={categories} items={items} />
           )}
+
+          {activeTab === 'orders' && <MerchantOrders merchant={merchant} />}
 
           {activeTab === 'business' && (
             <BusinessTab

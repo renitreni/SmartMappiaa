@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const { requireToken, requireAuth } = require('../middleware/auth');
 const { validateBody } = require('../lib/validate');
+const { signupLimiter } = require('../middleware/rateLimiters');
 const {
   signup,
   syncProfile,
@@ -10,7 +11,8 @@ const {
 } = require('../controllers/authController');
 
 // POST /api/auth/signup -> create an account pre-confirmed (no email step).
-router.post('/signup', signup);
+// Tighter, longer-window limiter on top of the /api/auth per-minute cap.
+router.post('/signup', signupLimiter, signup);
 
 // POST /api/auth/sync -> upsert the caller's profile (role + details).
 router.post('/sync', requireToken, syncProfile);

@@ -41,6 +41,13 @@ function profileJson(profile, merchant = null) {
 // approval — not via public self-registration (see adminFoodController.setMerchantOwner).
 const SELF_ROLES = ['passenger', 'driver'];
 
+// Basic email shape + password bounds enforced at the public signup boundary.
+// (Supabase Auth hashes the password; the upper bound just stops a pathologically
+// long input from being handed to the hasher.)
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const MIN_PASSWORD_LENGTH = 8;
+const MAX_PASSWORD_LENGTH = 128;
+
 function merchantPayload(body, ownerId) {
   const name = String(body.business_name || body.merchant_name || '').trim();
   if (!name) return null;
@@ -92,8 +99,24 @@ async function signup(req, res) {
     if (!email || !password) {
       return res.status(400).json({ error: 'email and password are required' });
     }
-    if (String(password).length < 6) {
-      return res.status(400).json({ error: 'Password must be at least 6 characters' });
+    if (!EMAIL_RE.test(email) || email.length > 200) {
+      return res.status(400).json({ error: 'Please enter a valid email address' });
+    }
+    if (String(password).length < MIN_PASSWORD_LENGTH) {
+      return res.status(400).json({ error: `Password must be at least ${MIN_PASSWORD_LENGTH} characters` });
+    }
+    if (String(password).length > MAX_PASSWORD_LENGTH) {
+      return res.status(400).json({ error: `Password must be at most ${MAX_PASSWORD_LENGTH} characters` });
+    }
+    // Admin accounts are provisioned ONLY via the server-side seed scripts and
+    // the ADMIN_EMAILS allow-list — never through public self-registration.
+    // Without this guard an attacker could register an as-yet-unclaimed admin
+    // email (createUser below auto-confirms it) and then be handed the admin
+    // role by the auto-admin-by-email rule in syncProfile. Refuse outright.
+    if (config.adminEmails.includes(email)) {
+      return res.status(403).json({
+        error: 'This email is reserved. Please contact Smart Mappia support.',
+      });
     }
     if (b.role === 'merchant') {
       return res.status(403).json({

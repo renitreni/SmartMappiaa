@@ -215,6 +215,54 @@ Full detail in [FOOD_DELIVERY.md](food-delivery/FOOD_DELIVERY.md). Summary:
 - **Images:** restaurant logos and menu photos are **file uploads** to the public `merchant-images`
   bucket (not URLs).
 
+### 7.1 Merchant order dashboard
+
+The restaurant's own logged-in account (`merchant` role, `merchants.owner_id`) is the **primary**
+path for running orders day to day — not the admin fallback described above, which exists for
+restaurants not yet using their own device. Source: [`lib/foodOrderActions.js`](../backend/lib/foodOrderActions.js)
+(shared, money-sensitive core — credit gating, platform margin, the fulfillment ladder — used by
+BOTH the merchant and admin controllers so the two can never diverge),
+[`controllers/merchantOrdersController.js`](../backend/controllers/merchantOrdersController.js),
+[`merchant/MerchantOrders.jsx`](../frontend/src/portal/merchant/MerchantOrders.jsx).
+
+```mermaid
+flowchart TD
+    A[Customer checks out] --> B[Order appears live<br/>on Merchant Orders tab]
+    B --> C{Merchant decision}
+    C -->|Reject| C1[Order rejected]
+    C -->|Accept, credit-gated| D[status: accepted]
+    D -.->|parallel| DISPATCH[Dispatch cascade:<br/>nearest driver offered]
+    D --> F[Merchant: Preparing]
+    F --> H[Merchant: Ready for pickup]
+    DISPATCH -.-> J[Driver en route]
+    H --> K{Driver arrives}
+    J --> K
+    K --> L[Driver states order code<br/>restaurant compares to own screen]
+    L --> M{GPS within geofence<br/>of restaurant?}
+    M -->|No| M1[Blocked]
+    M -->|Yes + photo| N[status: out_for_delivery]
+    N --> O{GPS within geofence<br/>of delivery address?}
+    O -->|No| O1[Blocked]
+    O -->|Yes + photo| P[status: delivered]
+```
+
+- **Merchant authority stops at "ready"** — `PATCH /api/merchant/orders/:code/status` only accepts
+  `preparing`/`ready`; `out_for_delivery`/`delivered` stay driver-only (mandatory photo proof) or
+  admin-fallback. Admin retains full accept/reject/advance capability as a secondary path (first to
+  act wins, same compare-and-swap philosophy as dispatch offers).
+- **Pickup-verification code.** No new code is generated — the order's own `order_code` (already
+  shown on the driver's delivery card) doubles as the pickup code, displayed prominently on the
+  merchant's order card too. Restaurant staff compare what the driver states against their own
+  screen before handing over food. This is a human check, not an app-enforced gate.
+- **Confidentiality:** the merchant order list/detail never selects or returns
+  `platform_margin_total` — same convention `ordersController.js`'s customer-facing `getOrder`
+  already uses. A merchant's own invoice/receipt (`downloadFoodInvoice()`, reused from the
+  customer-facing invoice generator) shows subtotal/delivery-fee/total only, never the platform's
+  margin.
+- **GPS-vicinity ("geofence") check** — see §8.4 below; applies to the driver's `picked_up` (vs. the
+  restaurant's location) and `delivered` (vs. the delivery address) transitions, not to any merchant
+  action.
+
 ---
 
 ## 8. Grab-style dispatch (both services)
@@ -275,6 +323,30 @@ duration matrix, not one call per candidate). Must degrade to the current havers
 zero behavior change if OSRM is slow/unreachable — same best-effort philosophy as the existing
 `frontend/src/portal/lib/osrm.js` route-fetching. Needs a deploy-time check that `/table` is
 enabled on the VPS's OSRM build before turning it on.
+
+### 8.4 GPS-vicinity ("geofence") check before arrived / picked_up / delivered
+
+These three driver-reported transitions were previously **fully trusted, unchecked client claims** —
+a driver could tap "arrived" (or picked_up/delivered) from anywhere. Source:
+[`lib/geofence.js`](../backend/lib/geofence.js), used from `driverController.js: updateRideStatus`
+and `driverDispatchController.js: updateDeliveryStatus`.
+
+- **Ride "arrived"** checks the driver's position against `bookings.pickup_lat/pickup_lng`. Radius
+  is `config.geofence.defaultRadiusMeters` (300m) — **except** `trip_type === 'airport_to_house'`
+  bookings, whose pickup point is a whole airport terminal building, not a precise curb: those use
+  `config.geofence.airportRadiusMeters` (800m) instead.
+- **Food `picked_up`** checks against the merchant's `lat/lng`; **`delivered`** checks against
+  `orders.delivery_lat/delivery_lng`. Both use the default (300m) radius — food pickup is never at
+  an airport.
+- **Position source:** prefers a fresh `lat`/`lng` sent with the status-change request itself (a
+  synchronous GPS read at the moment of the tap); falls back to the driver's latest
+  `driver_locations` row only if it's within `config.geofence.maxFixAgeMinutes` (3) old.
+- **Fails CLOSED:** no coordinates at all (from either source) is a rejection
+  (`failure_reason: 'location_unavailable'`), not a silent pass-through — the whole point of this
+  check is to stop trusting an unverifiable claim, so "we couldn't verify" must not default to
+  "allowed."
+- **Kill switch:** `config.geofence.enabled` (env `GEOFENCE_ENABLED`, default `true`) — if field GPS
+  accuracy ever causes false rejections, flip it off without a deploy.
 
 ---
 

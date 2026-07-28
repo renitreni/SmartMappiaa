@@ -9,6 +9,9 @@ The documentation has been consolidated into two living documents:
 | **[SMARTMAPPIA.md](SMARTMAPPIA.md)** | The platform master reference: both services (Pick & Drop + Food Delivery), architecture, roles & auth, dispatch + auto re-dispatch, payments, storage, the database & ERD, environment, local setup, deployment/hosting/Android, security, the admin runbook, testing, changelog, and roadmap. |
 | **[food-delivery/FOOD_DELIVERY.md](food-delivery/FOOD_DELIVERY.md)** | The complete Food Delivery deep-dive: product scope, business rules, onboarding & owner accounts, screens, order flow, dispatch, payments, the pricing/payout-ledger model, schema & migrations, the API, image uploads, the tracking UI, ops runbook, and QA plan. |
 
+> Android APK/AAB build steps live in `docs/ANDROID.md` — kept local-only (gitignored) because it
+> holds the release signing password. Ask the maintainer for a copy.
+
 ## Migrations
 Runnable SQL lives in [`../backend/migrations/`](../backend/migrations/) (`0001`–`0016`; `0017`
 pending). Run in order in the Supabase SQL Editor (**skip `0004`** in production) and verify with

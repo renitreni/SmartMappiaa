@@ -12,6 +12,9 @@ build/
 .env.*
 !.env.example
 
+# Local-only: contains the release signing password in plaintext. Must never be committed.
+docs/ANDROID.md
+
 # Logs & OS/editor cruft
 *.log
 npm-debug.log*

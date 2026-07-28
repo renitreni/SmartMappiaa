@@ -1,0 +1,346 @@
+// ---------------------------------------------------------------------
+// The Google Maps renderer behind RideMap (replaces the MapLibre engine).
+// Same prop subset RideMap forwards: markers, line, follow, followTarget.
+// This is the LAZY CHUNK: the Google Maps JS API is loaded here (via a small
+// self-contained script loader) so only map screens pull it in. One SDK serves
+// both the website and the Capacitor APK webview — no native Google Maps SDK.
+//
+// The brand pins (teardrops, rotating driver car) are reused unchanged from the
+// old renderer's pinHtml.js — they are plain DOM elements, which Google's
+// AdvancedMarkerElement takes directly as marker content.
+// ---------------------------------------------------------------------
+import { useEffect, useRef, useState } from 'react';
+import { RIYADH_CENTER } from '../../lib/constants';
+import { haversineKm } from '../../lib/geo';
+import { buildPinEl, refreshPinEl, updateDriverHeading, pinSignature } from '../maplibre/pinHtml';
+
+const BROWSER_KEY = import.meta.env.VITE_GOOGLE_MAPS_BROWSER_KEY;
+const MAP_ID = import.meta.env.VITE_GOOGLE_MAP_ID;
+
+// Load the Google Maps JS API once per session and resolve to the google.maps
+// namespace. Uses the modern async bootstrap + importLibrary so we stay off the
+// legacy synchronous loader warning. Safe to call concurrently (singleton).
+let mapsPromise = null;
+function loadGoogleMaps() {
+  if (mapsPromise) return mapsPromise;
+  // Base script already present: still await the libraries (they may not be
+  // imported yet) before resolving, so g.Map / g.marker are guaranteed.
+  if (typeof window !== 'undefined' && window.google?.maps?.importLibrary) {
+    mapsPromise = Promise.all([
+      window.google.maps.importLibrary('maps'),
+      window.google.maps.importLibrary('marker'),
+    ]).then(() => window.google.maps);
+    return mapsPromise;
+  }
+  mapsPromise = new Promise((resolve, reject) => {
+    if (!BROWSER_KEY) {
+      reject(new Error('VITE_GOOGLE_MAPS_BROWSER_KEY is not set'));
+      return;
+    }
+    const cbName = '__smGoogleMapsInit';
+    window[cbName] = async () => {
+      try {
+        await window.google.maps.importLibrary('maps'); // Map, Polyline, LatLngBounds, InfoWindow
+        await window.google.maps.importLibrary('marker'); // AdvancedMarkerElement
+        resolve(window.google.maps);
+      } catch (e) {
+        reject(e);
+      }
+    };
+    const params = new URLSearchParams({
+      key: BROWSER_KEY,
+      v: 'weekly',
+      loading: 'async',
+      callback: cbName,
+    });
+    const script = document.createElement('script');
+    script.src = `https://maps.googleapis.com/maps/api/js?${params}`;
+    script.async = true;
+    script.onerror = () => reject(new Error('Failed to load the Google Maps script'));
+    document.head.appendChild(script);
+  });
+  return mapsPromise;
+}
+
+export default function GoogleMap({
+  markers = [],
+  line = null,
+  follow = false,
+  followTarget = null,
+}) {
+  const containerRef = useRef(null);
+  const mapRef = useRef(null);
+  const gRef = useRef(null); // google.maps namespace
+  const markerStoreRef = useRef(new Map()); // id -> { marker, el, sig, isDriver, label }
+  const routeRef = useRef(null); // { casing, main }
+  const infoRef = useRef(null); // shared InfoWindow for pin labels
+  const driverPosRef = useRef(null); // live (tweened) driver position
+  const rafRef = useRef(null);
+  const didFollowFitRef = useRef(false);
+  const [ready, setReady] = useState(false);
+  const [failed, setFailed] = useState(false);
+
+  const valid = markers.filter((m) => m && m.lat != null && m.lng != null);
+  const driver = valid.find((m) => m.type === 'driver') || null;
+
+  // Cap the zoom after a fitBounds (Google has no maxZoom arg) so a close pair
+  // of points doesn't slam to street level.
+  function capZoomOnce(map, g, maxZoom = 15) {
+    g.event.addListenerOnce(map, 'idle', () => {
+      if (map.getZoom() > maxZoom) map.setZoom(maxZoom);
+    });
+  }
+
+  // --- 1. Create the map once ------------------------------------------------
+  useEffect(() => {
+    let cancelled = false;
+    const store = markerStoreRef.current; // captured for the cleanup closure
+    loadGoogleMaps()
+      .then((g) => {
+        if (cancelled || !containerRef.current) return;
+        gRef.current = g;
+        const first = valid[0] || RIYADH_CENTER;
+        const map = new g.Map(containerRef.current, {
+          center: { lat: first.lat, lng: first.lng },
+          zoom: 12,
+          mapId: MAP_ID,
+          disableDefaultUI: true,
+          zoomControl: true,
+          gestureHandling: 'greedy',
+          clickableIcons: false,
+        });
+        mapRef.current = map;
+        // Route as two lines: white casing under the orange route.
+        routeRef.current = {
+          casing: new g.Polyline({ map, path: [], strokeColor: '#FFFFFF', strokeOpacity: 0.85, strokeWeight: 8, zIndex: 1 }),
+          main: new g.Polyline({ map, path: [], strokeColor: '#FF7E21', strokeOpacity: 0.95, strokeWeight: 4, zIndex: 2 }),
+        };
+        infoRef.current = new g.InfoWindow();
+        setReady(true);
+      })
+      .catch((err) => {
+        console.error('Google Maps failed to load:', err?.message || err);
+        if (!cancelled) setFailed(true);
+      });
+
+    return () => {
+      cancelled = true;
+      if (rafRef.current) cancelAnimationFrame(rafRef.current);
+      for (const entry of store.values()) entry.marker.map = null;
+      store.clear();
+      if (routeRef.current) {
+        routeRef.current.casing.setMap(null);
+        routeRef.current.main.setMap(null);
+        routeRef.current = null;
+      }
+      if (infoRef.current) {
+        infoRef.current.close();
+        infoRef.current = null;
+      }
+      driverPosRef.current = null;
+      mapRef.current = null;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // --- 2. Marker reconciler (create / update / remove, no leaks) -------------
+  useEffect(() => {
+    const map = mapRef.current;
+    const g = gRef.current;
+    if (!ready || !map || !g) return;
+    const { AdvancedMarkerElement } = g.marker;
+    const store = markerStoreRef.current;
+    const seen = new Set();
+
+    valid.forEach((m, i) => {
+      const id = String(m.key ?? `${m.type || 'pin'}:${i}`);
+      seen.add(id);
+      const sig = pinSignature(m);
+      let entry = store.get(id);
+
+      if (!entry) {
+        const { el, isDriver } = buildPinEl(m);
+        const marker = new AdvancedMarkerElement({
+          map,
+          position: { lat: m.lat, lng: m.lng },
+          content: el,
+          zIndex: isDriver ? 1000 : undefined,
+        });
+        entry = { marker, el, sig, isDriver, label: null };
+        if (!isDriver && m.label) {
+          el.style.cursor = 'pointer';
+          entry.label = m.label;
+          el.addEventListener('click', () => {
+            const info = infoRef.current;
+            if (!info) return;
+            const span = document.createElement('span');
+            span.className = 'sm-map-popup-label';
+            span.textContent = entry.label || '';
+            info.setContent(span);
+            info.open({ map, anchor: marker });
+          });
+        }
+        store.set(id, entry);
+        if (isDriver) driverPosRef.current = { lat: m.lat, lng: m.lng };
+        return;
+      }
+
+      if (entry.sig !== sig) {
+        refreshPinEl(entry.el, m);
+        entry.sig = sig;
+      }
+      if (entry.isDriver) {
+        // Position handled by the tween effect; heading rotates in place.
+        updateDriverHeading(entry.el, m.heading);
+      } else {
+        entry.marker.position = { lat: m.lat, lng: m.lng };
+        if (m.label) entry.label = m.label;
+      }
+    });
+
+    for (const [id, entry] of store) {
+      if (!seen.has(id)) {
+        // eslint-disable-next-line react-hooks/immutability
+        entry.marker.map = null; // detach the Google marker (imperative interop)
+        store.delete(id);
+      }
+    }
+  }, [markers, ready]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // --- 3. Driver tween: glide 1200ms between GPS fixes -----------------------
+  useEffect(() => {
+    if (!ready || !driver) return undefined;
+    let entry = null;
+    for (const e of markerStoreRef.current.values()) {
+      if (e.isDriver) { entry = e; break; }
+    }
+    if (!entry) return undefined;
+
+    const from = driverPosRef.current || { lat: driver.lat, lng: driver.lng };
+    const to = { lat: driver.lat, lng: driver.lng };
+    const jump = Math.abs(to.lat - from.lat) + Math.abs(to.lng - from.lng);
+    // Snap instantly on the first fix or an implausible jump (test/teleport data).
+    if (jump === 0 || jump > 0.5) {
+      entry.marker.position = to;
+      driverPosRef.current = to;
+      return undefined;
+    }
+    const duration = 1200;
+    const start = performance.now();
+    if (rafRef.current) cancelAnimationFrame(rafRef.current);
+    const step = (now) => {
+      const t = Math.min(1, (now - start) / duration);
+      const lat = from.lat + (to.lat - from.lat) * t;
+      const lng = from.lng + (to.lng - from.lng) * t;
+      entry.marker.position = { lat, lng };
+      driverPosRef.current = { lat, lng };
+      if (t < 1) rafRef.current = requestAnimationFrame(step);
+    };
+    rafRef.current = requestAnimationFrame(step);
+    return undefined;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [driver?.lat, driver?.lng, ready]);
+
+  // --- 4. Route line data ----------------------------------------------------
+  const lineSig =
+    line && line.length >= 2 ? JSON.stringify(line.map((p) => [p.lat, p.lng])) : '';
+  useEffect(() => {
+    if (!ready || !routeRef.current) return;
+    const path = line && line.length >= 2 ? line.map((p) => ({ lat: p.lat, lng: p.lng })) : [];
+    routeRef.current.casing.setPath(path);
+    routeRef.current.main.setPath(path);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [lineSig, ready]);
+
+  // --- 5. Camera: fit-all (default) ------------------------------------------
+  const pointsSig = JSON.stringify(valid.map((p) => [p.lat, p.lng]));
+  useEffect(() => {
+    const map = mapRef.current;
+    const g = gRef.current;
+    if (!ready || !map || !g || (follow && driver) || valid.length === 0) return;
+    if (valid.length === 1) {
+      map.setCenter({ lat: valid[0].lat, lng: valid[0].lng });
+      map.setZoom(14);
+      return;
+    }
+    let maxSpread = 0;
+    for (let i = 0; i < valid.length; i += 1) {
+      for (let j = i + 1; j < valid.length; j += 1) {
+        const d = haversineKm(valid[i], valid[j]);
+        if (d != null && d > maxSpread) maxSpread = d;
+      }
+    }
+    // Points on different continents (e.g. test GPS) — stay local, not world zoom.
+    if (maxSpread > 80) {
+      const d = valid.find((p) => p.type === 'driver') || valid[0];
+      map.setCenter({ lat: d.lat, lng: d.lng });
+      map.setZoom(14);
+      return;
+    }
+    const bounds = new g.LatLngBounds();
+    valid.forEach((p) => bounds.extend({ lat: p.lat, lng: p.lng }));
+    map.fitBounds(bounds, 48);
+    capZoomOnce(map, g);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pointsSig, follow, !!driver, ready]);
+
+  // --- 6. Camera: follow the driver + leg target -----------------------------
+  useEffect(() => {
+    if (!follow) didFollowFitRef.current = false;
+  }, [follow]);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    const g = gRef.current;
+    if (!ready || !map || !g || !follow || !driver) return;
+    const hasTarget = followTarget && followTarget.lat != null && followTarget.lng != null;
+
+    // Test/teleport data on far-apart points: stay local, don't world-zoom.
+    if (hasTarget) {
+      const dist = haversineKm(driver, followTarget);
+      if (dist != null && dist > 80) {
+        map.setCenter({ lat: driver.lat, lng: driver.lng });
+        map.setZoom(14);
+        return;
+      }
+    }
+
+    // First frame after follow engages: fit driver (+ target) once.
+    if (!didFollowFitRef.current) {
+      didFollowFitRef.current = true;
+      if (hasTarget) {
+        const bounds = new g.LatLngBounds();
+        bounds.extend({ lat: driver.lat, lng: driver.lng });
+        bounds.extend({ lat: followTarget.lat, lng: followTarget.lng });
+        map.fitBounds(bounds, 72);
+        capZoomOnce(map, g);
+      } else {
+        map.setCenter({ lat: driver.lat, lng: driver.lng });
+        map.setZoom(Math.max(map.getZoom() || 0, 14));
+      }
+      return;
+    }
+
+    // Subsequent pings: gentle pan to the driver, keeping the current zoom.
+    map.panTo({ lat: driver.lat, lng: driver.lng });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [follow, driver?.lat, driver?.lng, followTarget?.lat, followTarget?.lng, ready]);
+
+  if (failed) {
+    return (
+      <div className="w-full h-full flex items-center justify-center" style={{ background: '#F3F4F6' }}>
+        <p className="text-sm font-bold text-brand-grey px-6 text-center">
+          The live map could not be loaded. Please check your connection and try again.
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <div
+      ref={containerRef}
+      className="sm-ride-map"
+      style={{ height: '100%', width: '100%', background: '#F3F4F6' }}
+    />
+  );
+}
