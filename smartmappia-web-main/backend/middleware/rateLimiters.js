@@ -24,6 +24,16 @@ const make = (max, message) =>
   });
 
 module.exports = {
+  // Public account creation. A much longer window than the per-minute auth
+  // limiter to blunt sustained mass-registration / disposable-account abuse
+  // from a single IP — each call creates a real Supabase auth user.
+  signupLimiter: rateLimit({
+    windowMs: 60 * 60 * 1000, // 1 hour
+    max: 30,
+    standardHeaders: true,
+    legacyHeaders: false,
+    message: { error: 'Too many sign-up attempts from this network — please try again later.' },
+  }),
   // Payment-proof endpoints (code-gated, unauthenticated) — stop upload spam.
   proofLimiter: make(10),
   // Public code lookups (booking summary + tracking) — slow enumeration.
@@ -47,15 +57,16 @@ module.exports = {
     },
     message: { error: 'Too many requests — please slow down and try again shortly.' },
   }),
-  // OSM/Nominatim geocoding proxies. Split into per-endpoint buckets (they used
+  // Google Places/Geocoding proxies. Split into per-endpoint buckets (they used
   // to SHARE one 40/min bucket, which the chatty location picker exhausted ->
-  // the 429). Search is typed; reverse/nearby fire on map moves.
+  // the 429). Search is typed; reverse/nearby fire on map moves. These buckets
+  // also cap Google spend, so keep them.
   locationSearchLimiter: make(60, 'You are searching too fast — please wait a moment.'),
   locationReverseLimiter: make(90, 'Too many location lookups — please wait a moment.'),
   locationNearbyLimiter: make(60, 'Too many map updates — please wait a moment.'),
-  // OSRM routing proxy (map route lines). Generous — the client already only
+  // Google Routes proxy (map route lines). Generous — the client already only
   // refetches on ~100m movement; keeps routing off the location buckets.
-  osrmLimiter: make(120, 'The map is updating quickly — it will catch up shortly.'),
+  routeLimiter: make(120, 'The map is updating quickly — it will catch up shortly.'),
 
   // --- Food Delivery ---
   // Restaurant browse/search — generous, but stops scraping floods.

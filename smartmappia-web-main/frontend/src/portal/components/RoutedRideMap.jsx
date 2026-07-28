@@ -1,11 +1,11 @@
 // ---------------------------------------------------------------------
-// RideMap that draws the REAL OSRM road route between `from` and `to`,
-// falling back to `fallbackLine` (a straight [a,b] guide) when routing is
-// unavailable. It keeps the route fetch OUT of the big page components — every
-// other prop passes straight through to RideMap.
+// RideMap that draws the REAL road route between `from` and `to` (via the
+// backend Google Routes proxy), falling back to `fallbackLine` (a straight
+// [a,b] guide) when routing is unavailable. It keeps the route fetch OUT of the
+// big page components — every other prop passes straight through to RideMap.
 //
 // The route only refetches when an endpoint moves ~100m (rounded signature),
-// so a driver/rider GPS ping every 8-12s does NOT hammer the /api/osrm proxy.
+// so a driver/rider GPS ping every 8-12s does NOT hammer the /api/route proxy.
 // ---------------------------------------------------------------------
 import { useEffect, useState } from 'react';
 import RideMap from './RideMap';

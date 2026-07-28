@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { LocateFixed, MapPin, Search, Share2, X } from 'lucide-react';
 import { api } from '../lib/api';
-import { haversineKm } from '../lib/geo';
+import { getCurrentPositionOnce, haversineKm } from '../lib/geo';
 import RideMap from './RideMap';
 import { btnGhost, btnPrimary, inputClass, Spinner } from './ui';
 
@@ -30,6 +30,20 @@ export default function LocationPicker({
   useEffect(() => {
     setQuery(address || '');
   }, [address]);
+
+  // Google Places session token: shared across the autocomplete keystrokes and
+  // the final Details lookup so the whole pick bills as ONE cheap session. Reset
+  // after each successful pick (Details ends the session).
+  const sessionTokenRef = useRef(null);
+  function ensureToken() {
+    if (!sessionTokenRef.current) {
+      sessionTokenRef.current =
+        typeof crypto !== 'undefined' && crypto.randomUUID
+          ? crypto.randomUUID()
+          : `sess-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    }
+    return sessionTokenRef.current;
+  }
 
   const lastNearbyRef = useRef(null);
   useEffect(() => {
@@ -66,7 +80,7 @@ export default function LocationPicker({
       setSearching(true);
       setError(null);
       try {
-        const data = await api.locationSearch(q, coords || {});
+        const data = await api.locationSearch(q, coords || {}, ensureToken());
         if (alive) setResults(data.results || []);
       } catch (err) {
         if (alive) setError(err.message);
@@ -95,40 +109,62 @@ export default function LocationPicker({
     return [...selected, ...places];
   }, [address, coords, nearby]);
 
-  function choose(place) {
-    const nextAddress = place.address || place.name || query;
-    setQuery(nextAddress);
+  // Google Autocomplete predictions carry no coords — resolve them with a
+  // Details lookup (shares the session token) on selection.
+  async function choose(place) {
     setResults([]);
-    onChange?.({ address: nextAddress, coords: { lat: place.lat, lng: place.lng } });
+    setSearching(true);
+    setError(null);
+    try {
+      let coordsOut = null;
+      let finalAddress = place.name || place.address || query;
+      if (place.lat != null && place.lng != null) {
+        coordsOut = { lat: place.lat, lng: place.lng };
+      } else if (place.id) {
+        const data = await api.locationDetails(place.id, sessionTokenRef.current);
+        if (data.place?.lat != null && data.place?.lng != null) {
+          coordsOut = { lat: data.place.lat, lng: data.place.lng };
+          finalAddress = data.place.address || finalAddress;
+        }
+      }
+      sessionTokenRef.current = null; // Details ends the session — next search starts fresh.
+      if (!coordsOut) {
+        setQuery(place.name || query);
+        setError('Could not pin that place. Try another result or use your current location.');
+        return;
+      }
+      setQuery(finalAddress);
+      onChange?.({ address: finalAddress, coords: coordsOut });
+    } catch (err) {
+      setError(err.message || 'Could not pin that place.');
+    } finally {
+      setSearching(false);
+    }
   }
 
-  function useCurrentLocation() {
-    if (!navigator.geolocation) {
-      setError('Location is not available in this browser.');
-      return;
-    }
+  // One-shot high-accuracy fix via the shared, Capacitor-aware helper — so this
+  // picker (merchant + user pin-drop) uses native GPS in the APK, not just the
+  // browser API.
+  async function useCurrentLocation() {
     setLocating(true);
     setError(null);
-    navigator.geolocation.getCurrentPosition(
-      async (pos) => {
-        const nextCoords = { lat: pos.coords.latitude, lng: pos.coords.longitude };
-        let nextAddress = 'My current location';
-        try {
-          const data = await api.locationReverse(nextCoords.lat, nextCoords.lng);
-          nextAddress = data.place?.address || data.place?.name || nextAddress;
-        } catch {
-          /* GPS still works even if reverse geocoding fails. */
-        }
-        setQuery(nextAddress);
-        onChange?.({ address: nextAddress, coords: nextCoords });
-        setLocating(false);
-      },
-      () => {
-        setError('Could not get your location. Please allow location access and try again.');
-        setLocating(false);
-      },
-      { enableHighAccuracy: true, timeout: 12000 }
-    );
+    try {
+      const pos = await getCurrentPositionOnce();
+      const nextCoords = { lat: pos.lat, lng: pos.lng };
+      let nextAddress = 'My current location';
+      try {
+        const data = await api.locationReverse(nextCoords.lat, nextCoords.lng);
+        nextAddress = data.place?.address || data.place?.name || nextAddress;
+      } catch {
+        /* GPS still works even if reverse geocoding fails. */
+      }
+      setQuery(nextAddress);
+      onChange?.({ address: nextAddress, coords: nextCoords });
+    } catch (err) {
+      setError(err.message || 'Could not get your location. Please allow location access and try again.');
+    } finally {
+      setLocating(false);
+    }
   }
 
   async function shareLocation() {

@@ -19,7 +19,7 @@ const adminRoutes = require('./routes/admin');
 const driverRoutes = require('./routes/driver');
 const merchantRoutes = require('./routes/merchant');
 const notificationRoutes = require('./routes/notifications');
-const osrmRoutes = require('./routes/osrm');
+const routeRoutes = require('./routes/route');
 const foodRoutes = require('./routes/food');
 const locationRoutes = require('./routes/locations');
 
@@ -29,17 +29,47 @@ const app = express();
 // real client IP (X-Forwarded-For) is used for rate limiting, not the proxy's.
 app.set('trust proxy', 1);
 
-// Security headers. cross-origin RP so the separate frontend origin can read API responses.
-app.use(helmet({ crossOriginResourcePolicy: { policy: 'cross-origin' } }));
+// Security headers. cross-origin RP so the separate frontend origin can read
+// API responses. HSTS + a strict referrer policy are set explicitly so the
+// posture doesn't silently drift if helmet's defaults change.
+app.use(
+  helmet({
+    crossOriginResourcePolicy: { policy: 'cross-origin' },
+    hsts: { maxAge: 15552000, includeSubDomains: true }, // 180 days
+    referrerPolicy: { policy: 'no-referrer' },
+  })
+);
 
-// CORS: restrict to CORS_ORIGINS (comma-separated) when set; otherwise allow all
-// (fine for local/pilot). Set CORS_ORIGINS to the production frontend origin(s) before launch.
+// CORS: an allow-list from CORS_ORIGINS (comma-separated). Requests with no
+// Origin header (native app webview, curl, server-to-server, same-origin) are
+// always allowed. When the allow-list is set it is enforced strictly (fail
+// closed for any other browser origin). When it is empty we log a loud warning
+// and preserve the permissive pilot behavior — auth here is Bearer-token based
+// (no cookies), so a reflected origin still cannot read a victim's token, but
+// the list MUST be set before launch.
 const corsOrigins = (process.env.CORS_ORIGINS || '')
   .split(',')
   .map((o) => o.trim())
   .filter(Boolean);
-app.use(cors(corsOrigins.length ? { origin: corsOrigins } : {}));
-app.use(express.json()); // parse JSON request bodies
+if (!corsOrigins.length) {
+  console.warn(
+    '[cors] CORS_ORIGINS is not set — every browser origin is currently allowed. ' +
+      'Set CORS_ORIGINS to your production web + app origins before launch.'
+  );
+}
+app.use(
+  cors({
+    origin(origin, cb) {
+      if (!origin) return cb(null, true); // non-browser / same-origin caller
+      if (!corsOrigins.length) return cb(null, true); // pilot fallback (warned above)
+      return cb(null, corsOrigins.includes(origin)); // enforce the allow-list
+    },
+  })
+);
+
+// Parse JSON bodies with an explicit size cap so an oversized payload can't be
+// used to exhaust memory before validation ever runs.
+app.use(express.json({ limit: '100kb' }));
 
 // Rate limiting. Effective on a single server/VPS; on serverless it's best-effort
 // per-instance. General cap on the whole API, stricter on auth to slow brute force.
@@ -60,7 +90,7 @@ app.use('/api/admin', adminRoutes);
 app.use('/api/driver', driverRoutes);
 app.use('/api/merchant', merchantRoutes);
 app.use('/api/notifications', notificationRoutes);
-app.use('/api/osrm', osrmRoutes);
+app.use('/api/route', routeRoutes);
 app.use('/api/food', foodRoutes);
 app.use('/api/locations', locationRoutes);
 

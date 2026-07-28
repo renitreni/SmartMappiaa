@@ -977,7 +977,7 @@ export default function DriverPage() {
 
     try {
 
-      const res = await api.driverStatus(code, status);
+      const res = await api.driverStatus(code, status, coords);
 
       if (status === 'completed') {
 

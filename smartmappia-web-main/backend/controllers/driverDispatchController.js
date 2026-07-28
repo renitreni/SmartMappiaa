@@ -16,6 +16,7 @@
 const { supabase } = require('../lib/supabase');
 const { config } = require('../lib/config');
 const { haversineKm, etaMinutes } = require('../lib/geo');
+const { assertWithinGeofence } = require('../lib/geofence');
 const { addTrackingEvent } = require('../lib/tracking');
 const { logAudit } = require('../lib/audit');
 const { logNotification } = require('../lib/notifications');
@@ -582,7 +583,10 @@ async function updateDeliveryStatus(req, res) {
 
     const { data: order } = await supabase
       .from('orders')
-      .select('id, order_code, status, merchant_id, customer_id, total, payment_status, payment_method')
+      .select(
+        'id, order_code, status, merchant_id, customer_id, total, payment_status, payment_method, ' +
+          'delivery_lat, delivery_lng, merchants ( lat, lng )'
+      )
       .eq('order_code', req.params.code)
       .maybeSingle();
     if (!order) return res.status(404).json({ error: 'Delivery not found' });
@@ -598,6 +602,19 @@ async function updateDeliveryStatus(req, res) {
     if (!flow.fromOrderStatuses.includes(order.status)) {
       return res.status(409).json({ error: `Cannot mark ${req.body.status} from "${order.status}"` });
     }
+
+    // Previously a fully trusted, unchecked client claim — a driver could
+    // mark picked_up/delivered from anywhere. picked_up checks against the
+    // restaurant; delivered checks against the drop-off address.
+    const geofenceTarget = req.body.status === 'picked_up' ? order.merchants : { lat: order.delivery_lat, lng: order.delivery_lng };
+    const geofenceError = await assertWithinGeofence({
+      driverId: req.driverId,
+      target: geofenceTarget,
+      radiusMeters: config.geofence.defaultRadiusMeters,
+      bodyLat: Number(req.body && req.body.lat),
+      bodyLng: Number(req.body && req.body.lng),
+    });
+    if (geofenceError) return res.status(geofenceError.httpStatus).json(geofenceError.body);
 
     const nowIso = new Date().toISOString();
     const patch = { status: flow.orderStatus };

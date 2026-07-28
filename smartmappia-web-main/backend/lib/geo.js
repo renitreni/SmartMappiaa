@@ -29,4 +29,11 @@ function etaMinutes(distanceKm, avgSpeedKmh = 30) {
   return Math.max(1, Math.round((distanceKm / speed) * 60));
 }
 
-module.exports = { haversineKm, etaMinutes };
+// Great-circle distance in metres — same math as haversineKm, just the unit
+// a geofence check actually wants to compare against a radius in meters.
+function distanceMeters(a, b) {
+  const km = haversineKm(a, b);
+  return km == null ? null : km * 1000;
+}
+
+module.exports = { haversineKm, etaMinutes, distanceMeters };

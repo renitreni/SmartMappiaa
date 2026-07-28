@@ -12,10 +12,12 @@
 // still unassigned. Completing a ride writes the ledger (spec §12).
 // ---------------------------------------------------------------------
 const { supabase } = require('../lib/supabase');
+const { config } = require('../lib/config');
 const { addTrackingEvent } = require('../lib/tracking');
 const { createLedgerEntryForBooking } = require('../lib/ledger');
 const { round2, isBlockedFromCash, driverCashView, chargeDriverCashOwed } = require('../lib/driverCash');
 const { haversineKm, etaMinutes } = require('../lib/geo');
+const { assertWithinGeofence } = require('../lib/geofence');
 const { logNotification } = require('../lib/notifications');
 const { hasService } = require('../lib/serviceTypes');
 const {
@@ -311,7 +313,8 @@ async function updateRideStatus(req, res) {
     const { data: booking, error } = await supabase
       .from('bookings')
       .select('id, booking_code, fare_amount, currency, payment_method, payment_status, ' +
-        'assigned_driver_id, driver_ride_status, booking_status, user_id')
+        'assigned_driver_id, driver_ride_status, booking_status, user_id, ' +
+        'pickup_lat, pickup_lng, trip_type')
       .eq('booking_code', req.params.bookingCode)
       .single();
     if (error || !booking) return res.status(404).json({ error: 'Ride not found' });
@@ -320,6 +323,23 @@ async function updateRideStatus(req, res) {
     }
     if (booking.driver_ride_status === 'completed') {
       return res.status(409).json({ error: 'Ride already completed' });
+    }
+
+    // "Arrived" was previously a fully trusted, unchecked client claim — a
+    // driver could tap it from anywhere. Airport pickups get a larger radius:
+    // the pickup point there is a whole terminal building, not a precise curb.
+    if (status === 'arrived') {
+      const radiusMeters = booking.trip_type === 'airport_to_house'
+        ? config.geofence.airportRadiusMeters
+        : config.geofence.defaultRadiusMeters;
+      const geofenceError = await assertWithinGeofence({
+        driverId: req.driverId,
+        target: { lat: booking.pickup_lat, lng: booking.pickup_lng },
+        radiusMeters,
+        bodyLat: Number(req.body && req.body.lat),
+        bodyLng: Number(req.body && req.body.lng),
+      });
+      if (geofenceError) return res.status(geofenceError.httpStatus).json(geofenceError.body);
     }
 
     const flow = STATUS_FLOW[status];

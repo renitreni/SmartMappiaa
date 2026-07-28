@@ -441,6 +441,7 @@ async function deleteItem(req, res) {
 }
 
 module.exports = {
+  requireOwnedMerchant,
   getProfile,
   updateProfile,
   createLogoUploadUrl,

@@ -165,14 +165,20 @@ function DeliveryCard({ delivery, busy, onStatus, onCancel }) {
         )}
       </div>
 
-      {/* Mandatory photo proof, then the status button unlocks. */}
+      {/* Mandatory photo proof, then the status button unlocks. The delivery
+          shot must show either the customer holding the order (handover) or
+          the order at their address (contactless/left-at-door) — this is
+          driver guidance only, not an automated check on the photo content. */}
       <div className="mt-3 pt-3 border-t border-brand-border">
         <p className="text-xs font-bold text-brand-dark mb-1.5 flex items-center gap-1.5">
           <Camera className="w-3.5 h-3.5 text-brand-orange" />
-          {enRoute
-            ? 'Take a photo of the handover to confirm delivery'
-            : 'Take a photo of the order at the restaurant'}
+          {enRoute ? 'Take a photo to confirm delivery' : 'Take a photo of the order at the restaurant'}
         </p>
+        {enRoute && (
+          <p className="text-[11px] text-brand-grey mb-1.5">
+            Show the customer holding the order — or, if left at their door, show it at their address.
+          </p>
+        )}
         <input
           type="file"
           accept="image/*"
@@ -336,8 +342,9 @@ export default function DriverDispatch({ online, foodEnabled = true, driverId, c
         mime_type: photoFile.type || 'image/jpeg',
       });
       await uploadProofFile(signed.bucket, signed.path, signed.token, photoFile);
-      // 2. Advance the status carrying the photo path (server rejects without it).
-      await api.driverDeliveryStatus(delivery.orderCode, status, signed.path);
+      // 2. Advance the status carrying the photo path (server rejects without it)
+      // and the current GPS fix (server rejects if too far from the target).
+      await api.driverDeliveryStatus(delivery.orderCode, status, signed.path, coordsRef.current);
       await loadDeliveries();
     } catch (err) {
       setError(err.message);

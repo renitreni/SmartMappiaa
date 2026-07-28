@@ -35,7 +35,17 @@ const { validateBody } = require('../lib/validate');
 // APPROVED driver. Viewing/advancing already-assigned rides only needs a
 // signed-in driver.
 router.get('/available', requireApprovedDriver, listAvailableRides);
-router.post('/location', locationLimiter, requireApprovedDriver, updateDriverLocation);
+router.post(
+  '/location',
+  locationLimiter,
+  requireApprovedDriver,
+  validateBody({
+    lat: { type: 'number', required: true, min: -90, max: 90 },
+    lng: { type: 'number', required: true, min: -180, max: 180 },
+    accuracy: { type: 'number', min: 0, max: 100000, nullable: true },
+  }),
+  updateDriverLocation
+);
 router.post('/rides/:bookingCode/accept', driverAcceptLimiter, requireApprovedDriver, acceptRide);
 
 // Which verticals this driver works (pick_drop / food / shop). requireDriver,
@@ -50,7 +60,16 @@ router.patch(
 );
 
 router.get('/rides', requireDriver, listMyRides);
-router.post('/rides/:bookingCode/status', requireDriver, updateRideStatus);
+router.post(
+  '/rides/:bookingCode/status',
+  requireDriver,
+  validateBody({
+    status: { type: 'string', required: true, maxLength: 40 },
+    lat: { type: 'number', min: -90, max: 90, nullable: true },
+    lng: { type: 'number', min: -180, max: 180, nullable: true },
+  }),
+  updateRideStatus
+);
 // What the driver owes SmartMappia from cash rides (+ recent movements).
 router.get('/cash', requireDriver, getMyCash);
 // Give up an accepted ride (pre-start only) -> released + re-offered.
@@ -95,6 +114,8 @@ router.post(
   validateBody({
     status: { type: 'string', required: true, enum: ['picked_up', 'delivered'] },
     photo_path: { type: 'string', required: true, maxLength: 400 },
+    lat: { type: 'number', min: -90, max: 90, nullable: true },
+    lng: { type: 'number', min: -180, max: 180, nullable: true },
   }),
   updateDeliveryStatus
 );

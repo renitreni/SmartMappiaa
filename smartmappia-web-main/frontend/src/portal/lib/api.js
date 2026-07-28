@@ -77,14 +77,23 @@ export const api = {
   createTapCharge: (code) => request(`/api/payments/${code}/tap-charge`, { method: 'POST' }),
   tracking: (code) => request(`/api/tracking/${code}`, { silent: true }), // polled every 8s
 
-  // --- location search / nearby places ---
-  locationSearch: (q, coords = {}) => {
+  // --- location search / nearby places (Google Places + Geocoding via backend) ---
+  // `token` is a per-typing-session token shared with locationDetails so the
+  // autocomplete keystrokes bill as one cheap Places session.
+  locationSearch: (q, coords = {}, token) => {
     const params = new URLSearchParams({ q });
     if (coords.lat != null && coords.lng != null) {
       params.set('lat', coords.lat);
       params.set('lng', coords.lng);
     }
+    if (token) params.set('token', token);
     return request(`/api/locations/search?${params}`, { silent: true });
+  },
+  // Resolve a selected autocomplete prediction to its coordinates (ends the session).
+  locationDetails: (id, token) => {
+    const params = new URLSearchParams({ id });
+    if (token) params.set('token', token);
+    return request(`/api/locations/details?${params}`, { silent: true });
   },
   locationReverse: (lat, lng) => request(`/api/locations/reverse?lat=${encodeURIComponent(lat)}&lng=${encodeURIComponent(lng)}`, { silent: true }),
   locationNearby: (lat, lng, radius = 1200) =>
@@ -117,7 +126,11 @@ export const api = {
   driverRides: () => request('/api/driver/rides', { silent: true }), // polled feed
   driverCash: () => request('/api/driver/cash', { silent: true }), // what the driver owes us
   driverAccept: (code) => request(`/api/driver/rides/${code}/accept`, { method: 'POST' }),
-  driverStatus: (code, status) => request(`/api/driver/rides/${code}/status`, { method: 'POST', body: { status } }),
+  // coords: the driver's current {lat,lng} — required server-side to confirm
+  // "arrived" (GPS-vicinity check; a stale/missing fix is rejected, not
+  // silently allowed through).
+  driverStatus: (code, status, coords) =>
+    request(`/api/driver/rides/${code}/status`, { method: 'POST', body: { status, lat: coords?.lat, lng: coords?.lng } }),
   // Give up an accepted ride before it starts -> auto re-dispatched to next-nearest.
   driverCancelRide: (code, reason) => request(`/api/driver/rides/${code}/cancel`, { method: 'POST', body: { reason } }),
   driverLocation: (body) => request('/api/driver/location', { method: 'POST', body, silent: true }), // 12s GPS ping
@@ -173,8 +186,13 @@ export const api = {
     request(`/api/driver/deliveries/${code}/cancel`, { method: 'POST', body: { reason } }),
   // Photo proof is mandatory: upload first, then send the path with the status.
   driverDeliveryPhotoUrl: (code, body) => request(`/api/driver/deliveries/${code}/photo-url`, { method: 'POST', body }),
-  driverDeliveryStatus: (code, status, photo_path) =>
-    request(`/api/driver/deliveries/${code}/status`, { method: 'POST', body: { status, photo_path } }),
+  // coords: the driver's current {lat,lng} — required server-side to confirm
+  // picked_up/delivered are actually happening near the restaurant/customer.
+  driverDeliveryStatus: (code, status, photo_path, coords) =>
+    request(`/api/driver/deliveries/${code}/status`, {
+      method: 'POST',
+      body: { status, photo_path, lat: coords?.lat, lng: coords?.lng },
+    }),
 
   // --- business owner / merchant ---
   merchantProfile: () => request('/api/merchant/profile'),
@@ -193,6 +211,11 @@ export const api = {
   merchantAddItem: (body) => request('/api/merchant/menu/items', { method: 'POST', body }),
   merchantUpdateItem: (id, body) => request(`/api/merchant/menu/items/${id}`, { method: 'PATCH', body }),
   merchantDeleteItem: (id) => request(`/api/merchant/menu/items/${id}`, { method: 'DELETE' }),
+  // Order management (the restaurant's own live incoming-orders dashboard).
+  merchantOrders: (query = '') => request(`/api/merchant/orders${query}`),
+  merchantAcceptOrder: (code) => request(`/api/merchant/orders/${code}/accept`, { method: 'POST', silent: true }),
+  merchantRejectOrder: (code, reason) => request(`/api/merchant/orders/${code}/reject`, { method: 'POST', body: { reason } }),
+  merchantOrderStatus: (code, status) => request(`/api/merchant/orders/${code}/status`, { method: 'PATCH', body: { status } }),
 
   // --- driver ratings (1-5 stars after a delivered order / completed trip) ---
   rateFoodDriver: (code, body) => request(`/api/food/orders/${code}/rate-driver`, { method: 'POST', body, silent: true }),

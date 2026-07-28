@@ -3,6 +3,7 @@ const router = express.Router();
 const { requireMerchant } = require('../middleware/auth');
 const { validateBody } = require('../lib/validate');
 const merchant = require('../controllers/merchantController');
+const merchantOrders = require('../controllers/merchantOrdersController');
 
 const BUSINESS_FIELDS = {
   name: { type: 'string', required: true, maxLength: 120 },
@@ -93,5 +94,21 @@ router.post(
 );
 router.patch('/menu/items/:id', validateBody(ITEM_FIELDS), merchant.updateItem);
 router.delete('/menu/items/:id', merchant.deleteItem);
+
+// Order management (the restaurant's own live incoming-orders dashboard).
+// Merchant authority stops at 'ready' — out_for_delivery/delivered stay
+// driver-only (mandatory photo proof) or admin-fallback.
+router.get('/orders', merchantOrders.listOrders);
+router.post('/orders/:code/accept', merchantOrders.acceptOrder);
+router.post(
+  '/orders/:code/reject',
+  validateBody({ reason: { type: 'string', maxLength: 300, nullable: true } }),
+  merchantOrders.rejectOrder
+);
+router.patch(
+  '/orders/:code/status',
+  validateBody({ status: { type: 'string', required: true, enum: ['preparing', 'ready'] } }),
+  merchantOrders.advanceStatus
+);
 
 module.exports = router;

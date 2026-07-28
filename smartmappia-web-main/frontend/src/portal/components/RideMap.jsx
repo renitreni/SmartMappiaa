@@ -1,34 +1,17 @@
 // ---------------------------------------------------------------------
 // RideMap — the shared map for every screen (tracking, booking, driver,
-// food, location picker). This is a thin SHELL: the actual renderer is
-// MapLibre GL (Grab-style interactive vector map) living in
-// ./maplibre/MapLibreMap.jsx, lazy-loaded so the ~250KB map engine is
-// only downloaded on screens that actually show a map.
+// food, location picker). This is a thin SHELL: the actual renderer is the
+// Google Maps JS API living in ./google/GoogleMap.jsx, lazy-loaded so the
+// map engine is only downloaded on screens that actually show a map. One
+// integration serves the website AND the Capacitor APK webview.
 //
-// The prop contract is unchanged from the old Leaflet version — markers,
-// line, height, className, legend, follow, followTarget — so no consumer
-// ever needs to know the engine swapped.
+// The prop contract is unchanged from the old Leaflet/MapLibre versions —
+// markers, line, height, className, legend, follow, followTarget — so no
+// consumer ever needs to know the engine swapped.
 // ---------------------------------------------------------------------
 import { lazy, Suspense } from 'react';
 
-const MapLibreMap = lazy(() => import('./maplibre/MapLibreMap.jsx'));
-
-// MapLibre GL v5 needs WebGL2. Probe once per session BEFORE fetching the
-// chunk — unsupported devices get a graceful placeholder and never pay the
-// download. (maplibregl.supported() was removed in v3+, hence the manual probe.)
-let webgl2Support = null;
-function supportsWebGL2() {
-  if (webgl2Support == null) {
-    try {
-      webgl2Support =
-        typeof document !== 'undefined' &&
-        !!document.createElement('canvas').getContext('webgl2');
-    } catch {
-      webgl2Support = false;
-    }
-  }
-  return webgl2Support;
-}
+const GoogleMap = lazy(() => import('./google/GoogleMap.jsx'));
 
 function MapLegend({ items }) {
   if (!items?.length) return null;
@@ -67,22 +50,11 @@ export default function RideMap({
       className={`relative isolate rounded-2xl overflow-hidden border border-brand-border bg-brand-surface shadow-inner ${className}`}
       style={{ height }}
     >
-      {supportsWebGL2() ? (
-        <Suspense
-          fallback={<div className="w-full h-full animate-pulse" style={{ background: '#F3F4F6' }} />}
-        >
-          <MapLibreMap markers={markers} line={line} follow={follow} followTarget={followTarget} />
-        </Suspense>
-      ) : (
-        <div
-          className="w-full h-full flex items-center justify-center"
-          style={{ background: '#F3F4F6' }}
-        >
-          <p className="text-sm font-bold text-brand-grey px-6 text-center">
-            The live map is not supported on this device or browser.
-          </p>
-        </div>
-      )}
+      <Suspense
+        fallback={<div className="w-full h-full animate-pulse" style={{ background: '#F3F4F6' }} />}
+      >
+        <GoogleMap markers={markers} line={line} follow={follow} followTarget={followTarget} />
+      </Suspense>
 
       {legend && <MapLegend items={legend} />}
     </div>

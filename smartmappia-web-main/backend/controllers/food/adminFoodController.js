@@ -15,12 +15,17 @@
 // ---------------------------------------------------------------------
 const { supabase } = require('../../lib/supabase');
 const { config } = require('../../lib/config');
-const { round2, creditAfterCharge } = require('../../lib/foodMoney');
+const { round2 } = require('../../lib/foodMoney');
 const { logFoodEvent } = require('../../lib/foodEvents');
 const { logAudit } = require('../../lib/audit');
 const { logNotification } = require('../../lib/notifications');
 const { pushFoodOrderStatus, pushMerchantFeed, pingFoodAdmin } = require('../../lib/realtime');
 const { markOrderPaid } = require('./ordersController');
+const {
+  acceptOrderCore,
+  rejectOrderCore,
+  advanceOrderStatusCore,
+} = require('../../lib/foodOrderActions');
 const {
   buildMerchantImagePath,
   createMerchantImageUploadUrl,
@@ -859,122 +864,12 @@ async function rejectPayment(req, res) {
 // suspends the restaurant until reconciled.
 async function acceptOrder(req, res) {
   try {
-    const order = await loadOrderByCode(req.params.code);
-    if (!order) return res.status(404).json({ error: 'Order not found' });
-    if (order.status !== 'pending') {
-      return res.status(409).json({ error: `Order is already ${order.status}` });
-    }
-    const merchant = await loadMerchant(order.merchant_id);
-    if (!merchant) return res.status(404).json({ error: 'Merchant not found' });
-
-    const margin = round2(Number(order.platform_margin_total));
-    const credit = creditAfterCharge(merchant, margin);
-
-    if (merchant.status === 'suspended' || !credit.canAccept) {
-      logFoodEvent({
-        eventName: 'service_suspended',
-        merchantId: merchant.id,
-        params: { final_balance: credit.before, merchant_id: merchant.id },
-      });
-      return res.status(403).json({
-        error: `${merchant.name} has used up its SAR ${credit.limit.toFixed(2)} credit ` +
-          `(SAR ${credit.before.toFixed(2)}). Reconcile the balance before accepting new orders.`,
-        failure_reason: 'credit_exhausted',
-        credit: creditView(merchant),
-      });
-    }
-
-    // Charge with a compare-and-swap on the previous balance so two
-    // simultaneous accepts can't both slip under the limit.
-    const nextStatus = credit.exhausted ? 'suspended' : merchant.status;
-    const { data: chargedRows, error: chargeErr } = await supabase
-      .from('merchants')
-      .update({ credit_used: credit.after, status: nextStatus })
-      .eq('id', merchant.id)
-      .eq('credit_used', merchant.credit_used)
-      .select('id');
-    if (chargeErr) {
-      console.error('admin acceptOrder credit charge error:', chargeErr);
-      return res.status(500).json({ error: 'Could not charge the restaurant credit' });
-    }
-    if (!chargedRows || chargedRows.length === 0) {
-      return res.status(409).json({ error: 'The restaurant credit changed — please retry' });
-    }
-
-    // Flip the order pending -> accepted (also CAS); roll the charge back on a race.
-    const { data: acceptedRows, error: acceptErr } = await supabase
-      .from('orders')
-      .update({ status: 'accepted', accepted_at: new Date().toISOString() })
-      .eq('id', order.id)
-      .eq('status', 'pending')
-      .select('order_code');
-    if (acceptErr || !acceptedRows || acceptedRows.length === 0) {
-      await supabase
-        .from('merchants')
-        .update({ credit_used: credit.before, status: merchant.status })
-        .eq('id', merchant.id)
-        .eq('credit_used', credit.after);
-      return res.status(409).json({ error: 'Order is no longer pending' });
-    }
-
-    // Ledger entry: every accepted order charges its platform margin.
-    await supabase.from('merchant_credit_ledger').insert({
-      merchant_id: merchant.id,
-      order_id: order.id,
-      type: 'charge',
-      amount: margin,
-      balance_after: credit.after,
-      note: `Platform margin for order ${order.order_code}`,
-      created_by: req.adminId,
-    });
-
-    logFoodEvent({
-      eventName: 'merchant_order_accept',
-      userId: req.adminId,
-      orderId: order.id,
-      merchantId: merchant.id,
-      params: { order_id: order.order_code, merchant_id: merchant.id },
-    });
-    logAudit({
+    const { httpStatus, body } = await acceptOrderCore({
+      orderCode: req.params.code,
       actorId: req.adminId,
-      action: 'admin_food_order_accepted',
-      resourceType: 'order',
-      resourceId: order.order_code,
-      meta: { margin_charged: margin, credit_used_after: credit.after },
+      actorRole: 'admin',
     });
-
-    // 80% alert fires exactly once, on the charge that crosses the line.
-    if (credit.crossesAlert && !credit.exhausted) {
-      logFoodEvent({
-        eventName: 'credit_limit_warning',
-        merchantId: merchant.id,
-        params: { current_usage: credit.after, merchant_id: merchant.id },
-      });
-    }
-    if (credit.exhausted) {
-      logFoodEvent({
-        eventName: 'service_suspended',
-        merchantId: merchant.id,
-        params: { final_balance: credit.after, merchant_id: merchant.id },
-      });
-    }
-
-    pushFoodOrderStatus(order.order_code, { status: 'accepted' });
-    pingFoodAdmin(order.order_code);
-    logNotification({ userId: order.customer_id, type: 'food_order_accepted' });
-
-    // Grab-style rider dispatch starts once the order is accepted AND either
-    // paid or cash on delivery (the rider collects at the door).
-    if (order.payment_status === 'paid' || order.payment_method === 'cash') {
-      const { startFoodDispatch } = require('../../lib/dispatch');
-      startFoodDispatch(order.id);
-    }
-
-    return res.json({
-      orderCode: order.order_code,
-      status: 'accepted',
-      credit: creditView({ ...merchant, credit_used: credit.after, status: nextStatus }),
-    });
+    return res.status(httpStatus).json(body);
   } catch (err) {
     console.error('admin acceptOrder error:', err);
     return res.status(500).json({ error: 'Unexpected server error' });
@@ -983,105 +878,28 @@ async function acceptOrder(req, res) {
 
 async function rejectOrder(req, res) {
   try {
-    const order = await loadOrderByCode(req.params.code);
-    if (!order) return res.status(404).json({ error: 'Order not found' });
-    if (order.status !== 'pending') {
-      return res.status(409).json({ error: `Order is already ${order.status}` });
-    }
-
-    const { data: rows } = await supabase
-      .from('orders')
-      .update({ status: 'rejected', reject_reason: (req.body && req.body.reason) || null })
-      .eq('id', order.id)
-      .eq('status', 'pending')
-      .select('order_code');
-    if (!rows || rows.length === 0) {
-      return res.status(409).json({ error: 'Order is no longer pending' });
-    }
-
-    logAudit({
+    const { httpStatus, body } = await rejectOrderCore({
+      orderCode: req.params.code,
       actorId: req.adminId,
-      action: 'admin_food_order_rejected',
-      resourceType: 'order',
-      resourceId: order.order_code,
-      meta: { reason: (req.body && req.body.reason) || null, was_paid: order.payment_status === 'paid' },
+      actorRole: 'admin',
+      reason: (req.body && req.body.reason) || null,
     });
-    pushFoodOrderStatus(order.order_code, { status: 'rejected', reason: (req.body && req.body.reason) || null });
-    pingFoodAdmin(order.order_code);
-    logNotification({ userId: order.customer_id, type: 'food_order_rejected' });
-
-    return res.json({
-      orderCode: order.order_code,
-      status: 'rejected',
-      refundDue: order.payment_status === 'paid',
-    });
+    return res.status(httpStatus).json(body);
   } catch (err) {
     console.error('admin rejectOrder error:', err);
     return res.status(500).json({ error: 'Unexpected server error' });
   }
 }
 
-// The fulfillment ladder — each status may only follow its predecessor.
-// (Riders normally advance out_for_delivery/delivered from their portal;
-// this is the admin fallback.)
-const NEXT_STATUS = {
-  accepted: 'preparing',
-  preparing: 'ready',
-  ready: 'out_for_delivery',
-  out_for_delivery: 'delivered',
-};
-
 async function advanceOrderStatus(req, res) {
   try {
-    const order = await loadOrderByCode(req.params.code);
-    if (!order) return res.status(404).json({ error: 'Order not found' });
-    const { status } = req.body;
-
-    if (NEXT_STATUS[order.status] !== status) {
-      return res.status(409).json({ error: `Cannot move an order from "${order.status}" to "${status}"` });
-    }
-
-    const patch = { status };
-    if (status === 'ready') patch.ready_at = new Date().toISOString();
-    if (status === 'delivered') patch.delivered_at = new Date().toISOString();
-
-    const { data: rows, error } = await supabase
-      .from('orders')
-      .update(patch)
-      .eq('id', order.id)
-      .eq('status', order.status)
-      .select('order_code');
-    if (error || !rows || rows.length === 0) {
-      return res.status(409).json({ error: 'Order status changed — please refresh' });
-    }
-
-    // Cash on delivery settles at the door: mirror the rider portal
-    // (driverDispatchController) and record the payment when the admin
-    // fallback marks the order delivered. Without this, admin-delivered cash
-    // orders stay 'awaiting' forever and drop out of the settlement totals.
-    // Best-effort: the order is already delivered at this point, so a payment
-    // hiccup must not fail the request — the admin can recover with the
-    // normal "Verify payment" action (verifyPayment handles cash too).
-    if (status === 'delivered' && order.payment_method === 'cash' && order.payment_status === 'awaiting') {
-      try {
-        await markOrderPaid(order, { provider: 'cash', actorId: req.adminId });
-      } catch (payErr) {
-        console.error('advanceOrderStatus cash markOrderPaid error:', payErr);
-      }
-    }
-
-    logAudit({
+    const { httpStatus, body } = await advanceOrderStatusCore({
+      orderCode: req.params.code,
       actorId: req.adminId,
-      action: 'admin_food_order_status',
-      resourceType: 'order',
-      resourceId: order.order_code,
-      meta: { from: order.status, to: status },
+      actorRole: 'admin',
+      status: req.body.status,
     });
-    pushFoodOrderStatus(order.order_code, { status });
-    pingFoodAdmin(order.order_code);
-    logNotification({ userId: order.customer_id, type: `food_order_${status}` });
-
-    return res.json({ orderCode: order.order_code, status });
+    return res.status(httpStatus).json(body);
   } catch (err) {
     console.error('admin advanceOrderStatus error:', err);
     return res.status(500).json({ error: 'Unexpected server error' });

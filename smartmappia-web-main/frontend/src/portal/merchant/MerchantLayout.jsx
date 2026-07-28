@@ -4,6 +4,7 @@
 import { Link } from 'react-router-dom';
 import {
   LayoutDashboard,
+  ClipboardList,
   UtensilsCrossed,
   LayoutList,
   Store,
@@ -17,6 +18,7 @@ import NotificationBell from '../components/NotificationBell';
 
 export const MERCHANT_NAV = [
   { id: 'overview', label: 'Overview', icon: LayoutDashboard },
+  { id: 'orders', label: 'Orders', icon: ClipboardList },
   { id: 'menu', label: 'Menu', icon: UtensilsCrossed },
   { id: 'categories', label: 'Categories', icon: LayoutList },
   { id: 'business', label: 'Business', icon: Store },
@@ -26,6 +28,10 @@ const PAGE_COPY = {
   overview: {
     title: 'Overview',
     subtitle: 'Analytics and restaurant performance at a glance.',
+  },
+  orders: {
+    title: 'Orders',
+    subtitle: 'Incoming orders, live — accept, cook, and hand off to your rider.',
   },
   menu: {
     title: 'Menu',
