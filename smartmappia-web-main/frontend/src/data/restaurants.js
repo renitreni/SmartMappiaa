@@ -143,6 +143,22 @@ export const restaurants = [
     cover: false,
     tagline: "Comfort food, delivered",
   },
+  {
+    id: 10,
+    name: "Chuchay Dried Seafoods",
+    cuisine: "Dried Seafood",
+    rating: "4.8",
+    reviews: "420",
+    time: "20-35 min",
+    timeShort: "25 min",
+    fee: "SAR 5 delivery",
+    tag: "New",
+    logo: "/brands/chuchay.png",
+    image: "/brands/chuchay.png",
+    bg: "#FFFFFF",
+    cover: false,
+    tagline: "Isabela special dried seafoods",
+  },
 ];
 
 export const flashingRestaurants = restaurants.slice(0, 4);
