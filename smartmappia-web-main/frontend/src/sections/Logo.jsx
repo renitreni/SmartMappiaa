@@ -11,6 +11,7 @@ const partners = [
   { id: 6, name: "Tianlala", logo: "brands/tianlala.png" },
   { id: 7, name: "Kuy's", logo: "brands/kuys.png" },
   { id: 8, name: "Taster", logo: "brands/taster.png" },
+  { id: 10, name: "Chuchay Dried Seafoods", logo: "brands/chuchay.png" },
 ];
 
 const PartnerCard = ({ partner }) => (
