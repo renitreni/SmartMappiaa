@@ -1,7 +1,9 @@
-import React from "react";
-import { Link } from "react-router-dom";
+import React, { useEffect, useState } from "react";
+import { Link, useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
 import { Star, Clock, Flame, ArrowRight, Sparkles } from "lucide-react";
+import { api } from "../portal/lib/api";
+import { notifyMenuUnavailable } from "../portal/lib/notify";
 import { restaurants as restaurantData } from "../data/restaurants";
 
 const stats = [
@@ -26,16 +28,34 @@ const tagStyles = {
   New: "bg-green-500 text-white",
 };
 
-function RestaurantCard({ resto, index }) {
+function normalizeName(name) {
+  return String(name || "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "");
+}
+
+// Match a marketing partner to a live merchant so "Order now" opens the real menu.
+function findLiveMatch(demoName, liveList) {
+  const demoKey = normalizeName(demoName);
+  if (!demoKey) return null;
   return (
-    <Link to="/food" className="block">
+    liveList.find((r) => {
+      const liveKey = normalizeName(r.name);
+      return liveKey === demoKey || liveKey.includes(demoKey) || demoKey.includes(liveKey);
+    }) || null
+  );
+}
+
+function RestaurantCard({ resto, index, onOpen }) {
+  return (
+    <button type="button" onClick={() => onOpen(resto)} className="block w-full text-left cursor-pointer">
       <motion.article
         custom={index}
         variants={cardVariants}
         initial="hidden"
         whileInView="visible"
         viewport={{ once: true, margin: "-50px" }}
-        className="group relative bg-white border border-brand-border rounded-3xl overflow-hidden cursor-pointer transition-all duration-300 hover:-translate-y-2 hover:border-brand-orange/30 hover:shadow-2xl hover:shadow-brand-orange/10"
+        className="group relative bg-white border border-brand-border rounded-3xl overflow-hidden transition-all duration-300 hover:-translate-y-2 hover:border-brand-orange/30 hover:shadow-2xl hover:shadow-brand-orange/10"
       >
         <div
           className="relative h-52 sm:h-56 overflow-hidden"
@@ -92,11 +112,48 @@ function RestaurantCard({ resto, index }) {
           </div>
         </div>
       </motion.article>
-    </Link>
+    </button>
   );
 }
 
 const Restaurants = () => {
+  const navigate = useNavigate();
+  // Live merchant keyed by marketing card id: { id, hasMenu }
+  const [liveByCardId, setLiveByCardId] = useState({});
+
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      try {
+        const data = await api.foodRestaurants();
+        const live = data?.restaurants || [];
+        if (!alive || !live.length) return;
+        const map = {};
+        for (const resto of restaurantData) {
+          const match = findLiveMatch(resto.name, live);
+          if (match) {
+            map[resto.id] = { id: match.id, hasMenu: match.hasMenu !== false };
+          }
+        }
+        setLiveByCardId(map);
+      } catch {
+        // Marketing grid still works without the API.
+      }
+    })();
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  function openRestaurant(resto) {
+    const live = liveByCardId[resto.id];
+    if (live?.id && live.hasMenu) {
+      navigate(`/food/r/${live.id}`);
+      return;
+    }
+    notifyMenuUnavailable(resto.name);
+  }
+
   return (
     <section
       id="restaurants"
@@ -162,7 +219,12 @@ const Restaurants = () => {
 
         <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-6 lg:gap-7">
           {restaurantData.map((resto, index) => (
-            <RestaurantCard key={resto.id} resto={resto} index={index} />
+            <RestaurantCard
+              key={resto.id}
+              resto={resto}
+              index={index}
+              onOpen={openRestaurant}
+            />
           ))}
         </div>
 
