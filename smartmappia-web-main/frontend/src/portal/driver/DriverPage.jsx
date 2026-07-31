@@ -64,13 +64,14 @@ import RoutedRideMap from '../components/RoutedRideMap';
 const ACTIVE = ['accepted', 'on_the_way', 'arrived', 'started'];
 
 // Driver service-type preferences (profiles.service_types, migration 0020).
-// 'shop' = Ecommerce — selectable placeholder, no dispatch behind it yet.
+// 'shop' = Ecommerce. Live since the dispatch cascade learned a third job
+// kind; the rider queue merges food and shop deliveries.
 const ALL_SERVICES = ['pick_drop', 'food', 'shop'];
 
 const SERVICE_OPTIONS = [
   { id: 'pick_drop', label: 'Pick & Drop', subtitle: 'Airport rides', icon: Navigation },
   { id: 'food', label: 'Food delivery', subtitle: 'Restaurant orders', icon: Utensils },
-  { id: 'shop', label: 'Ecommerce', subtitle: 'Parcel and shop orders', icon: ShoppingBag, comingSoon: true },
+  { id: 'shop', label: 'Ecommerce', subtitle: 'Store and parcel orders', icon: ShoppingBag },
 ];
 
 const RIDE_STEPS = [
@@ -723,7 +724,10 @@ export default function DriverPage() {
 
   const ridesEnabled = effectiveServices.includes('pick_drop');
 
-  const foodEnabled = effectiveServices.includes('food');
+  // One rider queue covers both delivery verticals, so the panel shows when
+  // EITHER is enabled; the backend filters each pool by the rider's own
+  // service_types regardless.
+  const foodEnabled = effectiveServices.includes('food') || effectiveServices.includes('shop');
 
   // A rider carrying an active food delivery must keep sending GPS even when
   // they haven't toggled "online" for ride offers — otherwise the customer's

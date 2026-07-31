@@ -29,6 +29,7 @@ import { realtimeEnabled } from '../lib/supabaseClient';
 import { downloadFoodInvoice } from '../lib/invoice';
 import {
   fmtSAR,
+  vatLabel,
   whatsappLink,
   foodStatusMeta,
   foodPaymentMeta,
@@ -502,7 +503,10 @@ export default function FoodTrackPage() {
               </div>
               <div className="mt-4 pt-3 border-t border-brand-border space-y-1.5 text-sm">
                 <div className="flex justify-between"><span className="text-brand-grey">Subtotal</span><span className="font-bold tabular-nums">{fmtSAR(order.subtotal)}</span></div>
-                <div className="flex justify-between"><span className="text-brand-grey">Delivery fee</span><span className="font-bold tabular-nums">{fmtSAR(order.delivery_fee)}</span></div>
+                <div className="flex justify-between"><span className="text-brand-grey">Delivery charge</span><span className="font-bold tabular-nums">{fmtSAR(order.delivery_fee)}</span></div>
+                {Number(order.vat_amount) > 0 && (
+                  <div className="flex justify-between"><span className="text-brand-grey">{vatLabel(order.vat_rate)}</span><span className="font-bold tabular-nums">{fmtSAR(order.vat_amount)}</span></div>
+                )}
                 <div className="flex justify-between pt-1.5 border-t border-brand-border">
                   <span className="font-bold text-brand-dark">Total</span>
                   <span className="font-black text-brand-orange tabular-nums">{fmtSAR(order.total)}</span>

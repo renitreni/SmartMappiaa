@@ -61,7 +61,9 @@ async function getOverview(req, res) {
       supabase.from('orders').select('status, platform_margin_total, total', { count: 'exact' }),
       supabase.from('orders').select('id', { count: 'exact', head: true })
         .gte('created_at', todayStart.toISOString()),
-      supabase.from('merchants').select('status, credit_used, credit_limit'),
+      // merchants is shared with the Ecommerce vertical (0026) — the Food
+      // overview must count restaurants only.
+      supabase.from('merchants').select('status, credit_used, credit_limit').eq('vertical', 'food'),
       supabase.from('orders').select('id', { count: 'exact', head: true })
         .eq('payment_status', 'awaiting'),
     ]);
@@ -104,6 +106,7 @@ async function listMerchants(req, res) {
         'id, name, cuisine_type, description, logo_url, address, lat, lng, is_active, status, ' +
           'credit_limit, credit_used, is_featured, badge, owner_id, created_at'
       )
+      .eq('vertical', 'food')
       .order('created_at', { ascending: false });
     if (error) {
       console.error('food listMerchants error:', error);
@@ -148,8 +151,20 @@ async function listMerchants(req, res) {
   }
 }
 
+// Scoped to the food vertical on purpose. This backs every admin Food-tab
+// handler that acts on a single merchant (update, delete, suspend,
+// reactivate, credit, owner provisioning, menu CRUD). merchants is shared
+// with Ecommerce since 0026, so without the filter an admin could reach a
+// STORE through the Food tab and suspend it, replenish its credit, or
+// attach a menu to it — all of which would look like they worked.
+// Returning null instead means the caller's existing 404 path handles it.
 async function loadMerchant(id) {
-  const { data } = await supabase.from('merchants').select('*').eq('id', id).maybeSingle();
+  const { data } = await supabase
+    .from('merchants')
+    .select('*')
+    .eq('id', id)
+    .eq('vertical', 'food')
+    .maybeSingle();
   return data;
 }
 
@@ -172,7 +187,10 @@ async function createMerchant(req, res) {
     }
     const { data, error } = await supabase
       .from('merchants')
-      .insert(req.body) // whitelisted by the route schema; unlisted by default
+      // vertical is set explicitly, NOT taken from req.body: the route schema
+      // does not declare it, so an admin creating a restaurant here can never
+      // accidentally (or deliberately) mint a store through the Food tab.
+      .insert({ ...req.body, vertical: 'food' }) // whitelisted by the route schema; unlisted by default
       .select(ADMIN_MERCHANT_SELECT)
       .single();
     if (error) {
@@ -612,7 +630,7 @@ async function listOrders(req, res) {
       .from('orders')
       .select(
         'id, order_code, status, payment_status, payment_method, subtotal, delivery_fee, ' +
-          'platform_margin_total, total, delivery_address, contact_phone, created_at, accepted_at, ' +
+          'platform_margin_total, vat_amount, total, delivery_address, contact_phone, created_at, accepted_at, ' +
           'merchants ( id, name ), profiles!orders_customer_id_fkey ( full_name, mobile_number ), ' +
           'deliveries ( driver_id, status, pickup_photo_path, delivery_photo_path, profiles ( full_name ) ), ' +
           'order_items ( name_snapshot, size_snapshot, quantity, line_total )'
@@ -674,6 +692,7 @@ async function listOrders(req, res) {
           subtotal: o.subtotal,
           deliveryFee: o.delivery_fee,
           marginTotal: o.platform_margin_total,
+          vatAmount: o.vat_amount,
           total: o.total,
           deliveryAddress: o.delivery_address,
           merchantId: o.merchants ? o.merchants.id : null,
@@ -1234,7 +1253,7 @@ async function getSettlement(req, res) {
         .from('orders')
         .select(
           'order_code, created_at, status, payment_status, payment_method, ' +
-            'subtotal, delivery_fee, platform_margin_total, total, merchants ( id, name )'
+            'subtotal, delivery_fee, platform_margin_total, vat_amount, total, merchants ( id, name )'
         )
         .gte('created_at', range.from.toISOString())
         .lt('created_at', range.toExclusive.toISOString())
@@ -1265,6 +1284,9 @@ async function getSettlement(req, res) {
         restaurantPayout: round2(subtotal - markup), // = sum of net prices
         platformMarkup: markup,
         deliveryFee: round2(Number(o.delivery_fee || 0)),
+        // VAT is collected on the platform's behalf and owed onward to the
+        // tax authority — never part of the restaurant payout or our markup.
+        vat: round2(Number(o.vat_amount || 0)),
         total: round2(Number(o.total || 0)),
         paymentMethod: o.payment_method,
         paymentStatus: o.payment_status,
@@ -1278,12 +1300,16 @@ async function getSettlement(req, res) {
       orders: 0,
       onlineOwedToRestaurant: 0, onlineMarkupKept: 0,
       cashCollectedByRider: 0, cashRestaurantPayout: 0, cashMarkup: 0,
+      // VAT collected on paid orders — what we owe the tax authority for the
+      // period, split the same way as the money it arrived with.
+      vatCollected: 0, onlineVat: 0, cashVat: 0,
       refundedAmount: 0,
     };
     const blankBucket = (r) => ({
       merchantId: r.merchantId, merchant: r.merchant, orders: 0,
       onlineOwedToRestaurant: 0, onlineMarkupKept: 0,
       cashCollectedByRider: 0, cashRestaurantPayout: 0, cashMarkup: 0,
+      vatCollected: 0,
       refundedAmount: 0,
     });
     for (const r of rows) {
@@ -1300,11 +1326,15 @@ async function getSettlement(req, res) {
       }
       if (r.paymentStatus !== 'paid') continue; // awaiting/failed: not collected yet
 
+      m.vatCollected = round2(m.vatCollected + r.vat);
+      totals.vatCollected = round2(totals.vatCollected + r.vat);
+
       if (r.collectedBy === 'platform_online') {
         m.onlineOwedToRestaurant = round2(m.onlineOwedToRestaurant + r.restaurantPayout);
         m.onlineMarkupKept = round2(m.onlineMarkupKept + r.platformMarkup);
         totals.onlineOwedToRestaurant = round2(totals.onlineOwedToRestaurant + r.restaurantPayout);
         totals.onlineMarkupKept = round2(totals.onlineMarkupKept + r.platformMarkup);
+        totals.onlineVat = round2(totals.onlineVat + r.vat);
       } else {
         m.cashCollectedByRider = round2(m.cashCollectedByRider + r.total);
         m.cashRestaurantPayout = round2(m.cashRestaurantPayout + r.restaurantPayout);
@@ -1312,6 +1342,7 @@ async function getSettlement(req, res) {
         totals.cashCollectedByRider = round2(totals.cashCollectedByRider + r.total);
         totals.cashRestaurantPayout = round2(totals.cashRestaurantPayout + r.restaurantPayout);
         totals.cashMarkup = round2(totals.cashMarkup + r.platformMarkup);
+        totals.cashVat = round2(totals.cashVat + r.vat);
       }
     }
 

@@ -15,6 +15,7 @@ const { supabase } = require('../lib/supabase');
 const { config } = require('../lib/config');
 const { addTrackingEvent } = require('../lib/tracking');
 const { createLedgerEntryForBooking } = require('../lib/ledger');
+const { payableAmount, bookingVat } = require('../lib/fare');
 const { round2, isBlockedFromCash, driverCashView, chargeDriverCashOwed } = require('../lib/driverCash');
 const { haversineKm, etaMinutes } = require('../lib/geo');
 const { assertWithinGeofence } = require('../lib/geofence');
@@ -312,7 +313,8 @@ async function updateRideStatus(req, res) {
 
     const { data: booking, error } = await supabase
       .from('bookings')
-      .select('id, booking_code, fare_amount, currency, payment_method, payment_status, ' +
+      .select('id, booking_code, fare_amount, vat_amount, vat_rate, total_amount, currency, ' +
+        'payment_method, payment_status, ' +
         'assigned_driver_id, driver_ride_status, booking_status, user_id, ' +
         'pickup_lat, pickup_lng, trip_type')
       .eq('booking_code', req.params.bookingCode)
@@ -387,7 +389,8 @@ async function updateRideStatus(req, res) {
         const { error: payRowErr } = await supabase.from('payments').insert({
           booking_id: booking.id,
           provider: 'cash',
-          amount: booking.fare_amount,
+          // The passenger hands over fare + VAT.
+          amount: payableAmount(booking),
           currency: booking.currency,
           status: 'verified',
           verified_by_system: true,
@@ -396,14 +399,17 @@ async function updateRideStatus(req, res) {
         });
         if (payRowErr) console.error('cash payment record error:', payRowErr);
 
-        // Charge the platform commission to the driver's cash-owed balance.
+        // Charge the platform commission to the driver's cash-owed balance,
+        // PLUS the VAT they collected — that is SmartMappia's liability to
+        // the tax authority, so it has to come back off the driver rather
+        // than stay in their pocket (migration 0025).
         // Only on a freshly-written ledger row (the completed-guard above
         // already prevents re-entry, and result.skipped is a second belt).
         if (!result.skipped) {
           await chargeDriverCashOwed({
             driverId: req.driverId,
             bookingId: booking.id,
-            amount: round2(result.ledger.platform_net),
+            amount: round2(result.ledger.platform_net + bookingVat(booking)),
           });
         }
       }
@@ -491,10 +497,16 @@ async function updateServiceTypes(req, res) {
       .single();
     if (error || !data) {
       console.error('updateServiceTypes error:', error);
-      const hint = (error && error.message ? error.message : '').includes('service_types')
-        ? ' Run backend/migrations/0020_driver_service_types.sql in the Supabase SQL Editor.'
-        : '';
-      return res.status(500).json({ error: 'Could not save your services.' + hint });
+      const missingColumn = (error && error.message ? error.message : '').includes('service_types');
+      return res.status(500).json(
+        opsError(
+          req,
+          'Could not save your services.',
+          missingColumn
+            ? 'Run backend/migrations/0020_driver_service_types.sql in the Supabase SQL Editor.'
+            : null
+        )
+      );
     }
 
     return res.json({ serviceTypes: data.service_types });

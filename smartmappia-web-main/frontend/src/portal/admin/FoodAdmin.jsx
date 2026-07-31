@@ -261,7 +261,7 @@ function RestaurantForm({ initial, onSave, onCancel, busy, merchantId }) {
           onChange={(e) => setForm((f) => ({ ...f, is_featured: e.target.checked }))}
           className="w-4 h-4 accent-[#FF7E21]"
         />
-        Feature on the homepage — leads the "Most Loved Flavors" grid
+        Feature on the homepage — needs a logo, a map pin, and Listed on
       </label>
       <div className="flex gap-2 pt-1">
         <button type="submit" disabled={busy} className={btnPrimary + ' flex-1'}>
@@ -763,6 +763,13 @@ function MerchantsSection({ onError }) {
                   <Badge tone={m.isActive ? 'green' : 'grey'}>{m.isActive ? 'Listed' : 'Unlisted'}</Badge>
                   {m.status === 'suspended' && <Badge tone="red">Suspended</Badge>}
                   {(m.lat == null || m.lng == null) && <Badge tone="amber">No location pin</Badge>}
+                  {/* Whether this restaurant actually reaches smartmappia.com.
+                      Featuring alone is not enough — a card with no logo is
+                      skipped, which is otherwise invisible from here. */}
+                  {m.isFeatured && <Badge tone="amber">Homepage</Badge>}
+                  {m.isFeatured && !m.logoUrl && (
+                    <Badge tone="red">No logo — hidden on homepage</Badge>
+                  )}
                 </div>
 
                 <div className="mt-3 flex items-center gap-3">
@@ -1269,7 +1276,7 @@ function defaultRange() {
 
 const SETTLEMENT_COLUMNS = [
   'order_code', 'date', 'merchant', 'subtotal', 'restaurant_payout', 'platform_markup',
-  'delivery_fee', 'total', 'payment_method', 'payment_status', 'collected_by',
+  'delivery_charge', 'vat', 'total', 'payment_method', 'payment_status', 'collected_by',
 ].map((k) => ({ key: k, header: k }));
 
 function toCsvRows(rows) {
@@ -1280,7 +1287,8 @@ function toCsvRows(rows) {
     subtotal: r.subtotal,
     restaurant_payout: r.restaurantPayout,
     platform_markup: r.platformMarkup,
-    delivery_fee: r.deliveryFee,
+    delivery_charge: r.deliveryFee,
+    vat: r.vat,
     total: r.total,
     payment_method: r.paymentMethod,
     payment_status: r.paymentStatus,

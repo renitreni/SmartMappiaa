@@ -12,6 +12,7 @@
 const { supabase } = require('../../lib/supabase');
 const { config } = require('../../lib/config');
 const { round2 } = require('../../lib/foodMoney');
+const { vatFor } = require('../../lib/vat');
 const { logFoodEvent } = require('../../lib/foodEvents');
 const { hasEnabledSizes, findSizeOption } = require('../../lib/foodSizes');
 
@@ -51,6 +52,10 @@ async function buildCartSummary(cart) {
 
   const subtotal = round2(items.reduce((sum, i) => sum + i.lineTotal, 0));
   const minOrder = config.food.minOrderSar;
+  // Mirrors priceOrder() in lib/foodMoney.js: VAT on top of goods + delivery.
+  // The minimum-order gate stays on the EX-VAT subtotal.
+  const deliveryFee = round2(config.food.deliveryFeeSar);
+  const { vatRate, vatAmount } = vatFor(subtotal + deliveryFee);
   return {
     cartId: cart.id,
     merchantId: cart.merchant_id,
@@ -59,7 +64,10 @@ async function buildCartSummary(cart) {
     minOrder,
     meetsMinimum: subtotal >= minOrder,
     shortfall: subtotal >= minOrder ? 0 : round2(minOrder - subtotal),
-    deliveryFee: config.food.deliveryFeeSar,
+    deliveryFee,
+    vatRate,
+    vatAmount,
+    total: round2(subtotal + deliveryFee + vatAmount),
   };
 }
 

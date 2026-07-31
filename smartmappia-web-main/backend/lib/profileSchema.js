@@ -1,10 +1,26 @@
 // ---------------------------------------------------------------------
-// Detect whether migration 0003 (extended profile columns) has been run.
-// Cached for the lifetime of the server process.
+// Detect whether the optional profile migrations have been run.
+//
+// A POSITIVE result is cached forever — columns never disappear. A NEGATIVE
+// result is only cached briefly: otherwise running the migration has no
+// effect until someone restarts the API, which is exactly the trap that
+// kept "run 0024" on screen after 0024 had already been applied.
 // ---------------------------------------------------------------------
 
+const MISSING_RECHECK_MS = 60 * 1000;
+
 let extendedProfileColumns = null;
+let extendedCheckedAt = 0;
 let profileV2Columns = null;
+let v2CheckedAt = 0;
+
+// True when we can trust the cached answer: present columns are permanent,
+// absent ones get re-probed once the backoff window expires.
+function cacheFresh(value, checkedAt) {
+  if (value === true) return true;
+  if (value === null) return false;
+  return Date.now() - checkedAt < MISSING_RECHECK_MS;
+}
 
 const EXTENDED_FIELDS = [
   'date_of_birth',
@@ -18,9 +34,10 @@ const EXTENDED_FIELDS = [
 const V2_FIELDS = ['avatar_url', 'address'];
 
 async function hasExtendedProfileColumns(supabase) {
-  if (extendedProfileColumns !== null) return extendedProfileColumns;
+  if (cacheFresh(extendedProfileColumns, extendedCheckedAt)) return extendedProfileColumns;
   const { error } = await supabase.from('profiles').select('date_of_birth').limit(0);
   extendedProfileColumns = !error;
+  extendedCheckedAt = Date.now();
   if (!extendedProfileColumns) {
     console.warn(
       '[profiles] Migration backend/migrations/0003_profile_registration_fields.sql is missing. ' +
@@ -31,9 +48,10 @@ async function hasExtendedProfileColumns(supabase) {
 }
 
 async function hasProfileV2Columns(supabase) {
-  if (profileV2Columns !== null) return profileV2Columns;
+  if (cacheFresh(profileV2Columns, v2CheckedAt)) return profileV2Columns;
   const { error } = await supabase.from('profiles').select('avatar_url').limit(0);
   profileV2Columns = !error;
+  v2CheckedAt = Date.now();
   if (!profileV2Columns) {
     console.warn(
       '[profiles] Migration backend/migrations/0024_profile_and_contact.sql is missing. ' +

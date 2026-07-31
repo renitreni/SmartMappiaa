@@ -36,6 +36,8 @@ const {
   pushFoodOrderStatus,
   pushMerchantFeed,
   pushBookingStatus,
+  pushShopOrderStatus,
+  pingShopAdmin,
 } = require('./realtime');
 const { logNotification } = require('./notifications');
 const { logAudit } = require('./audit');
@@ -72,9 +74,19 @@ async function freshDriverLocations() {
   return latest;
 }
 
+// The three job kinds, in one table so a fourth vertical is a data change
+// rather than a hunt for hard-coded 'food' strings. `service` is the
+// profiles.service_types value a driver must have opted into (0020);
+// `column` is the dispatch_offers column that points at the job.
+const KIND = {
+  food: { service: 'food', column: 'order_id', offerType: 'delivery_offer' },
+  ride: { service: 'pick_drop', column: 'booking_id', offerType: 'ride_offer' },
+  shop: { service: 'shop', column: 'shop_order_id', offerType: 'shop_delivery_offer' },
+};
+
 // Drivers who already saw this job (any offer status) — never re-offer.
 async function alreadyOfferedDriverIds(target) {
-  const column = target.kind === 'food' ? 'order_id' : 'booking_id';
+  const column = KIND[target.kind].column;
   const { data } = await supabase
     .from('dispatch_offers')
     .select('driver_id')
@@ -120,6 +132,30 @@ async function loadFoodTarget(orderId) {
     pickupAddress: m ? m.address : null,
     point: m && m.lat != null && m.lng != null ? { lat: m.lat, lng: m.lng } : null,
     active: ['accepted', 'preparing', 'ready'].includes(order.status) && paymentOk,
+  };
+}
+
+// Shop: mirrors loadFoodTarget. Dispatchable once the store accepted AND
+// the order is either paid or cash on delivery.
+async function loadShopTarget(shopOrderId) {
+  const { data: order, error } = await supabase
+    .from('shop_orders')
+    .select('id, order_code, status, payment_status, payment_method, merchant_id, merchants ( lat, lng, name, address )')
+    .eq('id', shopOrderId)
+    .maybeSingle();
+  if (error) console.error('loadShopTarget error:', error);
+  if (!order) return null;
+  const m = order.merchants;
+  const paymentOk = order.payment_status === 'paid' || order.payment_method === 'cash';
+  return {
+    kind: 'shop',
+    id: order.id,
+    code: order.order_code,
+    merchantId: order.merchant_id,
+    merchantName: m ? m.name : null,
+    pickupAddress: m ? m.address : null,
+    point: m && m.lat != null && m.lng != null ? { lat: m.lat, lng: m.lng } : null,
+    active: ['accepted', 'packing', 'ready'].includes(order.status) && paymentOk,
   };
 }
 
@@ -169,6 +205,16 @@ async function dropToOpenPool(target) {
       pickupAddress: target.pickupAddress,
     });
     pingFoodAdmin(target.code);
+  } else if (target.kind === 'shop') {
+    await supabase.from('shop_deliveries').update({ status: 'open' })
+      .eq('order_id', target.id).is('driver_id', null);
+    broadcast('drivers-available', 'new_delivery', {
+      kind: 'shop',
+      orderCode: target.code,
+      merchantName: target.merchantName,
+      pickupAddress: target.pickupAddress,
+    });
+    pingShopAdmin(target.code);
   } else {
     // Classic Pick & Drop behavior: visible to every online driver.
     announceAvailableRide({
@@ -204,7 +250,7 @@ async function offerNext(target) {
   ]);
 
   // Only drivers who opted into this vertical (service_types, 0020).
-  const requiredService = target.kind === 'food' ? 'food' : 'pick_drop';
+  const requiredService = KIND[target.kind].service;
   const candidates = [...locations.entries()]
     .filter(
       ([driverId, loc]) =>
@@ -233,8 +279,8 @@ async function offerNext(target) {
   const { data: offer, error } = await supabase
     .from('dispatch_offers')
     .insert({
-      order_id: target.kind === 'food' ? target.id : null,
-      booking_id: target.kind === 'ride' ? target.id : null,
+      // Exactly one of the three is set — the DB CHECK (0028) enforces it.
+      [KIND[target.kind].column]: target.id,
       driver_id: next.driverId,
       round: seen.size + 1,
       distance_km: next.distanceKm != null ? Math.round(next.distanceKm * 10) / 10 : null,
@@ -260,7 +306,8 @@ async function offerNext(target) {
     userId: next.driverId,
     bookingId: target.kind === 'ride' ? target.id : null,
     orderId: target.kind === 'food' ? target.id : null,
-    type: target.kind === 'food' ? 'delivery_offer' : 'ride_offer',
+    shopOrderId: target.kind === 'shop' ? target.id : null,
+    type: KIND[target.kind].offerType,
     code: target.code,
     url: '/driver',
   });
@@ -295,6 +342,35 @@ async function startFoodDispatch(orderId) {
     await offerNext(target);
   } catch (err) {
     console.error('startFoodDispatch error:', err);
+  }
+}
+
+// Shop: called when an order is BOTH store-accepted and paid (or cash).
+// Mirrors startFoodDispatch against shop_deliveries.
+async function startShopDispatch(shopOrderId) {
+  try {
+    const target = await loadShopTarget(shopOrderId);
+    if (!target || !target.active) return;
+
+    const { data: existing } = await supabase
+      .from('shop_deliveries')
+      .select('id, driver_id, status')
+      .eq('order_id', shopOrderId)
+      .maybeSingle();
+    if (existing && existing.driver_id) return; // already has a rider
+
+    if (!existing) {
+      const { error } = await supabase
+        .from('shop_deliveries')
+        .insert({ order_id: shopOrderId, status: 'searching' });
+      if (error && error.code !== '23505') {
+        console.error('startShopDispatch shop_deliveries insert error:', error);
+        return;
+      }
+    }
+    await offerNext(target);
+  } catch (err) {
+    console.error('startShopDispatch error:', err);
   }
 }
 
@@ -408,6 +484,206 @@ async function sweepAbandonedDeliveries() {
   }
 }
 
+// Return a shop delivery to the cascade. ONLY valid BEFORE pickup (delivery
+// status still 'assigned'); once the rider has the goods it's a manual case.
+// redispatch=false is used by order cancellation, where the job is going away
+// rather than looking for another rider.
+async function releaseShopDelivery(
+  shopOrderId,
+  { previousDriverId = null, reason = null, cause = 'cancelled', actorId = null, redispatch = true } = {}
+) {
+  // redispatch=false means the ORDER is going away (cancelled), not that we
+  // are looking for another rider. Writing 'searching' in that case would
+  // leave a cancelled order's delivery row indistinguishable from a live one
+  // for anything filtering on shop_deliveries.status — including the
+  // idx_shop_deliveries_open open-pool index.
+  const nextStatus = redispatch ? 'searching' : 'cancelled';
+  const { data: released, error } = await supabase
+    .from('shop_deliveries')
+    .update({ driver_id: null, status: nextStatus })
+    .eq('order_id', shopOrderId)
+    .eq('status', 'assigned')
+    .select('id');
+  if (error) {
+    console.error('releaseShopDelivery error:', error);
+    return false;
+  }
+  if (!released || released.length === 0) return false; // already picked up / taken over
+
+  const { data: order } = await supabase
+    .from('shop_orders')
+    .select('order_code, customer_id, merchant_id, status')
+    .eq('id', shopOrderId)
+    .maybeSingle();
+
+  if (order) {
+    logAudit({
+      actorId: actorId || previousDriverId || null,
+      action: cause === 'reclaimed' ? 'driver_shop_delivery_reclaimed' : 'driver_shop_delivery_cancelled',
+      resourceType: 'shop_order',
+      resourceId: order.order_code,
+      meta: { previous_driver_id: previousDriverId, reason },
+    });
+    if (redispatch) {
+      logNotification({
+        userId: order.customer_id,
+        type: 'shop_finding_new_rider',
+        code: order.order_code,
+      });
+    }
+    if (previousDriverId) {
+      // Distinguish "you gave this up" from "we took it back because your
+      // GPS went dark" — food does, and telling a rider whose signal dropped
+      // that the customer cancelled is simply untrue.
+      logNotification({
+        userId: previousDriverId,
+        type: cause === 'reclaimed' ? 'shop_delivery_reclaimed' : 'shop_delivery_released',
+        code: order.order_code,
+      });
+    }
+    pushShopOrderStatus(order.order_code, { status: order.status, rider: null });
+    pushMerchantFeed(order.merchant_id, 'order_update', {
+      orderCode: order.order_code,
+      riderAssigned: false,
+    });
+    pingShopAdmin(order.order_code);
+  }
+
+  if (redispatch) await offerNext(await loadShopTarget(shopOrderId));
+  return true;
+}
+
+// Shop disconnect watchdog — same shape and same reasoning as the food one.
+async function sweepAbandonedShopDeliveries() {
+  const staleBefore = Date.now() - config.dispatch.abandonMinutes * 60 * 1000;
+  const { data: rows, error } = await supabase
+    .from('shop_deliveries')
+    .select('order_id, driver_id, shop_orders!inner ( status )')
+    .eq('status', 'assigned')
+    .not('driver_id', 'is', null)
+    .in('shop_orders.status', ['accepted', 'packing', 'ready']);
+  if (error) {
+    console.error('sweepAbandonedShopDeliveries error:', error);
+    return;
+  }
+  for (const row of rows || []) {
+    const { data: loc, error: locError } = await supabase
+      .from('driver_locations')
+      .select('recorded_at')
+      .eq('driver_id', row.driver_id)
+      .order('recorded_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (locError) {
+      // A blip must NOT read as "never seen" — that would reclaim a live
+      // delivery from a rider who is actually fine.
+      console.error('sweepAbandonedShopDeliveries location lookup error:', locError);
+      continue;
+    }
+    const lastSeen = loc ? new Date(loc.recorded_at).getTime() : 0;
+    if (lastSeen < staleBefore) {
+      await releaseShopDelivery(row.order_id, {
+        previousDriverId: row.driver_id,
+        cause: 'reclaimed',
+        reason: 'rider_disconnected',
+      });
+    }
+  }
+}
+
+// Stock expiry sweeper — ECOMMERCE ONLY, and a security control rather than
+// a convenience.
+//
+// Shop stock is reserved at CHECKOUT, before payment, because that is the
+// only way to guarantee a paid order can actually be fulfilled. The side
+// effect is that an UNPAID order holds inventory. Without expiry, anyone
+// could place large unpaid orders and freeze a competitor's catalogue at
+// zero available stock (ECOMMERCE_PLAN §19.2, "inventory hoarding").
+//
+// TWO windows, because there are two ways an unpaid order can hold stock.
+//
+//   PENDING + awaiting (any payment method)
+//     Cash is NOT exempt here. payment_method is a free client choice at
+//     checkout, so exempting it left a hole with no expiry at all: one
+//     account could check out every SKU in a store as `cash` and hold that
+//     store at zero available stock permanently.
+//
+//   ACCEPTED + awaiting + non-cash
+//     The subtler leak. acceptOrderCore has no payment gate — a store can
+//     accept before the STC Pay proof is verified, which is legitimate. But
+//     once accepted the order is no longer `pending`, so a pending-only
+//     sweep skipped it forever: dispatch never starts (loadShopTarget needs
+//     paid-or-cash), the stock stays reserved, and the store has already
+//     been charged markup for revenue it will never see. Given a longer
+//     window so a genuine proof still has time to be reviewed.
+//     Cash IS exempt here: an accepted cash order is legitimately unpaid
+//     right up until the rider collects at the door.
+async function sweepStaleShopOrders() {
+  const now = Date.now();
+  const pendingCutoff = new Date(now - config.shop.orderExpiryMinutes * 60 * 1000).toISOString();
+  const acceptedCutoff = new Date(now - config.shop.acceptedExpiryMinutes * 60 * 1000).toISOString();
+
+  const [pending, accepted] = await Promise.all([
+    supabase
+      .from('shop_orders')
+      .select('id, order_code, customer_id, merchant_id')
+      .eq('status', 'pending')
+      .eq('payment_status', 'awaiting')
+      .lt('created_at', pendingCutoff)
+      .limit(200),
+    supabase
+      .from('shop_orders')
+      .select('id, order_code, customer_id, merchant_id')
+      .eq('status', 'accepted')
+      .eq('payment_status', 'awaiting')
+      .neq('payment_method', 'cash')
+      .lt('created_at', acceptedCutoff)
+      .limit(200),
+  ]);
+  if (pending.error) {
+    console.error('sweepStaleShopOrders (pending) error:', pending.error);
+    return;
+  }
+  if (accepted.error) console.error('sweepStaleShopOrders (accepted) error:', accepted.error);
+
+  const rows = [...(pending.data || []), ...(accepted.data || [])];
+  if (rows.length === 0) return;
+
+  const { releaseShopStock } = require('./stock');
+  for (const order of rows) {
+    // CAS on the status so a store accepting at the same moment wins.
+    const { data: cancelled } = await supabase
+      .from('shop_orders')
+      .update({ status: 'cancelled', reject_reason: 'payment_timeout' })
+      .eq('id', order.id)
+      .eq('status', 'pending')
+      .eq('payment_status', 'awaiting')
+      .select('order_code');
+    if (!cancelled || cancelled.length === 0) continue;
+
+    await releaseShopStock(order.id);
+    logAudit({
+      actorId: null,
+      action: 'shop_order_expired',
+      resourceType: 'shop_order',
+      resourceId: order.order_code,
+      meta: { after_minutes: config.shop.orderExpiryMinutes },
+    });
+    logNotification({
+      userId: order.customer_id,
+      type: 'shop_order_expired',
+      code: order.order_code,
+      shopOrderId: order.id,
+    });
+    pushShopOrderStatus(order.order_code, { status: 'cancelled' });
+    pushMerchantFeed(order.merchant_id, 'order_update', {
+      orderCode: order.order_code,
+      status: 'cancelled',
+    });
+    pingShopAdmin(order.order_code);
+  }
+}
+
 // Return a Pick & Drop booking to the cascade. Valid only BEFORE the trip
 // starts (driver_ride_status accepted/on_the_way/arrived); once 'started' the
 // passenger is in the car. cause: 'cancelled' (driver) | 'reclaimed' (watchdog).
@@ -502,16 +778,17 @@ async function sweepExpiredOffers() {
     .update({ status: 'expired', responded_at: now })
     .eq('status', 'pending')
     .lt('expires_at', now)
-    .select('id, order_id, booking_id, driver_id');
+    .select('id, order_id, booking_id, shop_order_id, driver_id');
   if (error) {
     console.error('dispatch sweep error:', error);
     return;
   }
   for (const offer of expired || []) {
     broadcast(`driver-${offer.driver_id}`, 'offer_expired', { offerId: offer.id });
-    const target = offer.order_id
-      ? await loadFoodTarget(offer.order_id)
-      : await loadRideTarget(offer.booking_id);
+    let target = null;
+    if (offer.order_id) target = await loadFoodTarget(offer.order_id);
+    else if (offer.shop_order_id) target = await loadShopTarget(offer.shop_order_id);
+    else target = await loadRideTarget(offer.booking_id);
     await offerNext(target);
   }
 }
@@ -527,24 +804,37 @@ function startDispatchSweeper() {
   // (abandonMinutes is minutes, not seconds) to keep per-driver lookups cheap.
   setInterval(() => {
     sweepAbandonedDeliveries().catch((err) => console.error('dispatch abandon (food) sweep error:', err));
+    sweepAbandonedShopDeliveries().catch((err) => console.error('dispatch abandon (shop) sweep error:', err));
     sweepAbandonedRides().catch((err) => console.error('dispatch abandon (ride) sweep error:', err));
   }, Math.max(config.dispatch.sweepMs, 20000));
+  // Shop stock expiry. Runs on its own, slower cadence: it is about minutes
+  // of payment latency, not seconds of dispatch latency, and each pass is a
+  // table scan rather than a per-driver lookup.
+  setInterval(() => {
+    sweepStaleShopOrders().catch((err) => console.error('shop stale order sweep error:', err));
+  }, config.shop.staleSweepMs);
   console.log(
     `Dispatch sweeper running (offers expire after ${config.dispatch.offerSeconds}s; ` +
-      `rider disconnect watchdog after ${config.dispatch.abandonMinutes}m).`
+      `rider disconnect watchdog after ${config.dispatch.abandonMinutes}m; ` +
+      `unpaid shop orders release stock after ${config.shop.orderExpiryMinutes}m).`
   );
 }
 
 module.exports = {
   startFoodDispatch,
+  startShopDispatch,
   startRideDispatch,
   offerNext,
   loadFoodTarget,
+  loadShopTarget,
   loadRideTarget,
   releaseFoodDelivery,
+  releaseShopDelivery,
   releaseRide,
   sweepExpiredOffers,
   sweepAbandonedDeliveries,
+  sweepAbandonedShopDeliveries,
   sweepAbandonedRides,
+  sweepStaleShopOrders,
   startDispatchSweeper,
 };

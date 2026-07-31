@@ -28,9 +28,19 @@ const {
   pushFoodOrderStatus,
   pushMerchantFeed,
   pingFoodAdmin,
+  pushShopOrderStatus,
+  pingShopAdmin,
   broadcast,
 } = require('../lib/realtime');
-const { offerNext, loadFoodTarget, loadRideTarget, releaseFoodDelivery, releaseRide } = require('../lib/dispatch');
+const {
+  offerNext,
+  loadFoodTarget,
+  loadShopTarget,
+  loadRideTarget,
+  releaseFoodDelivery,
+  releaseShopDelivery,
+  releaseRide,
+} = require('../lib/dispatch');
 const { hasService } = require('../lib/serviceTypes');
 
 // Order statuses during which a rider can still be working the delivery.
@@ -44,8 +54,9 @@ async function listOffers(req, res) {
     const { data: offers, error } = await supabase
       .from('dispatch_offers')
       .select(
-        'id, order_id, booking_id, distance_km, expires_at, ' +
+        'id, order_id, booking_id, shop_order_id, distance_km, expires_at, ' +
           'orders ( order_code, total, delivery_address, merchants ( name, address ) ), ' +
+          'shop_orders ( order_code, total, delivery_address, merchants ( name, address ) ), ' +
           'bookings ( booking_code, trip_type, pickup_address, dropoff_address, fare_amount )'
       )
       .eq('driver_id', req.driverId)
@@ -59,8 +70,14 @@ async function listOffers(req, res) {
     return res.json({
       offers: (offers || []).map((o) => ({
         id: o.id,
-        kind: o.order_id ? 'food' : 'ride',
-        code: o.order_id ? o.orders?.order_code : o.bookings?.booking_code,
+        // Three job kinds since 0028. Deriving this from order_id alone used
+        // to label a shop offer as a 'ride' with code undefined.
+        kind: o.order_id ? 'food' : o.shop_order_id ? 'shop' : 'ride',
+        code: o.order_id
+          ? o.orders?.order_code
+          : o.shop_order_id
+            ? o.shop_orders?.order_code
+            : o.bookings?.booking_code,
         distanceKm: o.distance_km,
         expiresAt: o.expires_at,
         secondsLeft: Math.max(0, Math.round((new Date(o.expires_at) - Date.now()) / 1000)),
@@ -70,6 +87,16 @@ async function listOffers(req, res) {
               pickupAddress: o.orders.merchants?.address || null,
               dropoffAddress: o.orders.delivery_address,
               total: o.orders.total,
+            }
+          : null,
+        // Same shape as `food` on purpose — the rider UI renders one card
+        // for both and only swaps the label.
+        shop: o.shop_order_id && o.shop_orders
+          ? {
+              merchantName: o.shop_orders.merchants?.name || null,
+              pickupAddress: o.shop_orders.merchants?.address || null,
+              dropoffAddress: o.shop_orders.delivery_address,
+              total: o.shop_orders.total,
             }
           : null,
         ride: o.booking_id && o.bookings
@@ -122,6 +149,47 @@ async function claimFoodDelivery(order, driverId) {
     actorId: driverId,
     action: 'driver_delivery_claimed',
     resourceType: 'order',
+    resourceId: order.code,
+  });
+  return { ok: true };
+}
+
+// Claim a shop delivery. Same compare-and-swap as claimFoodDelivery: the
+// update only lands while shop_deliveries.driver_id is still null, so two
+// riders can never both win.
+async function claimShopDelivery(order, driverId) {
+  const { data: claimed, error } = await supabase
+    .from('shop_deliveries')
+    .update({ driver_id: driverId, status: 'assigned' })
+    .eq('order_id', order.id)
+    .is('driver_id', null)
+    .select('id');
+  if (error) {
+    console.error('claimShopDelivery error:', error);
+    return { ok: false };
+  }
+  if (!claimed || claimed.length === 0) return { ok: false, conflict: true };
+
+  const { data: driver } = await supabase
+    .from('profiles')
+    .select('full_name, whatsapp_number, mobile_number')
+    .eq('id', driverId)
+    .single();
+
+  pushShopOrderStatus(order.code, {
+    status: order.status,
+    rider: driver
+      ? { name: driver.full_name, whatsapp: driver.whatsapp_number, mobile: driver.mobile_number, status: 'assigned' }
+      : { status: 'assigned' },
+  });
+  pushMerchantFeed(order.merchantId, 'order_update', { orderCode: order.code, riderAssigned: true });
+  pingShopAdmin(order.code);
+  broadcast('drivers-available', 'delivery_taken', { kind: 'shop', orderCode: order.code });
+  logNotification({ userId: order.customerId, type: 'shop_rider_assigned', code: order.code });
+  logAudit({
+    actorId: driverId,
+    action: 'driver_shop_delivery_claimed',
+    resourceType: 'shop_order',
     resourceId: order.code,
   });
   return { ok: true };
@@ -196,7 +264,7 @@ async function acceptOffer(req, res) {
       .eq('driver_id', req.driverId)
       .eq('status', 'pending')
       .gt('expires_at', new Date().toISOString())
-      .select('id, order_id, booking_id');
+      .select('id, order_id, booking_id, shop_order_id');
     if (error) {
       console.error('acceptOffer error:', error);
       return res.status(500).json({ error: 'Unexpected server error' });
@@ -222,6 +290,29 @@ async function acceptOffer(req, res) {
         return res.status(409).json({ error: 'This delivery was already taken' });
       }
       return res.json({ accepted: true, kind: 'food', code: order.order_code });
+    }
+
+    if (offer.shop_order_id) {
+      const { data: order } = await supabase
+        .from('shop_orders')
+        .select('id, order_code, status, merchant_id, customer_id')
+        .eq('id', offer.shop_order_id)
+        .single();
+      const result = await claimShopDelivery(
+        {
+          id: order.id,
+          code: order.order_code,
+          status: order.status,
+          merchantId: order.merchant_id,
+          customerId: order.customer_id,
+        },
+        req.driverId
+      );
+      if (!result.ok) {
+        await supabase.from('dispatch_offers').update({ status: 'cancelled' }).eq('id', offer.id);
+        return res.status(409).json({ error: 'This delivery was already taken' });
+      }
+      return res.json({ accepted: true, kind: 'shop', code: order.order_code });
     }
 
     const result = await claimRide(offer.booking_id, req.driverId);
@@ -252,7 +343,7 @@ async function declineOffer(req, res) {
       .eq('id', req.params.id)
       .eq('driver_id', req.driverId)
       .eq('status', 'pending')
-      .select('id, order_id, booking_id');
+      .select('id, order_id, booking_id, shop_order_id');
     if (error) {
       console.error('declineOffer error:', error);
       return res.status(500).json({ error: 'Unexpected server error' });
@@ -262,10 +353,17 @@ async function declineOffer(req, res) {
     }
 
     // Cascade to the next-nearest driver right away.
+    //
+    // Resolving the target by kind matters more here than anywhere else: a
+    // shop offer used to fall through to loadRideTarget(null), which returns
+    // null, so offerNext did nothing. The offer was already flipped to
+    // 'declined', and the sweeper only revives 'pending' rows — so a single
+    // decline killed the cascade for that order permanently.
     const offer = declined[0];
-    const target = offer.order_id
-      ? await loadFoodTarget(offer.order_id)
-      : await loadRideTarget(offer.booking_id);
+    let target = null;
+    if (offer.order_id) target = await loadFoodTarget(offer.order_id);
+    else if (offer.shop_order_id) target = await loadShopTarget(offer.shop_order_id);
+    else target = await loadRideTarget(offer.booking_id);
     offerNext(target); // fire-and-forget; failures fall back to the sweeper
 
     return res.json({ declined: true });
@@ -319,23 +417,58 @@ function shapeDelivery(d) {
   };
 }
 
+// The shop equivalent of DELIVERY_SELECT. Same columns, different tables.
+//
+// Written out rather than derived from DELIVERY_SELECT by string replace:
+// the customer embed carries an explicit FOREIGN KEY hint
+// (profiles!<constraint>_customer_id_fkey), and that constraint name differs
+// per table. A naive replace of just "orders!inner" leaves the food FK name
+// behind and PostgREST rejects the whole query.
+const SHOP_DELIVERY_SELECT =
+  'id, status, delivered_at, pickup_photo_path, delivery_photo_path, ' +
+  'shop_orders!inner ( order_code, status, payment_status, payment_method, total, delivery_fee, ' +
+  'delivery_address, delivery_lat, delivery_lng, contact_phone, created_at, ' +
+  'merchants ( name, address, lat, lng ), ' +
+  'profiles!shop_orders_customer_id_fkey ( full_name, mobile_number, whatsapp_number ) )';
+
 async function listMyDeliveries(req, res) {
   try {
-    const { data, error } = await supabase
-      .from('deliveries')
-      .select(DELIVERY_SELECT)
-      .eq('driver_id', req.driverId)
-      .order('created_at', { ascending: false })
-      .limit(30);
-    if (error) {
-      console.error('listMyDeliveries error:', error);
+    // Both verticals in one feed. The rider works a single queue; which
+    // table a job came from is an implementation detail to them, so `kind`
+    // is the only thing that distinguishes the cards.
+    const [food, shop] = await Promise.all([
+      supabase
+        .from('deliveries')
+        .select(DELIVERY_SELECT)
+        .eq('driver_id', req.driverId)
+        .order('created_at', { ascending: false })
+        .limit(30),
+      supabase
+        .from('shop_deliveries')
+        .select(SHOP_DELIVERY_SELECT)
+        .eq('driver_id', req.driverId)
+        .order('created_at', { ascending: false })
+        .limit(30),
+    ]);
+    if (food.error) {
+      console.error('listMyDeliveries (food) error:', food.error);
       return res.status(500).json({ error: 'Unexpected server error' });
     }
-    const deliveries = (data || []).map(shapeDelivery);
+    // A shop failure must not blank out the rider's food queue — the shop
+    // tables may not exist yet on an environment that has not run 0026-0029.
+    if (shop.error) console.error('listMyDeliveries (shop) error:', shop.error);
+
+    const deliveries = [
+      ...(food.data || []).map((d) => ({ ...shapeDelivery(d), kind: 'food' })),
+      ...(shop.data || []).map((d) => ({ ...shapeDelivery({ ...d, orders: d.shop_orders }), kind: 'shop' })),
+    ].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+
     return res.json({
       deliveries,
       active: deliveries.filter(
-        (d) => RIDER_ACTIVE_ORDER_STATUSES.includes(d.orderStatus) && d.deliveryStatus !== 'delivered'
+        (d) =>
+          VERTICALS[d.kind].prePickupStatuses.concat('out_for_delivery').includes(d.orderStatus) &&
+          d.deliveryStatus !== 'delivered'
       ),
     });
   } catch (err) {
@@ -347,30 +480,51 @@ async function listMyDeliveries(req, res) {
 // Open pool: deliveries every driver may claim (cascade exhausted).
 async function listOpenDeliveries(req, res) {
   try {
-    // Drivers who turned Food delivery off see an empty pool (200, not 403 —
-    // the frontend polls this silently). Admin preview bypasses.
-    if (req.role !== 'admin' && !hasService(req.profile, 'food')) {
-      return res.json({ deliveries: [] });
-    }
+    // A rider sees only the pools they opted into. Turning a vertical off
+    // yields an empty list rather than a 403 — the frontend polls this
+    // silently. Admin preview bypasses both gates.
+    const isAdmin = req.role === 'admin';
+    const wantsFood = isAdmin || hasService(req.profile, 'food');
+    const wantsShop = isAdmin || hasService(req.profile, 'shop');
+    if (!wantsFood && !wantsShop) return res.json({ deliveries: [] });
 
     const lat = req.query.lat != null ? Number(req.query.lat) : null;
     const lng = req.query.lng != null ? Number(req.query.lng) : null;
     const here = lat != null && lng != null ? { lat, lng } : null;
 
-    const { data, error } = await supabase
-      .from('deliveries')
-      .select(DELIVERY_SELECT)
-      .eq('status', 'open')
-      .is('driver_id', null)
-      .in('orders.status', ['accepted', 'preparing', 'ready'])
-      .limit(50);
-    if (error) {
-      console.error('listOpenDeliveries error:', error);
+    const [food, shop] = await Promise.all([
+      wantsFood
+        ? supabase
+            .from('deliveries')
+            .select(DELIVERY_SELECT)
+            .eq('status', 'open')
+            .is('driver_id', null)
+            .in('orders.status', VERTICALS.food.prePickupStatuses)
+            .limit(50)
+        : Promise.resolve({ data: [] }),
+      wantsShop
+        ? supabase
+            .from('shop_deliveries')
+            .select(SHOP_DELIVERY_SELECT)
+            .eq('status', 'open')
+            .is('driver_id', null)
+            .in('shop_orders.status', VERTICALS.shop.prePickupStatuses)
+            .limit(50)
+        : Promise.resolve({ data: [] }),
+    ]);
+    if (food.error) {
+      console.error('listOpenDeliveries (food) error:', food.error);
       return res.status(500).json({ error: 'Unexpected server error' });
     }
+    if (shop.error) console.error('listOpenDeliveries (shop) error:', shop.error);
 
-    const deliveries = (data || []).map((d) => {
-      const shaped = shapeDelivery(d);
+    const rows = [
+      ...(food.data || []).map((d) => ({ row: d, kind: 'food' })),
+      ...(shop.data || []).map((d) => ({ row: { ...d, orders: d.shop_orders }, kind: 'shop' })),
+    ];
+
+    const deliveries = rows.map(({ row, kind }) => {
+      const shaped = { ...shapeDelivery(row), kind };
       const from = shaped.merchant && shaped.merchant.lat != null
         ? { lat: shaped.merchant.lat, lng: shaped.merchant.lng }
         : null;
@@ -396,23 +550,42 @@ async function listOpenDeliveries(req, res) {
 
 async function claimOpenDelivery(req, res) {
   try {
-    if (req.role !== 'admin' && !hasService(req.profile, 'food')) {
-      return res.status(403).json({ error: 'Enable Food delivery in your services to claim deliveries' });
+    const V = verticalForCode(req.params.code);
+    if (req.role !== 'admin' && !hasService(req.profile, V.service)) {
+      return res.status(403).json({
+        error: `Enable ${V.label} in your services to claim these deliveries`,
+      });
     }
 
     const { data: order } = await supabase
-      .from('orders')
+      .from(V.orderTable)
       .select('id, order_code, status, merchant_id, customer_id')
       .eq('order_code', req.params.code)
       .maybeSingle();
     if (!order) return res.status(404).json({ error: 'Delivery not found' });
 
-    const result = await claimFoodDelivery(
+    // The open POOL means status 'open'. Rows start life as 'searching'
+    // during the exclusive cascade, and the claim helpers match only on
+    // driver_id IS NULL — so without this a rider who knows an order code
+    // could take a job out from under whoever currently holds the offer.
+    // The filter cannot live in the helper: acceptOffer legitimately claims
+    // a 'searching' row.
+    const { data: deliveryRow } = await supabase
+      .from(V.deliveryTable)
+      .select('status')
+      .eq('order_id', order.id)
+      .maybeSingle();
+    if (!deliveryRow || deliveryRow.status !== 'open') {
+      return res.status(409).json({ error: 'This delivery is not in the open pool' });
+    }
+
+    const claim = V.key === 'shop' ? claimShopDelivery : claimFoodDelivery;
+    const result = await claim(
       { id: order.id, code: order.order_code, status: order.status, merchantId: order.merchant_id, customerId: order.customer_id },
       req.driverId
     );
     if (!result.ok) return res.status(409).json({ error: 'This delivery was already taken' });
-    return res.json({ accepted: true, code: order.order_code });
+    return res.json({ accepted: true, kind: V.key, code: order.order_code });
   } catch (err) {
     console.error('claimOpenDelivery error:', err);
     return res.status(500).json({ error: 'Unexpected server error' });
@@ -426,26 +599,27 @@ async function claimOpenDelivery(req, res) {
 // the rider, so a support/admin path must handle it.
 async function cancelDelivery(req, res) {
   try {
+    const V = verticalForCode(req.params.code);
     const { data: order } = await supabase
-      .from('orders')
+      .from(V.orderTable)
       .select('id, order_code, status')
       .eq('order_code', req.params.code)
       .maybeSingle();
     if (!order) return res.status(404).json({ error: 'Delivery not found' });
 
     const { data: delivery } = await supabase
-      .from('deliveries')
+      .from(V.deliveryTable)
       .select('id, driver_id, status')
       .eq('order_id', order.id)
       .maybeSingle();
     if (!delivery || delivery.driver_id !== req.driverId) {
       return res.status(403).json({ error: 'This delivery is not assigned to you' });
     }
-    if (delivery.status !== 'assigned' || !['accepted', 'preparing', 'ready'].includes(order.status)) {
+    if (delivery.status !== 'assigned' || !V.prePickupStatuses.includes(order.status)) {
       return res.status(409).json({ error: 'You can only cancel before you pick up the order' });
     }
 
-    const released = await releaseFoodDelivery(order.id, {
+    const released = await V.release(order.id, {
       previousDriverId: req.driverId,
       reason: req.body.reason || null,
       cause: 'cancelled',
@@ -503,20 +677,70 @@ async function cancelRide(req, res) {
 //              "on the way"                     (order: out_for_delivery)
 // delivered -> photo of the handover at the door (order: delivered; a cash
 //              order records the collected payment here)
+// Everything that differs between a food delivery and a shop delivery, in
+// one place. The rider-side flow is otherwise identical: exclusive offer,
+// claim, photo at pickup, photo at handover, cash collected at the door.
+//
+// The vertical is resolved from the ORDER CODE PREFIX (FD- vs SH-), which is
+// the only thing the rider's URL carries. Codes are generated by
+// gen_order_code() / gen_shop_order_code() and are unique per table.
+const VERTICALS = {
+  food: {
+    key: 'food',
+    orderTable: 'orders',
+    deliveryTable: 'deliveries',
+    service: 'food',
+    label: 'Food delivery',
+    pickupLabel: 'restaurant',
+    // Order statuses from which a rider may still mark picked_up.
+    prePickupStatuses: ['accepted', 'preparing', 'ready'],
+    auditResource: 'order',
+    notify: {
+      picked_up: 'food_order_out_for_delivery',
+      delivered: 'food_order_delivered',
+      thanks: 'food_thank_you',
+    },
+    pushStatus: (...a) => pushFoodOrderStatus(...a),
+    pingAdmin: (...a) => pingFoodAdmin(...a),
+    release: (...a) => releaseFoodDelivery(...a),
+    markPaid: (order, opts) => require('./food/ordersController').markOrderPaid(order, opts),
+  },
+  shop: {
+    key: 'shop',
+    orderTable: 'shop_orders',
+    deliveryTable: 'shop_deliveries',
+    service: 'shop',
+    label: 'Store delivery',
+    pickupLabel: 'store',
+    // 'packing' replaces food's 'preparing'.
+    prePickupStatuses: ['accepted', 'packing', 'ready'],
+    auditResource: 'shop_order',
+    notify: {
+      picked_up: 'shop_order_out_for_delivery',
+      delivered: 'shop_order_delivered',
+      thanks: null, // shop_order_delivered already carries the thank-you
+    },
+    pushStatus: (...a) => pushShopOrderStatus(...a),
+    pingAdmin: (...a) => pingShopAdmin(...a),
+    release: (...a) => releaseShopDelivery(...a),
+    markPaid: (order, opts) => require('./shop/ordersController').markShopOrderPaid(order, opts),
+  },
+};
+
+function verticalForCode(code) {
+  return String(code || '').toUpperCase().startsWith('SH-') ? VERTICALS.shop : VERTICALS.food;
+}
+
 const DELIVERY_FLOW = {
   picked_up: {
     orderStatus: 'out_for_delivery',
-    fromOrderStatuses: ['accepted', 'preparing', 'ready'],
     deliveryStatus: 'picked_up',
     photoColumn: 'pickup_photo_path',
-    notify: 'food_order_out_for_delivery',
   },
   delivered: {
     orderStatus: 'delivered',
-    fromOrderStatuses: ['out_for_delivery'],
     deliveryStatus: 'delivered',
     photoColumn: 'delivery_photo_path',
-    notify: 'food_order_delivered',
   },
 };
 
@@ -532,15 +756,16 @@ async function createDeliveryPhotoUrl(req, res) {
       });
     }
 
+    const V = verticalForCode(req.params.code);
     const { data: order } = await supabase
-      .from('orders')
+      .from(V.orderTable)
       .select('id, order_code')
       .eq('order_code', req.params.code)
       .maybeSingle();
     if (!order) return res.status(404).json({ error: 'Delivery not found' });
 
     const { data: delivery } = await supabase
-      .from('deliveries')
+      .from(V.deliveryTable)
       .select('driver_id')
       .eq('order_id', order.id)
       .maybeSingle();
@@ -572,17 +797,41 @@ async function updateDeliveryStatus(req, res) {
       });
     }
     // No photo, no status change — the proof is the whole point.
+    const V = verticalForCode(req.params.code);
     const photoPath = req.body.photo_path;
-    if (!photoPath || !String(photoPath).startsWith(`${req.params.code}/`)) {
+    // Also rejects traversal: the key must sit directly under this order's
+    // own folder, with no path segments of the caller's choosing.
+    const pathOk =
+      photoPath &&
+      String(photoPath).startsWith(`${req.params.code}/`) &&
+      !String(photoPath).includes('..') &&
+      String(photoPath).split('/').length === 2;
+    if (!pathOk) {
       return res.status(400).json({
         error: req.body.status === 'picked_up'
-          ? 'Take a photo of the order at the restaurant first'
+          ? `Take a photo of the order at the ${V.pickupLabel} first`
           : 'Take a photo of the delivered order first',
       });
     }
 
+    // The shape check above proves the KEY is well-formed. It does not prove
+    // anything was ever uploaded — a rider could post a made-up filename and
+    // the order would advance with the store's dashboard showing a photo that
+    // resolves to nothing. "Mandatory photo proof" has to mean the object
+    // exists, so confirm it does before moving any money or status.
+    const fileName = String(photoPath).split('/')[1];
+    const { data: uploaded } = await supabase.storage
+      .from(config.proofs.bucket)
+      .list(req.params.code, { search: fileName, limit: 1 });
+    if (!uploaded || uploaded.length === 0) {
+      return res.status(400).json({
+        error: 'The photo did not finish uploading — please try again.',
+        failure_reason: 'photo_missing',
+      });
+    }
+
     const { data: order } = await supabase
-      .from('orders')
+      .from(V.orderTable)
       .select(
         'id, order_code, status, merchant_id, customer_id, total, payment_status, payment_method, ' +
           'delivery_lat, delivery_lng, merchants ( lat, lng )'
@@ -592,14 +841,16 @@ async function updateDeliveryStatus(req, res) {
     if (!order) return res.status(404).json({ error: 'Delivery not found' });
 
     const { data: delivery } = await supabase
-      .from('deliveries')
+      .from(V.deliveryTable)
       .select('id, driver_id')
       .eq('order_id', order.id)
       .maybeSingle();
     if (!delivery || delivery.driver_id !== req.driverId) {
       return res.status(403).json({ error: 'This delivery is not assigned to you' });
     }
-    if (!flow.fromOrderStatuses.includes(order.status)) {
+    const fromStatuses =
+      req.body.status === 'picked_up' ? V.prePickupStatuses : ['out_for_delivery'];
+    if (!fromStatuses.includes(order.status)) {
       return res.status(409).json({ error: `Cannot mark ${req.body.status} from "${order.status}"` });
     }
 
@@ -620,7 +871,7 @@ async function updateDeliveryStatus(req, res) {
     const patch = { status: flow.orderStatus };
     if (flow.orderStatus === 'delivered') patch.delivered_at = nowIso;
     const { data: rows, error } = await supabase
-      .from('orders')
+      .from(V.orderTable)
       .update(patch)
       .eq('id', order.id)
       .eq('status', order.status)
@@ -630,7 +881,7 @@ async function updateDeliveryStatus(req, res) {
     }
 
     await supabase
-      .from('deliveries')
+      .from(V.deliveryTable)
       .update({
         status: flow.deliveryStatus,
         [flow.photoColumn]: photoPath,
@@ -644,30 +895,31 @@ async function updateDeliveryStatus(req, res) {
     if (
       flow.orderStatus === 'delivered' &&
       order.payment_method === 'cash' &&
-      order.payment_status !== 'paid'
+      // 'awaiting', not '!== paid': the latter also matches 'refunded', and
+      // the cash-once unique index is partial on status='paid', so a refunded
+      // order would accept a second cash row and flip back to paid.
+      order.payment_status === 'awaiting'
     ) {
-      const { markOrderPaid } = require('./food/ordersController');
-      await markOrderPaid(order, {
-        provider: 'cash',
-        raw: { cash_collected_by: req.driverId },
-        actorId: req.driverId,
-      });
+      await V.markPaid(
+        { ...order, status: flow.orderStatus },
+        { provider: 'cash', raw: { cash_collected_by: req.driverId }, actorId: req.driverId }
+      );
     }
 
     logAudit({
       actorId: req.driverId,
-      action: `driver_delivery_${req.body.status}`,
-      resourceType: 'order',
+      action: `driver_${V.key}_delivery_${req.body.status}`,
+      resourceType: V.auditResource,
       resourceId: order.order_code,
       meta: { photo_path: photoPath },
     });
-    pushFoodOrderStatus(order.order_code, { status: flow.orderStatus });
+    V.pushStatus(order.order_code, { status: flow.orderStatus });
     pushMerchantFeed(order.merchant_id, 'order_update', { orderCode: order.order_code, status: flow.orderStatus });
-    pingFoodAdmin(order.order_code);
-    logNotification({ userId: order.customer_id, type: flow.notify, code: order.order_code });
+    V.pingAdmin(order.order_code);
+    logNotification({ userId: order.customer_id, type: V.notify[req.body.status], code: order.order_code });
     // A warm Thank You once the order is safely delivered (spec section 5).
-    if (flow.orderStatus === 'delivered') {
-      logNotification({ userId: order.customer_id, type: 'food_thank_you', code: order.order_code });
+    if (flow.orderStatus === 'delivered' && V.notify.thanks) {
+      logNotification({ userId: order.customer_id, type: V.notify.thanks, code: order.order_code });
     }
 
     return res.json({ orderCode: order.order_code, status: flow.orderStatus });

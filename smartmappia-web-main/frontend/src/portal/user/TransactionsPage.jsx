@@ -88,7 +88,9 @@ export default function TransactionsPage() {
         title: b.trip_type === 'airport_to_house' ? 'Airport → Home transfer' : 'Home → Airport transfer',
         code: b.booking_code,
         date: b.pickup_datetime || b.created_at,
-        amount: b.fare_amount,
+        // What the passenger actually paid (fare + VAT); pre-0025 bookings
+        // have no total_amount and fall back to the bare fare.
+        amount: b.total_amount ?? b.fare_amount,
         currency: b.currency || 'SAR',
         statusLabel: s.label,
         statusTone: s.tone,

@@ -199,4 +199,200 @@ router.post('/food/orders/:code/refund', food.refundPayment);
 // Rider proof photos (mandatory pickup + delivery shots) — signed URLs.
 router.get('/food/orders/:code/photos', food.getOrderPhotos);
 
+// =====================================================================
+// Ecommerce (shop). Mirrors the /food block above.
+//
+// The whole router is already behind requireAdmin, so nothing below
+// re-checks the role. This is the ONLY place net_price is writable — the
+// store portal's schemas reject it and migration 0030 revoked the direct
+// PostgREST write path, so admin is the single writer by design.
+// =====================================================================
+const shop = require('../controllers/shop/adminShopController');
+
+router.get('/shop/overview', shop.getOverview);
+
+// --- Stores ---
+router.get('/shop/stores', shop.listStores);
+router.post(
+  '/shop/stores',
+  validateBody({
+    name: { type: 'string', required: true, maxLength: 160 },
+    cuisine_type: { type: 'string', maxLength: 80, nullable: true },
+    description: { type: 'string', maxLength: 2000, nullable: true },
+    logo_url: { type: 'string', maxLength: 500, nullable: true },
+    address: { type: 'string', maxLength: 500, nullable: true },
+    lat: { type: 'number', min: -90, max: 90, nullable: true },
+    lng: { type: 'number', min: -180, max: 180, nullable: true },
+    is_active: { type: 'boolean' },
+    is_featured: { type: 'boolean' },
+    badge: { type: 'string', maxLength: 40, nullable: true },
+    credit_limit: { type: 'number', min: 0, max: 1000000 },
+    // `vertical` is deliberately absent: the controller pins it to 'shop'
+    // so this endpoint can never mint a restaurant.
+  }),
+  shop.createStore
+);
+router.patch(
+  '/shop/stores/:id',
+  validateBody({
+    name: { type: 'string', maxLength: 160 },
+    cuisine_type: { type: 'string', maxLength: 80, nullable: true },
+    description: { type: 'string', maxLength: 2000, nullable: true },
+    logo_url: { type: 'string', maxLength: 500, nullable: true },
+    address: { type: 'string', maxLength: 500, nullable: true },
+    lat: { type: 'number', min: -90, max: 90, nullable: true },
+    lng: { type: 'number', min: -180, max: 180, nullable: true },
+    is_active: { type: 'boolean' },
+    is_featured: { type: 'boolean' },
+    badge: { type: 'string', maxLength: 40, nullable: true },
+    credit_limit: { type: 'number', min: 0, max: 1000000 },
+  }),
+  shop.updateStore
+);
+router.delete('/shop/stores/:id', shop.deleteStore);
+router.post(
+  '/shop/stores/:id/suspend',
+  validateBody({ reason: { type: 'string', maxLength: 300, nullable: true } }),
+  shop.suspendStore
+);
+router.post('/shop/stores/:id/reactivate', shop.reactivateStore);
+router.post(
+  '/shop/stores/:id/credit',
+  validateBody({
+    amount: { type: 'number', required: true, min: 0, max: 1000000 },
+    note: { type: 'string', maxLength: 300, nullable: true },
+  }),
+  shop.replenishCredit
+);
+router.post(
+  '/shop/stores/:id/image/signed-url',
+  validateBody({
+    kind: { type: 'string', enum: ['logo', 'item'] },
+    file_name: { type: 'string', maxLength: 255 },
+    mime_type: { type: 'string', maxLength: 100 },
+  }),
+  shop.createStoreImageUploadUrl
+);
+router.post(
+  '/shop/stores/:id/owner',
+  validateBody({
+    email: { type: 'string', required: true, maxLength: 200 },
+    full_name: { type: 'string', maxLength: 160, nullable: true },
+    phone: { type: 'string', maxLength: 40, nullable: true },
+  }),
+  shop.setStoreOwner
+);
+
+// --- Catalogue (net_price lives here) ---
+router.get('/shop/stores/:id/catalogue', shop.getStoreCatalogue);
+router.post(
+  '/shop/stores/:id/categories',
+  validateBody({
+    name: { type: 'string', required: true, maxLength: 120 },
+    sort_order: { type: 'integer', min: 0, max: 9999 },
+    is_active: { type: 'boolean' },
+  }),
+  shop.addCategory
+);
+router.patch(
+  '/shop/categories/:id',
+  validateBody({
+    name: { type: 'string', maxLength: 120 },
+    sort_order: { type: 'integer', min: 0, max: 9999 },
+    is_active: { type: 'boolean' },
+  }),
+  shop.updateCategory
+);
+router.delete('/shop/categories/:id', shop.deleteCategory);
+
+const ADMIN_PRODUCT_FIELDS = {
+  category_id: { type: 'string', maxLength: 60, nullable: true },
+  name: { type: 'string', maxLength: 200 },
+  description: { type: 'string', maxLength: 2000, nullable: true },
+  brand: { type: 'string', maxLength: 120, nullable: true },
+  unit: { type: 'string', maxLength: 60, nullable: true },
+  weight_grams: { type: 'integer', min: 0, max: 1000000, nullable: true },
+  barcode: { type: 'string', maxLength: 64, nullable: true },
+  price: { type: 'number', min: 0.01, max: 1000000 },
+  // THE markup control. Admin-only, everywhere.
+  net_price: { type: 'number', min: 0.01, max: 1000000, nullable: true },
+  image_url: { type: 'string', maxLength: 500, nullable: true },
+  stock_quantity: { type: 'integer', min: 0, max: 1000000 },
+  low_stock_threshold: { type: 'integer', min: 0, max: 100000 },
+  track_stock: { type: 'boolean' },
+  is_available: { type: 'boolean' },
+};
+router.post(
+  '/shop/stores/:id/products',
+  validateBody({
+    ...ADMIN_PRODUCT_FIELDS,
+    name: { ...ADMIN_PRODUCT_FIELDS.name, required: true },
+    price: { ...ADMIN_PRODUCT_FIELDS.price, required: true },
+  }),
+  shop.addProduct
+);
+router.patch('/shop/products/:id', validateBody(ADMIN_PRODUCT_FIELDS), shop.updateProduct);
+router.delete('/shop/products/:id', shop.deleteProduct);
+
+const ADMIN_VARIANT_FIELDS = {
+  sku: { type: 'string', maxLength: 64, nullable: true },
+  label: { type: 'string', maxLength: 120 },
+  price: { type: 'number', min: 0.01, max: 1000000, nullable: true },
+  net_price: { type: 'number', min: 0.01, max: 1000000, nullable: true },
+  stock_quantity: { type: 'integer', min: 0, max: 1000000 },
+  sort_order: { type: 'integer', min: 0, max: 9999 },
+  is_available: { type: 'boolean' },
+};
+router.post(
+  '/shop/products/:id/variants',
+  validateBody({ ...ADMIN_VARIANT_FIELDS, label: { ...ADMIN_VARIANT_FIELDS.label, required: true } }),
+  shop.upsertVariant
+);
+router.patch('/shop/products/:id/variants/:variantId', validateBody(ADMIN_VARIANT_FIELDS), shop.upsertVariant);
+router.delete('/shop/products/:id/variants/:variantId', shop.deleteVariant);
+router.get('/shop/inventory', shop.getInventory);
+
+// --- Orders (admin gets the FULL status ladder as a support fallback) ---
+router.get('/shop/orders', shop.listOrders);
+router.post('/shop/orders/:code/accept', shop.acceptOrder);
+router.post(
+  '/shop/orders/:code/reject',
+  validateBody({ reason: { type: 'string', maxLength: 300, nullable: true } }),
+  shop.rejectOrder
+);
+router.patch(
+  '/shop/orders/:code/status',
+  validateBody({
+    status: {
+      type: 'string',
+      required: true,
+      enum: ['packing', 'ready', 'out_for_delivery', 'delivered'],
+    },
+  }),
+  shop.advanceOrderStatus
+);
+router.post(
+  '/shop/orders/:code/verify-payment',
+  validateBody({ reference: { type: 'string', maxLength: 120, nullable: true } }),
+  shop.verifyPayment
+);
+router.post(
+  '/shop/orders/:code/reject-payment',
+  validateBody({ reason: { type: 'string', maxLength: 300, nullable: true } }),
+  shop.rejectPayment
+);
+router.post('/shop/orders/:code/refund', shop.refundPayment);
+router.post(
+  '/shop/orders/:code/cancel',
+  validateBody({ reason: { type: 'string', maxLength: 300, nullable: true } }),
+  shop.cancelOrder
+);
+router.post(
+  '/shop/orders/:code/assign-driver',
+  validateBody({ driver_id: { type: 'string', required: true, maxLength: 60 } }),
+  shop.assignDriver
+);
+router.get('/shop/orders/:code/photos', shop.getOrderPhotos);
+router.get('/shop/settlement', shop.getSettlement);
+
 module.exports = router;

@@ -33,7 +33,7 @@ const PAYABLE_STATUSES = ['awaiting', 'failed'];
 
 const ORDER_SELECT =
   'id, order_code, customer_id, merchant_id, status, subtotal, delivery_fee, ' +
-  'platform_margin_total, total, distance_km, delivery_address, delivery_lat, delivery_lng, ' +
+  'platform_margin_total, vat_amount, vat_rate, total, distance_km, delivery_address, delivery_lat, delivery_lng, ' +
   'contact_phone, payment_status, payment_method, created_at, accepted_at, ready_at, delivered_at, reject_reason';
 
 // Statuses during which the customer may still edit their contact number.
@@ -71,14 +71,18 @@ async function checkout(req, res) {
     // 1. The restaurant must exist and be open for business.
     const { data: merchant, error: mErr } = await supabase
       .from('merchants')
-      .select('id, name, is_active, status, lat, lng, service_radius_km, owner_id')
+      .select('id, name, vertical, is_active, status, lat, lng, service_radius_km, owner_id')
       .eq('id', b.merchant_id)
       .maybeSingle();
     if (mErr) {
       console.error('checkout merchant load error:', mErr);
       return res.status(500).json({ error: 'Could not load the restaurant' });
     }
-    if (!merchant || !merchant.is_active || merchant.status !== 'active') {
+    // merchants is shared with the Ecommerce vertical (0026). Without the
+    // vertical check a caller could pass a STORE id to food checkout: the
+    // cart lookup would find nothing and it would fail as "empty cart", but
+    // the failure would be confusing rather than correct.
+    if (!merchant || merchant.vertical !== 'food' || !merchant.is_active || merchant.status !== 'active') {
       return res.status(409).json({
         error: 'This restaurant is not accepting orders right now',
         failure_reason: 'restaurant_unavailable',
@@ -188,6 +192,10 @@ async function checkout(req, res) {
         subtotal: priced.subtotal,
         delivery_fee: priced.deliveryFee,
         platform_margin_total: priced.marginTotal,
+        // VAT snapshot (migration 0025): the rate is stored alongside the
+        // amount so a reprinted receipt shows what was actually charged.
+        vat_amount: priced.vatAmount,
+        vat_rate: priced.vatRate,
         total: priced.total,
         distance_km: distanceKm != null ? Math.round(distanceKm * 100) / 100 : null,
         delivery_address: b.delivery_address,

@@ -21,7 +21,10 @@ const merchantRoutes = require('./routes/merchant');
 const notificationRoutes = require('./routes/notifications');
 const routeRoutes = require('./routes/route');
 const foodRoutes = require('./routes/food');
+const shopRoutes = require('./routes/shop');
+const merchantShopRoutes = require('./routes/merchantShop');
 const locationRoutes = require('./routes/locations');
+const { config } = require('./lib/config');
 
 const app = express();
 
@@ -88,6 +91,24 @@ app.use('/api/bookings', bookingRoutes);
 app.use('/api/tracking', trackingRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/driver', driverRoutes);
+// --- Ecommerce, feature-flagged OFF by default (config.shop.enabled) ---
+// Mounted BEFORE /api/merchant on purpose: Express matches prefixes in order,
+// and routes/merchant.js applies requireMerchant with router.use(), so a
+// /api/merchant/shop/* request hitting it first would be authenticated twice.
+//
+// The gate exists because the vertical is not finished end to end. With it on
+// before every half is built, a customer can pay for an order nobody can
+// fulfil — and because stock is reserved at checkout, that order also holds
+// inventory with no manual release path.
+if (config.shop.enabled) {
+  app.use('/api/shop', shopRoutes);
+  app.use('/api/merchant/shop', merchantShopRoutes);
+  console.log('Ecommerce (shop) routes ENABLED.');
+} else {
+  const shopClosed = (req, res) => res.status(503).json({ error: 'The shop is not open yet.' });
+  app.use('/api/shop', shopClosed);
+  app.use('/api/merchant/shop', shopClosed);
+}
 app.use('/api/merchant', merchantRoutes);
 app.use('/api/notifications', notificationRoutes);
 app.use('/api/route', routeRoutes);

@@ -22,6 +22,7 @@
 // actually generated.
 // ---------------------------------------------------------------------
 import { COMPANY } from '../../config/company';
+import { vatLabel } from './constants';
 
 const ORANGE = '#FF7E21';
 const DARK = '#1F2937';
@@ -338,8 +339,12 @@ export function downloadFoodInvoice({ order, items, merchant, customerName, driv
     })),
     totals: [
       { label: 'Subtotal', amount: order.subtotal },
-      { label: 'Delivery fee', amount: order.delivery_fee },
+      { label: 'Delivery charge', amount: order.delivery_fee },
       ...(discount > 0 ? [{ label: 'Discount', amount: discount, accent: true }] : []),
+      // Pre-0025 orders carry no VAT — omit the line rather than print 0.00.
+      ...(Number(order.vat_amount) > 0
+        ? [{ label: vatLabel(order.vat_rate), amount: order.vat_amount }]
+        : []),
     ],
     grandTotal: order.total,
     paymentStatus: order.payment_status,
@@ -370,8 +375,14 @@ export function downloadRideInvoice({ booking, customerName, driverName }) {
       { label: `Drop-off: ${booking.dropoff_address || '—'}` },
       { label: 'Airport transfer fare', quantity: 1, unitPrice: booking.fare_amount, amount: booking.fare_amount },
     ],
-    totals: [{ label: 'Fare', amount: booking.fare_amount }],
-    grandTotal: booking.fare_amount,
+    totals: [
+      { label: 'Fare', amount: booking.fare_amount },
+      // Pre-0025 bookings carry no VAT — omit the line rather than print 0.00.
+      ...(Number(booking.vat_amount) > 0
+        ? [{ label: vatLabel(booking.vat_rate), amount: booking.vat_amount }]
+        : []),
+    ],
+    grandTotal: booking.total_amount ?? booking.fare_amount,
     currency,
     paymentStatus: booking.payment_status,
     paymentMethod: booking.payment_method || 'STC Pay',

@@ -10,6 +10,7 @@ import { useNavigate } from 'react-router-dom';
 import { supabase } from './supabaseClient';
 import { api } from './api';
 import { ensureLocationPermission } from './geo';
+import { setDiagnosticsAudience } from './notify';
 import { unregisterCurrentWebPush } from './pushNotifications';
 
 const AuthCtx = createContext(null);
@@ -72,11 +73,14 @@ export function AuthProvider({ children }) {
         // Proactively ask for location once, right after sign-in — only for the
         // roles that actually use it (passengers + drivers), never admin/merchant.
         const role = p?.role;
+        // Only admins may see diagnostic detail in error popups (notify.js).
+        setDiagnosticsAudience(role);
         if (role && role !== 'admin' && role !== 'merchant') ensureLocationPermission();
       });
     } else if (!uid) {
       syncedFor.current = null;
       setProfile(null);
+      setDiagnosticsAudience(null); // signed out: back to the safe default
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session?.user?.id]);

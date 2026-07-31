@@ -108,6 +108,14 @@ const config = {
     cashOwedAlertPct: toNumber(process.env.DRIVER_CASH_ALERT_PCT, 0.8),
   },
 
+  // KSA VAT. Charged ON TOP of the pre-tax amounts on both services and
+  // snapshotted onto every order/booking (migration 0025), so changing the
+  // rate here never rewrites the tax on money already taken. Rate is a
+  // fraction: 0.15 = 15%.
+  vat: {
+    rate: toNumber(process.env.VAT_RATE, 0.15),
+  },
+
   // Food Delivery business rules (docs/food-delivery/FOOD_DELIVERY_PRD.md §7).
   // These are HARD rules enforced server-side in lib/foodMoney.js and the
   // merchant accept flow — never trust client-sent money.
@@ -122,6 +130,51 @@ const config = {
     },
     merchantCreditLimit: toNumber(process.env.MERCHANT_CREDIT_LIMIT, 300),
     creditAlertPct: toNumber(process.env.CREDIT_ALERT_PCT, 0.8), // 80% => 240 SAR
+  },
+
+  // Ecommerce ("shop") business rules — docs/archive/ecommerce/ECOMMERCE_PLAN.md §2.
+  // Same shape and same HARD-rule discipline as food above: enforced server-side
+  // in lib/shopMoney.js and the store accept flow, never trusted from a client.
+  //
+  // The credit limit and the 80% alert are deliberately NOT duplicated here —
+  // there is ONE credit model on the platform and both verticals charge the
+  // same merchants.credit_limit / credit_used columns. Read them from
+  // config.food.merchantCreditLimit / config.food.creditAlertPct.
+  shop: {
+    // Master switch for the whole vertical, DEFAULTING TO OFF.
+    //
+    // The customer half (browse, cart, checkout, pay) is built; the store,
+    // admin and rider halves are not. With this on and those missing, a
+    // real customer can pay for an order that nobody can accept, pack or
+    // deliver — and because stock is reserved at checkout, that order also
+    // holds inventory with no manual release path. Turn it on only once
+    // the merchant portal, the admin queue and the rider claim endpoints
+    // exist. Ungated routes are how a half-built vertical takes real money.
+    enabled: toBool(process.env.SHOP_ENABLED, false),
+    minOrderSar: toNumber(process.env.SHOP_MIN_ORDER, 50),
+    deliveryFeeSar: toNumber(process.env.SHOP_DELIVERY_FEE, 15),
+    radiusKm: toNumber(process.env.SHOP_RADIUS_KM, 15),
+    // Fallback markup per unit when a product has no net_price. Food splits
+    // this by item_type; retail has no equivalent axis, so it is one number.
+    defaultMargin: toNumber(process.env.SHOP_DEFAULT_MARGIN, 5),
+    // Default "running low" line for new products. Keep in sync with the
+    // products.low_stock_threshold column default in migration 0026.
+    lowStockThreshold: toNumber(process.env.SHOP_LOW_STOCK, 5),
+    // Stock is reserved at CHECKOUT, before payment, so an unpaid order
+    // holds inventory. Without expiry that is a denial-of-inventory vector:
+    // place large unpaid orders and freeze a store's catalogue at zero.
+    // The sweeper cancels unpaid orders older than this and puts the stock
+    // back. Cash is NOT exempt while still pending — payment_method is a free
+    // client choice at checkout, so exempting it left no expiry at all. Must stay comfortably longer than the STC Pay manual
+    // verification turnaround or genuine customers lose their basket while
+    // an admin is still reviewing the proof.
+    orderExpiryMinutes: toNumber(process.env.SHOP_ORDER_EXPIRY_MINUTES, 30),
+    // A store may accept before an STC Pay proof is verified, which is
+    // legitimate. But an accepted-and-never-paid order is no longer 'pending',
+    // so the window above never reaches it and its stock stays reserved
+    // forever. Longer, so a genuine proof still has time to be reviewed.
+    acceptedExpiryMinutes: toNumber(process.env.SHOP_ACCEPTED_EXPIRY_MINUTES, 180),
+    staleSweepMs: toNumber(process.env.SHOP_STALE_SWEEP_MS, 60000),
   },
 
   // Grab-style dispatch (shared by Pick & Drop rides and food deliveries):

@@ -56,7 +56,12 @@ async function createBooking(req, res) {
     const isCash = paymentMethod === 'cash';
 
     // --- fare snapshot (computed once, never recalculated) ---
-    const { amount, currency } = quoteFare({ routeType: b.route_type });
+    // `amount` is the EX-VAT fare and stays the driver-commission base
+    // (lib/ledger.js); VAT rides alongside it and totalAmount is what the
+    // passenger actually pays. See migration 0025.
+    const { amount, currency, vatAmount, vatRate, totalAmount } = quoteFare({
+      routeType: b.route_type,
+    });
 
     // --- insert the booking (tied to the signed-in passenger) ---
     const { data: booking, error } = await supabase
@@ -80,6 +85,9 @@ async function createBooking(req, res) {
         passenger_whatsapp: b.passenger_whatsapp,
         passenger_email: b.passenger_email ?? null,
         fare_amount: amount,
+        vat_amount: vatAmount,
+        vat_rate: vatRate,
+        total_amount: totalAmount,
         currency,
         payment_method: paymentMethod,
         // Cash needs no proof upload: the booking is confirmed right away
@@ -91,7 +99,8 @@ async function createBooking(req, res) {
         // come from database defaults.
       })
       .select(
-        'id, booking_code, fare_amount, currency, booking_status, payment_status, payment_method'
+        'id, booking_code, fare_amount, vat_amount, vat_rate, total_amount, currency, ' +
+          'booking_status, payment_status, payment_method'
       )
       .single();
 
@@ -142,6 +151,10 @@ async function createBooking(req, res) {
     return res.status(201).json({
       bookingCode: booking.booking_code,
       fareAmount: booking.fare_amount,
+      vatAmount: booking.vat_amount,
+      vatRate: booking.vat_rate,
+      // What the passenger actually pays (fare + VAT).
+      totalAmount: booking.total_amount,
       currency: booking.currency,
       bookingStatus: booking.booking_status,
       paymentStatus: booking.payment_status,
@@ -165,8 +178,8 @@ async function listMyBookings(req, res) {
       .from('bookings')
       .select(
         'booking_code, trip_type, airport_terminal, pickup_address, dropoff_address, ' +
-          'pickup_datetime, fare_amount, currency, payment_status, payment_method, ' +
-          'booking_status, driver_ride_status, created_at'
+          'pickup_datetime, fare_amount, vat_amount, vat_rate, total_amount, currency, ' +
+          'payment_status, payment_method, booking_status, driver_ride_status, created_at'
       )
       .eq('user_id', req.userId)
       .order('created_at', { ascending: false })
@@ -189,7 +202,8 @@ async function getBookingByCode(req, res) {
       .from('bookings')
       .select(
         'booking_code, trip_type, airport_terminal, pickup_address, dropoff_address, ' +
-          'pickup_datetime, fare_amount, currency, payment_status, booking_status'
+          'pickup_datetime, fare_amount, vat_amount, vat_rate, total_amount, currency, ' +
+          'payment_status, booking_status'
       )
       .eq('booking_code', bookingCode)
       .single();

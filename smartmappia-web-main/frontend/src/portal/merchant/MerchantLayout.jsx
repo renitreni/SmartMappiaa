@@ -8,6 +8,8 @@ import {
   UtensilsCrossed,
   LayoutList,
   Store,
+  Package,
+  Boxes,
   LogOut,
   Menu,
   X,
@@ -21,6 +23,18 @@ export const MERCHANT_NAV = [
   { id: 'orders', label: 'Orders', icon: ClipboardList },
   { id: 'menu', label: 'Menu', icon: UtensilsCrossed },
   { id: 'categories', label: 'Categories', icon: LayoutList },
+  { id: 'business', label: 'Business', icon: Store },
+];
+
+// The store (ecommerce) nav. Same shell, different tabs: a store manages
+// products rather than a menu, and gets an Inventory tab because it tracks
+// stock counts — something the food vertical has no concept of.
+export const SHOP_NAV = [
+  { id: 'overview', label: 'Overview', icon: LayoutDashboard },
+  { id: 'orders', label: 'Orders', icon: ClipboardList },
+  { id: 'products', label: 'Products', icon: Package },
+  { id: 'categories', label: 'Categories', icon: LayoutList },
+  { id: 'inventory', label: 'Inventory', icon: Boxes },
   { id: 'business', label: 'Business', icon: Store },
 ];
 
@@ -47,10 +61,42 @@ const PAGE_COPY = {
   },
 };
 
-export default function MerchantLayout({ activeTab, onTabChange, children }) {
+// Store wording. Only the entries that differ from PAGE_COPY are listed;
+// the rest fall through, so the two verticals cannot drift on shared tabs.
+const SHOP_PAGE_COPY = {
+  overview: {
+    title: 'Overview',
+    subtitle: 'Analytics and store performance at a glance.',
+  },
+  orders: {
+    title: 'Orders',
+    subtitle: 'Incoming orders, live — accept, pack, and hand off to your rider.',
+  },
+  products: {
+    title: 'Products',
+    subtitle: 'Add, edit, and manage your products, options and prices.',
+  },
+  categories: {
+    title: 'Categories',
+    subtitle: 'Organize your products into sections for customers.',
+  },
+  inventory: {
+    title: 'Inventory',
+    subtitle: 'Stock levels, low-stock warnings, and restocking.',
+  },
+  business: {
+    title: 'Business profile',
+    subtitle: 'Update your store details and location.',
+  },
+};
+
+export default function MerchantLayout({ activeTab, onTabChange, children, vertical = 'food' }) {
   const { user, signOut } = useAuth();
   const [mobileNav, setMobileNav] = useState(false);
-  const copy = PAGE_COPY[activeTab] || PAGE_COPY.overview;
+  const isShop = vertical === 'shop';
+  const navItems = isShop ? SHOP_NAV : MERCHANT_NAV;
+  const pageCopy = isShop ? { ...PAGE_COPY, ...SHOP_PAGE_COPY } : PAGE_COPY;
+  const copy = pageCopy[activeTab] || pageCopy.overview;
   const initial = (user?.email || 'B')[0].toUpperCase();
 
   function selectTab(id) {
@@ -100,7 +146,7 @@ export default function MerchantLayout({ activeTab, onTabChange, children }) {
                 Smart <span className="text-brand-orange">Mappia</span>
               </div>
               <div className="text-[10px] font-semibold text-white/40 uppercase tracking-[0.14em] mt-1">
-                Restaurant portal
+                {isShop ? 'Store portal' : 'Restaurant portal'}
               </div>
             </div>
           </Link>
@@ -111,7 +157,7 @@ export default function MerchantLayout({ activeTab, onTabChange, children }) {
             Navigation
           </p>
           <nav className="space-y-1">
-            {MERCHANT_NAV.map(({ id, label, icon }) => (
+            {navItems.map(({ id, label, icon }) => (
               <NavButton key={id} id={id} label={label} icon={icon} />
             ))}
           </nav>
@@ -165,7 +211,7 @@ export default function MerchantLayout({ activeTab, onTabChange, children }) {
           </div>
 
           <div className="lg:hidden flex gap-2 px-4 pb-3 overflow-x-auto">
-            {MERCHANT_NAV.map(({ id, label, icon: Icon }) => (
+            {navItems.map(({ id, label, icon: Icon }) => (
               <button
                 key={id}
                 type="button"
@@ -208,7 +254,7 @@ export default function MerchantLayout({ activeTab, onTabChange, children }) {
               </button>
             </div>
             <nav className="flex-1 p-3 space-y-1">
-              {MERCHANT_NAV.map(({ id, label, icon }) => (
+              {navItems.map(({ id, label, icon }) => (
                 <NavButton key={id} id={id} label={label} icon={icon} compact />
               ))}
             </nav>

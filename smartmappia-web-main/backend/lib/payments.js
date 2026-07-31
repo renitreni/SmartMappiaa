@@ -13,6 +13,7 @@
 const { supabase } = require('./supabase');
 const { addTrackingEvent } = require('./tracking');
 const { pushBookingStatus, pingAdmin } = require('./realtime');
+const { payableAmount } = require('./fare');
 
 // mode is a verification_mode enum value: 'test_auto' | 'admin_manual'.
 async function verifyBookingPayment({ booking, mode, adminId = null, proofId = null, manualReference = null }) {
@@ -23,7 +24,8 @@ async function verifyBookingPayment({ booking, mode, adminId = null, proofId = n
   const { error: payErr } = await supabase.from('payments').insert({
     booking_id: booking.id,
     provider: 'stcpay_manual',
-    amount: booking.fare_amount,
+    // Money actually received from the passenger = fare + VAT.
+    amount: payableAmount(booking),
     currency: booking.currency,
     status: 'verified',
     manual_reference: manualReference,

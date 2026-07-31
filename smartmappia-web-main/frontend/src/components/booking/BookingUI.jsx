@@ -1,6 +1,7 @@
 import { Home, Plane, ArrowRight, ArrowDown, CircleDot } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { openLegalModal } from '../../portal/lib/legal';
+import { vatLabel } from '../../portal/lib/constants';
 
 export function DirectionToggle({ value, onChange, variant = 'cards' }) {
   const options = [
@@ -143,8 +144,13 @@ export function TripRoutePreview({ direction, airportName, homeLabel = 'Your add
   );
 }
 
-export function FareSummary({ fare, showButton, buttonLabel, onButtonClick, busy, buttonDisabled, compact = false, hideServiceFee = false }) {
-  const displayTotal = hideServiceFee ? fare.base : fare.total;
+export function FareSummary({ fare, showButton, buttonLabel, onButtonClick, busy, buttonDisabled, compact = false }) {
+  // Every component of the price is itemised, so base + service fee + VAT always
+  // sums to the total on screen. There used to be a `hideServiceFee` option for
+  // the marketing section; it is gone on purpose — once VAT made the headline a
+  // true all-in figure, suppressing one line left the breakdown not adding up.
+  const displayTotal = fare.total;
+  const vatAmount = Number(fare.vatAmount) || 0;
 
   if (compact) {
     return (
@@ -153,10 +159,14 @@ export function FareSummary({ fare, showButton, buttonLabel, onButtonClick, busy
           <span>Base fare</span>
           <span>SAR {fare.base.toFixed(2)}</span>
         </div>
-        {!hideServiceFee && (
+        <div className="flex justify-between text-sm text-brand-grey">
+          <span>Service fee ({fare.serviceFeePercent}%)</span>
+          <span>SAR {fare.serviceFee.toFixed(2)}</span>
+        </div>
+        {vatAmount > 0 && (
           <div className="flex justify-between text-sm text-brand-grey">
-            <span>Service fee ({fare.serviceFeePercent}%)</span>
-            <span>SAR {fare.serviceFee.toFixed(2)}</span>
+            <span>{vatLabel(fare.vatRate)}</span>
+            <span>SAR {vatAmount.toFixed(2)}</span>
           </div>
         )}
         <div className="flex items-center justify-between pt-3 border-t border-brand-border gap-4">
@@ -193,10 +203,14 @@ export function FareSummary({ fare, showButton, buttonLabel, onButtonClick, busy
           <span className="text-brand-grey">Base fare</span>
           <span className="font-medium text-brand-dark">SAR {fare.base.toFixed(2)}</span>
         </div>
-        {!hideServiceFee && (
+        <div className="flex justify-between text-sm">
+          <span className="text-brand-grey">Service fee ({fare.serviceFeePercent}%)</span>
+          <span className="font-medium text-brand-dark">SAR {fare.serviceFee.toFixed(2)}</span>
+        </div>
+        {vatAmount > 0 && (
           <div className="flex justify-between text-sm">
-            <span className="text-brand-grey">Service fee ({fare.serviceFeePercent}%)</span>
-            <span className="font-medium text-brand-dark">SAR {fare.serviceFee.toFixed(2)}</span>
+            <span className="text-brand-grey">{vatLabel(fare.vatRate)}</span>
+            <span className="font-medium text-brand-dark">SAR {vatAmount.toFixed(2)}</span>
           </div>
         )}
         <div className="flex items-end justify-between pt-3 border-t border-brand-border">

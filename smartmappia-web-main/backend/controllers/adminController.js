@@ -268,7 +268,10 @@ async function settleDriverCash(req, res) {
 async function loadBooking(bookingCode) {
   const { data, error } = await supabase
     .from('bookings')
-    .select('id, booking_code, fare_amount, currency, payment_status, payment_method, booking_status, assigned_driver_id')
+    .select(
+      'id, booking_code, fare_amount, vat_amount, vat_rate, total_amount, currency, ' +
+        'payment_status, payment_method, booking_status, assigned_driver_id'
+    )
     .eq('booking_code', bookingCode)
     .single();
   if (error || !data) return null;

@@ -10,12 +10,16 @@
 const { supabase } = require('../lib/supabase');
 const { logAudit } = require('../lib/audit');
 
-async function insertRating(res, { driverId, customerId, orderId = null, bookingId = null, stars, comment }) {
+async function insertRating(
+  res,
+  { driverId, customerId, orderId = null, bookingId = null, shopOrderId = null, stars, comment }
+) {
   const { error } = await supabase.from('driver_ratings').insert({
     driver_id: driverId,
     customer_id: customerId,
     order_id: orderId,
     booking_id: bookingId,
+    shop_order_id: shopOrderId,
     stars,
     comment: comment || null,
   });
@@ -111,4 +115,48 @@ async function rateRideDriver(req, res) {
   }
 }
 
-module.exports = { rateFoodDriver, rateRideDriver };
+async function rateShopDriver(req, res) {
+  try {
+    const { data: order } = await supabase
+      .from('shop_orders')
+      .select('id, order_code, customer_id, status')
+      .eq('order_code', req.params.code)
+      .maybeSingle();
+    if (!order) return res.status(404).json({ error: 'Order not found' });
+    if (order.customer_id !== req.userId) {
+      return res.status(403).json({ error: 'This order belongs to another account' });
+    }
+    if (order.status !== 'delivered') {
+      return res.status(409).json({ error: 'You can rate the rider once the order is delivered' });
+    }
+
+    const { data: delivery } = await supabase
+      .from('shop_deliveries')
+      .select('driver_id')
+      .eq('order_id', order.id)
+      .maybeSingle();
+    if (!delivery || !delivery.driver_id) {
+      return res.status(409).json({ error: 'No rider was assigned to this order' });
+    }
+
+    logAudit({
+      actorId: req.userId,
+      action: 'driver_rated',
+      resourceType: 'shop_order',
+      resourceId: order.order_code,
+      meta: { stars: req.body.stars },
+    });
+    return insertRating(res, {
+      driverId: delivery.driver_id,
+      customerId: req.userId,
+      shopOrderId: order.id,
+      stars: req.body.stars,
+      comment: req.body.comment,
+    });
+  } catch (err) {
+    console.error('rateShopDriver error:', err);
+    return res.status(500).json({ error: 'Unexpected server error' });
+  }
+}
+
+module.exports = { rateFoodDriver, rateRideDriver, rateShopDriver };

@@ -8,15 +8,62 @@
 // ---------------------------------------------------------------------
 import Swal from 'sweetalert2';
 
-// Show one error popup at a time. The guard stops a failing poll loop (e.g.
-// live tracking, the driver feed) from stacking dozens of identical popups.
+const GENERIC_ERROR = 'Something went wrong on our side. Please try again in a moment.';
+
+// Who is allowed to see diagnostic detail in a popup. Defaults to the SAFE
+// answer (not an admin) so a message can never leak internals before the
+// profile has loaded. AuthProvider keeps this in sync with the signed-in role.
+let diagnosticsRole = null;
+export function setDiagnosticsAudience(role) {
+  diagnosticsRole = role || null;
+}
+
+// Text that means something to us and nothing to a customer: migration
+// filenames, SQL/Postgres/Supabase internals, column and table names, stack
+// noise. Showing any of it to an end user leaks our schema and deployment
+// state, so non-admins get the generic line instead (the real message still
+// goes to the console for QA).
+const INTERNAL_MARKERS = [
+  /migrations?\//i,
+  /\.sql\b/i,
+  /sql editor/i,
+  /supabase/i,
+  /postgres/i,
+  /pgrst/i,
+  /\brelation\b.*\bdoes not exist\b/i,
+  /\bcolumn\b.*\bdoes not exist\b/i,
+  /\bschema\b/i,
+  /\bconstraint\b/i,
+  /\bstack\b/i,
+  /\bundefined is not\b/i,
+  /\bnull is not\b/i,
+  /\bECONN|ETIMEDOUT|ENOTFOUND\b/,
+  /\bat .*\(.*:\d+:\d+\)/, // stack frame
+];
+
+// True when `message` is safe to show to whoever is currently signed in.
+function isSafeForAudience(message) {
+  if (!message) return false;
+  if (diagnosticsRole === 'admin') return true; // admins QA the app; let them see it
+  return !INTERNAL_MARKERS.some((re) => re.test(message));
+}
+
+/**
+ * Public-facing error popup. Business messages ("Minimum order is SAR 30")
+ * pass through unchanged; anything that looks like internal diagnostics is
+ * replaced with a generic line for non-admins.
+ */
 export function notifyError(message) {
+  const safe = isSafeForAudience(message);
+  if (!safe && message) {
+    // Keep the detail reachable for whoever is debugging, just not on screen.
+    console.error('[notifyError suppressed for non-admin]', message);
+  }
   if (Swal.isVisible()) return;
   Swal.fire({
     icon: 'error',
     title: 'Oops...',
-    text: message || 'Something went wrong!',
-    footer: '<a href="#">Why do I have this issue?</a>',
+    text: safe ? message : GENERIC_ERROR,
   });
 }
 

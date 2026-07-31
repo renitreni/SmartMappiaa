@@ -171,6 +171,40 @@ export const api = {
   foodTapCharge: (code) => request(`/api/food/orders/${code}/tap-charge`, { method: 'POST' }),
   foodEvent: (body) => request('/api/food/events', { method: 'POST', body, silent: true }),
 
+  // --- ecommerce ("shop"): customer ---
+  // Mirrors the food block one-for-one. Two differences worth knowing:
+  //   * responses carry a banded `availability` ('in_stock'|'low'|'out'),
+  //     never an exact stock count — exact inventory is withheld by the
+  //     column grants in migration 0029
+  //   * shopCheckout can fail with 409 out_of_stock in addition to the
+  //     422 min_order / outside_radius that food has
+  shopStores: (params = '') => request(`/api/shop/stores${params}`, { silent: true }),
+  shopStore: (id) => request(`/api/shop/stores/${id}`, { silent: true }),
+  shopCart: (merchantId) => request(`/api/shop/cart?merchant_id=${encodeURIComponent(merchantId)}`, { silent: true }),
+  shopCartAdd: (body) => request('/api/shop/cart/items', { method: 'POST', body }),
+  shopCartUpdate: (id, quantity) => request(`/api/shop/cart/items/${id}`, { method: 'PATCH', body: { quantity } }),
+  shopCartRemove: (id) => request(`/api/shop/cart/items/${id}`, { method: 'DELETE' }),
+  // Idempotency-Key stops a double-tap or a retry creating two orders — and,
+  // because checkout reserves stock, two reservations.
+  shopCheckout: (body, idempotencyKey) =>
+    request('/api/shop/orders', {
+      method: 'POST',
+      body,
+      headers: idempotencyKey ? { 'Idempotency-Key': idempotencyKey } : {},
+      silent: true,
+    }),
+  shopOrders: () => request('/api/shop/orders'),
+  shopOrder: (code) => request(`/api/shop/orders/${code}`, { silent: true }), // polled on tracking
+  shopOrderContact: (code, contact_phone) =>
+    request(`/api/shop/orders/${code}/contact`, { method: 'PATCH', body: { contact_phone } }),
+  shopPaymentInfo: (code) => request(`/api/shop/orders/${code}/pay`),
+  shopPaySignedUrl: (code, body) => request(`/api/shop/orders/${code}/pay/signed-url`, { method: 'POST', body }),
+  shopRecordPayment: (code, body) => request(`/api/shop/orders/${code}/pay`, { method: 'POST', body }),
+  shopTapCharge: (code) => request(`/api/shop/orders/${code}/tap-charge`, { method: 'POST' }),
+  rateShopDriver: (code, body) =>
+    request(`/api/shop/orders/${code}/rate-driver`, { method: 'POST', body, silent: true }),
+  shopEvent: (body) => request('/api/shop/events', { method: 'POST', body, silent: true }),
+
   // --- food delivery: driver dispatch (Grab-style offers + deliveries) ---
   driverOffers: () => request('/api/driver/offers', { silent: true }), // polled while online
   driverOfferAccept: (id) => request(`/api/driver/offers/${id}/accept`, { method: 'POST', silent: true }),
@@ -216,6 +250,97 @@ export const api = {
   merchantAcceptOrder: (code) => request(`/api/merchant/orders/${code}/accept`, { method: 'POST', silent: true }),
   merchantRejectOrder: (code, reason) => request(`/api/merchant/orders/${code}/reject`, { method: 'POST', body: { reason } }),
   merchantOrderStatus: (code, status) => request(`/api/merchant/orders/${code}/status`, { method: 'PATCH', body: { status } }),
+
+  // --- store owner (ecommerce merchant portal) ---
+  // Parallel to the block above. The store owner never sees net_price: it is
+  // absent from every response here and rejected by every route schema, so
+  // the markup stays an admin-only number.
+  merchantShopProfile: () => request('/api/merchant/shop/profile'),
+  merchantShopUpdateProfile: (body) => request('/api/merchant/shop/profile', { method: 'PATCH', body }),
+  merchantShopImageSignedUrl: (body) =>
+    request('/api/merchant/shop/images/signed-url', { method: 'POST', body }),
+  merchantShopCatalogue: () => request('/api/merchant/shop/catalogue'),
+  merchantShopAnalytics: () => request('/api/merchant/shop/analytics'),
+  merchantShopAddCategory: (body) => request('/api/merchant/shop/categories', { method: 'POST', body }),
+  merchantShopUpdateCategory: (id, body) =>
+    request(`/api/merchant/shop/categories/${id}`, { method: 'PATCH', body }),
+  merchantShopDeleteCategory: (id) =>
+    request(`/api/merchant/shop/categories/${id}`, { method: 'DELETE' }),
+  merchantShopAddProduct: (body) => request('/api/merchant/shop/products', { method: 'POST', body }),
+  merchantShopUpdateProduct: (id, body) =>
+    request(`/api/merchant/shop/products/${id}`, { method: 'PATCH', body }),
+  merchantShopDeleteProduct: (id) => request(`/api/merchant/shop/products/${id}`, { method: 'DELETE' }),
+  merchantShopAddVariant: (productId, body) =>
+    request(`/api/merchant/shop/products/${productId}/variants`, { method: 'POST', body }),
+  merchantShopUpdateVariant: (productId, variantId, body) =>
+    request(`/api/merchant/shop/products/${productId}/variants/${variantId}`, { method: 'PATCH', body }),
+  merchantShopDeleteVariant: (productId, variantId) =>
+    request(`/api/merchant/shop/products/${productId}/variants/${variantId}`, { method: 'DELETE' }),
+  merchantShopSetStock: (productId, body) =>
+    request(`/api/merchant/shop/products/${productId}/stock`, { method: 'PATCH', body }),
+  merchantShopInventory: () => request('/api/merchant/shop/inventory'),
+  merchantShopOrders: () => request('/api/merchant/shop/orders'),
+  merchantShopAcceptOrder: (code) =>
+    request(`/api/merchant/shop/orders/${code}/accept`, { method: 'POST', silent: true }),
+  merchantShopRejectOrder: (code, reason) =>
+    request(`/api/merchant/shop/orders/${code}/reject`, { method: 'POST', body: { reason } }),
+  merchantShopOrderStatus: (code, status) =>
+    request(`/api/merchant/shop/orders/${code}/status`, { method: 'PATCH', body: { status } }),
+
+  // --- ecommerce: admin ---
+  // The only block that sends or receives net_price. Everything else in this
+  // file deals in list prices only.
+  adminShopOverview: () => request('/api/admin/shop/overview'),
+  adminShopStores: () => request('/api/admin/shop/stores'),
+  adminShopCreateStore: (body) => request('/api/admin/shop/stores', { method: 'POST', body }),
+  adminShopUpdateStore: (id, body) => request(`/api/admin/shop/stores/${id}`, { method: 'PATCH', body }),
+  adminShopDeleteStore: (id) => request(`/api/admin/shop/stores/${id}`, { method: 'DELETE' }),
+  adminShopSuspend: (id, reason) =>
+    request(`/api/admin/shop/stores/${id}/suspend`, { method: 'POST', body: { reason } }),
+  adminShopReactivate: (id) => request(`/api/admin/shop/stores/${id}/reactivate`, { method: 'POST' }),
+  adminShopCredit: (id, body) => request(`/api/admin/shop/stores/${id}/credit`, { method: 'POST', body }),
+  adminShopStoreImageSignedUrl: (id, body) =>
+    request(`/api/admin/shop/stores/${id}/image/signed-url`, { method: 'POST', body }),
+  adminShopSetOwner: (id, body) => request(`/api/admin/shop/stores/${id}/owner`, { method: 'POST', body }),
+  adminShopCatalogue: (id) => request(`/api/admin/shop/stores/${id}/catalogue`),
+  adminShopAddCategory: (id, body) =>
+    request(`/api/admin/shop/stores/${id}/categories`, { method: 'POST', body }),
+  adminShopUpdateCategory: (catId, body) =>
+    request(`/api/admin/shop/categories/${catId}`, { method: 'PATCH', body }),
+  adminShopDeleteCategory: (catId) => request(`/api/admin/shop/categories/${catId}`, { method: 'DELETE' }),
+  adminShopAddProduct: (id, body) =>
+    request(`/api/admin/shop/stores/${id}/products`, { method: 'POST', body }),
+  adminShopUpdateProduct: (productId, body) =>
+    request(`/api/admin/shop/products/${productId}`, { method: 'PATCH', body }),
+  adminShopDeleteProduct: (productId) =>
+    request(`/api/admin/shop/products/${productId}`, { method: 'DELETE' }),
+  adminShopAddVariant: (productId, body) =>
+    request(`/api/admin/shop/products/${productId}/variants`, { method: 'POST', body }),
+  adminShopUpdateVariant: (productId, variantId, body) =>
+    request(`/api/admin/shop/products/${productId}/variants/${variantId}`, { method: 'PATCH', body }),
+  adminShopDeleteVariant: (productId, variantId) =>
+    request(`/api/admin/shop/products/${productId}/variants/${variantId}`, { method: 'DELETE' }),
+  adminShopInventory: (merchantId) =>
+    request(`/api/admin/shop/inventory?merchant_id=${encodeURIComponent(merchantId)}`),
+  adminShopOrders: (query = '') => request(`/api/admin/shop/orders${query}`),
+  adminShopAcceptOrder: (code) =>
+    request(`/api/admin/shop/orders/${code}/accept`, { method: 'POST', silent: true }),
+  adminShopRejectOrder: (code, reason) =>
+    request(`/api/admin/shop/orders/${code}/reject`, { method: 'POST', body: { reason } }),
+  adminShopOrderStatus: (code, status) =>
+    request(`/api/admin/shop/orders/${code}/status`, { method: 'PATCH', body: { status } }),
+  adminShopVerifyPayment: (code, reference) =>
+    request(`/api/admin/shop/orders/${code}/verify-payment`, { method: 'POST', body: { reference } }),
+  adminShopRejectPayment: (code, reason) =>
+    request(`/api/admin/shop/orders/${code}/reject-payment`, { method: 'POST', body: { reason } }),
+  adminShopRefund: (code) => request(`/api/admin/shop/orders/${code}/refund`, { method: 'POST' }),
+  adminShopCancelOrder: (code, reason) =>
+    request(`/api/admin/shop/orders/${code}/cancel`, { method: 'POST', body: { reason } }),
+  adminShopAssignDriver: (code, driver_id) =>
+    request(`/api/admin/shop/orders/${code}/assign-driver`, { method: 'POST', body: { driver_id } }),
+  adminShopOrderPhotos: (code) => request(`/api/admin/shop/orders/${code}/photos`),
+  adminShopSettlement: (from, to) =>
+    request(`/api/admin/shop/settlement?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`),
 
   // --- driver ratings (1-5 stars after a delivered order / completed trip) ---
   rateFoodDriver: (code, body) => request(`/api/food/orders/${code}/rate-driver`, { method: 'POST', body, silent: true }),
