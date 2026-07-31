@@ -42,7 +42,7 @@ const partnerStores = [
     accentDark: "#0E3E8A",
     tint: "#EAF1FE",
     rating: "4.8",
-    delivery: "30–45 min",
+    delivery: "30-45 min",
     productCount: "500+",
     categories: ["Rice & Grains", "Pantry", "Snacks", "Beverages"],
     products: [
@@ -55,6 +55,19 @@ const partnerStores = [
       { name: "Calamansi Juice 1L", price: 15, category: "Beverages", unit: "1 L bottle", emoji: "🍋", image: "/products/calamansi-juice.jpg" },
       { name: "Ube Halaya Jar", price: 35, category: "Snacks", unit: "450 g jar", emoji: "🍠", image: "/products/ube-halaya.jpg" },
     ],
+    // Optional per-store featured sub-brand. Rendered by StorePanel only when
+    // present, so the other stores are untouched, and reusable for any future
+    // brand carried under a partner store. No products until we have real
+    // names and prices for them.
+    subBrand: {
+      name: "Aling Maria's Specialties",
+      logo: "/brands/aling-marias.jpg",
+      // Photographic label rather than a flat logo, so fill the tile instead of
+      // letterboxing it inside padding.
+      logoFit: "cover",
+      tagline: "Food crafted, made with love. 100% all natural, finest quality ingredients.",
+      categories: ["Longganisa", "Tocino", "Embutido", "Bangus"],
+    },
   },
   {
     id: "al-wafa",
@@ -66,7 +79,7 @@ const partnerStores = [
     accentDark: "#065A2D",
     tint: "#E7F6EE",
     rating: "4.9",
-    delivery: "25–40 min",
+    delivery: "25-40 min",
     productCount: "800+",
     categories: ["Fresh Produce", "Dairy", "Pantry", "Bakery", "Snacks"],
     products: [
@@ -80,40 +93,232 @@ const partnerStores = [
       { name: "Fresh Vegetables Box", price: 38, category: "Fresh Produce", unit: "Mixed box", emoji: "🥗", image: "/products/al-wafa-vegetables.jpg" },
     ],
   },
-  {
-    id: "happy-ending",
-    name: "Happy Ending Street Food",
-    shortName: "Happy Ending",
-    tagline: "Filipino street food favorites — skewers, fishballs & more",
-    logo: "/brands/happy-ending.png",
-    accent: "#DC2626",
-    accentDark: "#991B1B",
-    tint: "#FEF3C7",
-    rating: "4.7",
-    delivery: "20–35 min",
-    productCount: "40+",
-    categories: ["BBQ & Grilled", "Fried Snacks", "Street Drinks", "Combo Meals"],
-    products: [
-      { name: "BBQ Pork Skewers (5 pcs)", price: 18, category: "BBQ & Grilled", unit: "5 pcs pack", emoji: "🍢", image: "/products/bbq-skewers.jpg" },
-      { name: "Fishball Snack Cup", price: 12, category: "Fried Snacks", unit: "Large cup", emoji: "🍡", image: "/products/fishball-snack.jpg" },
-      { name: "Kwek-Kwek (6 pcs)", price: 15, category: "Fried Snacks", unit: "6 pcs pack", emoji: "🥚", image: "/products/kwek-kwek.jpg" },
-      { name: "Isaw BBQ Pack (5 pcs)", price: 16, category: "BBQ & Grilled", unit: "5 pcs pack", emoji: "🌭", image: "/products/isaw.jpg" },
-      { name: "Chicken Balls (5 pcs)", price: 14, category: "Fried Snacks", unit: "5 pcs pack", emoji: "🍗", image: "/products/chicken-balls.jpg" },
-      { name: "Squid Ball Cup", price: 13, category: "Fried Snacks", unit: "Large cup", emoji: "🦑", image: "/products/squid-ball.jpg" },
-      { name: "Kikiam Skewers (5 pcs)", price: 14, category: "Fried Snacks", unit: "5 pcs pack", emoji: "🍥", image: "/products/kikiam.jpg" },
-      { name: "Fishball Skewers (5 pcs)", price: 12, category: "Fried Snacks", unit: "5 pcs pack", emoji: "🍡", image: "/products/fishball-skewers.jpg" },
-    ],
-  },
 ];
 
+// Featured apparel drop. Showcase only, deliberately not a partner store and
+// not shoppable, so it sits above the store tabs rather than becoming a panel.
+const featuredMerch = {
+  name: "Zumba Riyadh",
+  image: "/promo/zumba-riyadh.jpg",
+  eyebrow: "Featured merch",
+  headline: "Zumba Riyadh apparel is available now.",
+  blurb: "Tees, hoodies and mugs by ZIN Archie. Wear your passion, live the groove.",
+};
+
+// Featured brand band, shown under the store list. Same reason as the merch
+// banner: a brand showcase, not a grocery store with a product catalogue.
+const featuredBrand = {
+  name: "Zeyt'S Parfum Bar",
+  logo: "/brands/zeyts-parfum-bar.jpg",
+  tagline: "Signature scents, blended to order at the bar",
+  categories: ["Oud", "Floral", "Fresh", "Unisex"],
+  accent: "#111827",
+  tint: "#F3F4F6",
+};
+
 const stats = [
-  { value: "3", label: "Partner stores" },
-  { value: "1,500+", label: "Products" },
+  { value: "2", label: "Partner stores" },
+  { value: "1,300+", label: "Products" },
   { value: "40 min", label: "Avg. delivery" },
 ];
 
 const formatPrice = (value) =>
   value.toLocaleString("en-US", { maximumFractionDigits: 0 });
+
+// Wide featured banner. The ratio steps down on narrow screens because an 8:3
+// crop is only ~117px tall on a 375px phone, which squashes artwork that has
+// text baked into it. object-contain over a warm letterbox so nothing is ever
+// cropped, and the whole block self-removes if the asset is missing rather
+// than leaving an empty box the width of the section.
+function FeaturedMerchBanner({ merch }) {
+  const [failed, setFailed] = useState(false);
+  if (failed) return null;
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 16 }}
+      whileInView={{ opacity: 1, y: 0 }}
+      viewport={{ once: true }}
+      transition={{ duration: 0.5 }}
+      className="mb-10 rounded-3xl border border-brand-border overflow-hidden bg-linear-to-br from-brand-warm via-white to-brand-orange/5"
+    >
+      <div className="px-6 md:px-8 pt-5 flex flex-wrap items-center justify-between gap-3">
+        <div className="min-w-0">
+          <span className="inline-flex items-center gap-2 text-brand-orange text-[11px] font-bold tracking-widest uppercase">
+            <Sparkles className="w-3.5 h-3.5" strokeWidth={2.5} />
+            {merch.eyebrow}
+          </span>
+          <p className="text-lg md:text-xl font-black text-brand-black mt-1 leading-snug">
+            {merch.headline}
+          </p>
+          <p className="text-brand-grey text-sm font-medium mt-1">{merch.blurb}</p>
+        </div>
+      </div>
+
+      <div className="relative w-full aspect-[4/3] sm:aspect-[2/1] lg:aspect-[8/3] mt-4">
+        <img
+          src={merch.image}
+          alt={`${merch.name} apparel collection`}
+          loading="lazy"
+          decoding="async"
+          onError={() => setFailed(true)}
+          className="absolute inset-0 w-full h-full object-contain p-4 sm:p-6"
+        />
+      </div>
+    </motion.div>
+  );
+}
+
+// A brand carried under a partner store, shown inside that store's card so it
+// reads as endorsed by the store rather than as a store of its own. Inherits
+// the host store's accent colour so it never fights the card it sits in.
+function StoreSubBrand({ subBrand, store }) {
+  const [logoFailed, setLogoFailed] = useState(false);
+  // A photographic brand label fills the tile; a flat logo is letterboxed.
+  const cover = subBrand.logoFit === "cover";
+
+  return (
+    <div className="mt-8 pt-6 border-t border-brand-border">
+      <h4 className="text-sm font-black text-brand-black uppercase tracking-widest mb-4">
+        Featured brand
+      </h4>
+
+      <div
+        className="rounded-2xl border border-brand-border p-5 flex flex-col sm:flex-row sm:items-center gap-5"
+        style={{ backgroundColor: `${store.accent}0D` }}
+      >
+        <div
+          className={`w-20 h-20 rounded-2xl bg-white border border-brand-border flex items-center justify-center shrink-0 overflow-hidden ${
+            cover ? "" : "p-2.5"
+          }`}
+        >
+          {logoFailed ? (
+            <Package className="w-7 h-7 text-brand-grey/40" strokeWidth={2} />
+          ) : (
+            <img
+              src={subBrand.logo}
+              alt={`${subBrand.name} logo`}
+              loading="lazy"
+              onError={() => setLogoFailed(true)}
+              className={
+                cover
+                  ? "w-full h-full object-cover"
+                  : "max-h-full max-w-full object-contain"
+              }
+            />
+          )}
+        </div>
+
+        <div className="min-w-0 flex-1">
+          <p className="text-base font-black text-brand-black leading-snug">{subBrand.name}</p>
+          <p className="text-brand-grey text-xs font-medium mt-1">{subBrand.tagline}</p>
+          <div className="flex flex-wrap gap-2 mt-3">
+            {subBrand.categories.map((category) => (
+              <span
+                key={category}
+                className="text-[10px] font-bold uppercase tracking-wide px-2.5 py-1 rounded-full border"
+                style={{
+                  color: store.accentDark,
+                  borderColor: `${store.accent}33`,
+                  backgroundColor: "#ffffff",
+                }}
+              >
+                {category}
+              </span>
+            ))}
+          </div>
+        </div>
+
+        <button
+          type="button"
+          onClick={notifyUnderDevelopment}
+          className="shrink-0 inline-flex items-center justify-center gap-2 text-white font-bold text-xs px-5 py-2.5 rounded-xl transition-all duration-300 hover:scale-[1.02] active:scale-95 cursor-pointer w-full sm:w-auto"
+          style={{ backgroundColor: store.accent }}
+        >
+          See the range
+          <ArrowRight className="w-3.5 h-3.5" strokeWidth={2.5} />
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// Featured brand band. Mirrors the store-card language (logo box, chips, CTA)
+// without a product grid, so no prices are implied for a brand whose catalogue
+// we do not carry yet.
+function FeaturedBrandBand({ brand }) {
+  const [logoFailed, setLogoFailed] = useState(false);
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 20 }}
+      whileInView={{ opacity: 1, y: 0 }}
+      viewport={{ once: true }}
+      transition={{ duration: 0.5 }}
+      className="mt-12 rounded-3xl border border-brand-border bg-white overflow-hidden shadow-sm"
+    >
+      <div
+        className="px-6 md:px-8 py-8 md:py-10 flex flex-col lg:flex-row lg:items-center gap-6"
+        style={{
+          background: `linear-gradient(135deg, ${brand.tint} 0%, #ffffff 55%, ${brand.tint} 100%)`,
+        }}
+      >
+        <div className="w-20 h-20 md:w-28 md:h-28 rounded-2xl bg-white border border-brand-border flex items-center justify-center p-3 shrink-0">
+          {logoFailed ? (
+            <Sparkles className="w-8 h-8 text-brand-grey/40" strokeWidth={2} />
+          ) : (
+            <img
+              src={brand.logo}
+              alt={`${brand.name} logo`}
+              loading="lazy"
+              onError={() => setLogoFailed(true)}
+              className="max-h-full max-w-full object-contain"
+            />
+          )}
+        </div>
+
+        <div className="min-w-0 flex-1">
+          <span className="inline-flex items-center gap-2 text-[11px] font-bold tracking-widest uppercase text-brand-orange">
+            <Sparkles className="w-3.5 h-3.5" strokeWidth={2.5} />
+            New on Smart Mappia
+          </span>
+          <h3 className="text-2xl md:text-3xl font-black text-brand-black tracking-tight mt-1">
+            {brand.name}
+          </h3>
+          <p className="text-brand-grey text-sm font-medium mt-1">{brand.tagline}</p>
+          <div className="flex flex-wrap gap-2 mt-4">
+            {brand.categories.map((category) => (
+              <span
+                key={category}
+                className="text-[10px] font-bold uppercase tracking-wide px-2.5 py-1 rounded-full border"
+                style={{
+                  color: brand.accent,
+                  borderColor: `${brand.accent}33`,
+                  backgroundColor: `${brand.accent}0D`,
+                }}
+              >
+                {category}
+              </span>
+            ))}
+          </div>
+        </div>
+
+        <button
+          type="button"
+          onClick={notifyUnderDevelopment}
+          className="shrink-0 inline-flex items-center justify-center gap-2 text-white font-black text-sm px-7 py-3.5 rounded-xl transition-all duration-300 hover:scale-[1.02] active:scale-95 shadow-lg cursor-pointer w-full lg:w-auto"
+          style={{
+            backgroundColor: brand.accent,
+            boxShadow: `0 10px 24px -12px ${brand.accent}88`,
+          }}
+        >
+          Explore {brand.name.split(" ")[0]}
+          <ArrowRight className="w-4 h-4" strokeWidth={2.5} />
+        </button>
+      </div>
+    </motion.div>
+  );
+}
 
 function ProductThumbnail({ product, store, compact = false }) {
   const [failed, setFailed] = useState(false);
@@ -373,6 +578,8 @@ function StorePanel({ store, index }) {
             <ProductCard key={product.name} product={product} store={store} />
           ))}
         </div>
+
+        {store.subBrand && <StoreSubBrand subBrand={store.subBrand} store={store} />}
       </div>
 
       <div
@@ -442,8 +649,9 @@ const Shop = () => {
             </h2>
 
             <p className="text-brand-grey text-sm md:text-base mt-4 font-medium leading-relaxed">
-              Browse curated products from Pinas Supermarket, Al Wafa Hypermarket, and
-              Happy Ending Street Food — order skewers, fishballs & Filipino snacks with live delivery tracking.
+              Browse curated products from Pinas Supermarket and Al Wafa Hypermarket.
+              Filipino pantry staples, fresh groceries and everyday essentials, all with
+              live delivery tracking.
             </p>
           </motion.div>
 
@@ -466,6 +674,8 @@ const Shop = () => {
             ))}
           </motion.div>
         </div>
+
+        <FeaturedMerchBanner merch={featuredMerch} />
 
         <motion.div
           initial={{ opacity: 0, y: 12 }}
@@ -522,6 +732,11 @@ const Shop = () => {
             ))}
           </motion.div>
         </AnimatePresence>
+
+        {/* Outside AnimatePresence on purpose: a featured brand should stay put
+            when the visitor filters to a single store, rather than re-mounting
+            and replaying its entrance on every tab click. */}
+        <FeaturedBrandBand brand={featuredBrand} />
 
         <motion.div
           initial={{ opacity: 0, y: 30 }}

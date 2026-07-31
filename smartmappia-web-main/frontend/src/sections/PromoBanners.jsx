@@ -7,12 +7,12 @@ const promos = [
     src: "/promo/all-in-one-app.png",
     alt: "SmartMappia All-in-One Delivery App",
     title: "All-in-One Delivery App",
-    desc: "Food delivery, e-commerce, and pick & drop — unified in one smart platform built for Riyadh.",
+    desc: "Food delivery, e-commerce, and pick & drop, unified in one smart platform built for Riyadh.",
     tags: ["Food Delivery", "E-Commerce", "Pick & Drop"],
   },
   {
     src: "/promo/smarter-way-to-move.png",
-    alt: "SmartMappia — Ready for a smarter way to move",
+    alt: "SmartMappia, ready for a smarter way to move",
     title: "Smarter Way to Move",
     desc: "Launching soon across KSA. Stay tuned for the full SmartMappia experience.",
     tags: ["Launching Soon"],
@@ -63,7 +63,7 @@ const PromoBanners = () => {
             <span className="text-brand-orange">SmartMappia</span>
           </h2>
           <p className="text-brand-grey text-base md:text-lg mt-4 leading-relaxed">
-            Explore what&apos;s launching in Riyadh — food, shopping, and
+            Explore what&apos;s launching in Riyadh. Food, shopping, and
             transport brought together in one platform.
           </p>
         </motion.div>

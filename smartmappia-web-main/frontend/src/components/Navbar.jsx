@@ -133,12 +133,15 @@ function AuthActions({ mobile = false, onNavigate }) {
             : "whitespace-nowrap text-sm font-bold px-3 py-2 rounded-full cursor-pointer text-brand-dark hover:text-brand-orange transition-colors"
         }
       >
-        Sign in
+        Log in
       </Link>
-      <Link to="/book" onClick={onNavigate}>
+      {/* Signed-out visitors get account CTAs, not a booking CTA — booking
+          requires an account anyway, so "Book a Ride" only sent them to a
+          login wall. The primary (orange) action is Sign up. */}
+      <Link to="/signup" onClick={onNavigate}>
         {mobile ? (
           <span className="block text-center w-full bg-brand-orange text-white font-black py-4 rounded-2xl text-sm cursor-pointer shadow-lg shadow-brand-orange/25">
-            Book a Ride
+            Sign up
           </span>
         ) : (
           <motion.span
@@ -147,7 +150,7 @@ function AuthActions({ mobile = false, onNavigate }) {
             transition={{ type: "spring", stiffness: 400, damping: 18 }}
             className="inline-block whitespace-nowrap bg-brand-orange text-white text-xs font-black px-5 py-3 rounded-full cursor-pointer shadow-md shadow-brand-orange/25 hover:shadow-xl hover:shadow-brand-orange/30 transition-shadow duration-300"
           >
-            Book a Ride
+            Sign up
           </motion.span>
         )}
       </Link>

@@ -25,7 +25,7 @@ const steps = [
     step: "02",
     Icon: Sparkles,
     title: "Choose what you need",
-    desc: "Pick from food delivery, online shopping, or airport pick & drop — all in one place.",
+    desc: "Pick from food delivery, online shopping, or airport pick & drop, all in one place.",
     services: [
       { Icon: UtensilsCrossed, label: "Food" },
       { Icon: ShoppingBag, label: "Shop" },
@@ -93,7 +93,7 @@ const HowItWorks = () => {
               </span>
             </h2>
             <p className="text-brand-grey text-sm md:text-base mt-4 font-medium leading-relaxed">
-              No complicated menus or long forms — just open the app, place your
+              No complicated menus or long forms. Just open the app, place your
               order, and watch it come to you.
             </p>
           </motion.div>

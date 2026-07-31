@@ -49,27 +49,17 @@ const shopPartners = [
     accent: "#0B7A3E",
     tint: "#E7F6EE",
   },
-  {
-    id: "happy-ending",
-    name: "Happy Ending",
-    shortName: "Happy Ending",
-    logo: "/brands/happy-ending.png",
-    accent: "#D97706",
-    tint: "#FEF3C7",
-  },
 ];
 
 const shopProducts = [
-  { name: "BBQ Pork Skewers", price: "18", emoji: "🍢", store: "Happy Ending", tint: "#FEF3C7", image: "/products/bbq-skewers.jpg" },
-  { name: "Fishball Snack Cup", price: "12", emoji: "🍡", store: "Happy Ending", tint: "#FEF3C7", image: "/products/fishball-snack.jpg" },
-  { name: "Kwek-Kwek (6 pcs)", price: "15", emoji: "🥚", store: "Happy Ending", tint: "#FEF3C7", image: "/products/kwek-kwek.jpg" },
-  { name: "Isaw BBQ Pack", price: "16", emoji: "🌭", store: "Happy Ending", tint: "#FEF3C7", image: "/products/isaw.jpg" },
-  { name: "Chicken Balls (5 pcs)", price: "14", emoji: "🍗", store: "Happy Ending", tint: "#FEF3C7", image: "/products/chicken-balls.jpg" },
-  { name: "Squid Ball Cup", price: "13", emoji: "🦑", store: "Happy Ending", tint: "#FEF3C7", image: "/products/squid-ball.jpg" },
-  { name: "Kikiam Skewers", price: "14", emoji: "🍥", store: "Happy Ending", tint: "#FEF3C7", image: "/products/kikiam.jpg" },
-  { name: "Fishball Skewers", price: "12", emoji: "🍡", store: "Happy Ending", tint: "#FEF3C7", image: "/products/fishball-skewers.jpg" },
   { name: "Jasmine Rice 25kg", price: "189", emoji: "🍚", store: "Pinas", tint: "#EAF1FE", image: "/products/jasmine-rice.jpg" },
   { name: "Dried Mangoes", price: "28", emoji: "🥭", store: "Pinas", tint: "#EAF1FE", image: "/products/dried-mangoes.jpg" },
+  { name: "Banana Ketchup", price: "12", emoji: "🍅", store: "Pinas", tint: "#EAF1FE", image: "/products/banana-ketchup.jpg" },
+  { name: "Pancit Canton (10s)", price: "22", emoji: "🍜", store: "Pinas", tint: "#EAF1FE", image: "/products/pancit-canton.jpg" },
+  { name: "Coconut Milk", price: "9", emoji: "🥥", store: "Pinas", tint: "#EAF1FE", image: "/products/coconut-milk.jpg" },
+  { name: "3-in-1 Coffee", price: "18", emoji: "☕", store: "Pinas", tint: "#EAF1FE", image: "/products/instant-coffee.jpg" },
+  { name: "Calamansi Juice 1L", price: "15", emoji: "🍋", store: "Pinas", tint: "#EAF1FE", image: "/products/calamansi-juice.jpg" },
+  { name: "Ube Halaya Jar", price: "35", emoji: "🍠", store: "Pinas", tint: "#EAF1FE", image: "/products/ube-halaya.jpg" },
   { name: "Fresh Ajwa Dates", price: "45", emoji: "🌴", store: "Al Wafa", tint: "#E7F6EE", image: "/products/al-wafa-dates.jpg" },
   { name: "Basmati Rice 5kg", price: "55", emoji: "🍚", store: "Al Wafa", tint: "#E7F6EE", image: "/products/al-wafa-rice.jpg" },
   { name: "Sunflower Oil 1.5L", price: "28", emoji: "🫒", store: "Al Wafa", tint: "#E7F6EE", image: "/products/al-wafa-oil.jpg" },
@@ -133,7 +123,7 @@ function FoodScreen() {
             Free delivery
           </span>
           <p className="text-sm font-black leading-tight text-white drop-shadow">
-            {flash.name} — {flash.tagline}
+            {flash.name}: {flash.tagline}
           </p>
         </div>
       </div>

@@ -5,17 +5,17 @@ const faqs = [
   {
     question: "What is SmartMappia?",
     answer:
-      "SmartMappia is an all-in-one app for Riyadh — order food from local restaurants, shop everyday essentials, send packages, and book airport pick & drop rides, all with real-time tracking and Smart Rewards.",
+      "SmartMappia is an all-in-one app for Riyadh. Order food from local restaurants, shop everyday essentials, send packages, and book airport pick & drop rides, all with real-time tracking and Smart Rewards.",
   },
   {
     question: "Is the airport transfer rate fixed?",
     answer:
-      "Yes, our rates are fully transparent. Whether you're arriving or departing, prices range from 80 to 100 SR depending on the terminal — no hidden charges, ever.",
+      "Yes, our rates are fully transparent. Whether you're arriving or departing, prices range from 80 to 100 SR depending on the terminal, with no hidden charges, ever.",
   },
   {
     question: "Which districts in Riyadh do you cover?",
     answer:
-      "We're currently active in Malaz, Sulamania, Olaya, and Batha — and constantly expanding to serve more areas soon.",
+      "We're currently active in Malaz, Sulamania, Olaya, and Batha, and constantly expanding to serve more areas soon.",
   },
   {
     question: "Can I track my order in real-time?",
