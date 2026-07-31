@@ -83,10 +83,38 @@ async function listRestaurants(req, res) {
 
     const ratingMap = await ratingsForMerchants((data || []).map((m) => m.id));
 
+    // Menu readiness: discovery cards need to know which restaurants still
+    // have an empty menu so the UI can warn instead of opening a blank page.
+    const merchantIds = (data || []).map((m) => m.id);
+    const itemCountByMerchant = new Map();
+    if (merchantIds.length) {
+      const { data: menuRows, error: menuErr } = await supabase
+        .from('menu_items')
+        .select('merchant_id')
+        .in('merchant_id', merchantIds);
+      if (menuErr) {
+        console.error('listRestaurants menu count error:', menuErr);
+      } else {
+        for (const row of menuRows || []) {
+          itemCountByMerchant.set(
+            row.merchant_id,
+            (itemCountByMerchant.get(row.merchant_id) || 0) + 1
+          );
+        }
+      }
+    }
+
     return res.json({
       restaurants: (data || []).map((m) => {
         const r = ratingMap.get(m.id);
-        return { ...m, rating: r ? r.rating : null, reviewCount: r ? r.reviewCount : 0 };
+        const itemCount = itemCountByMerchant.get(m.id) || 0;
+        return {
+          ...m,
+          rating: r ? r.rating : null,
+          reviewCount: r ? r.reviewCount : 0,
+          itemCount,
+          hasMenu: itemCount > 0,
+        };
       }),
       cuisines: [...new Set((cuisines || []).map((c) => c.cuisine_type).filter(Boolean))].sort(),
       deliveryFee: config.food.deliveryFeeSar,

@@ -276,14 +276,17 @@ function RestaurantForm({ initial, onSave, onCancel, busy, merchantId }) {
 // --- Menu item form ---------------------------------------------------------
 const EMPTY_ITEM = { name: '', description: '', price: '', net_price: '', item_type: 'meal_package', category_id: '', image_url: '', size_options: null };
 
-// Drink sizes are a Milk Tea feature: the editor only appears when the item
-// sits in a category whose name contains "milk tea" / "milktea".
-function isMilkTeaCategory(category) {
-  return /milk\s*tea|milktea/i.test(category?.name || '');
+// Drink sizes appear for drink/dessert add-ons and drink-like categories
+// (tea, coffee, milkshakes, PAMATAY UHAW, etc.).
+function isDrinkCategory(category) {
+  return /drink|tea|coffee|milk|shake|smoothie|uhaw|juice|beverage/i.test(category?.name || '');
+}
+
+function canHaveSizes(itemType, category) {
+  return itemType === 'drink_dessert_addon' || isDrinkCategory(category);
 }
 
 const DEFAULT_SIZE_ROWS = [
-  { id: 'small', label: 'Small', price: '', enabled: true },
   { id: 'medium', label: 'Medium', price: '', enabled: true },
   { id: 'large', label: 'Large', price: '', enabled: true },
 ];
@@ -306,15 +309,20 @@ function ItemForm({ initial, categories, onSave, onCancel, busy, merchantId }) {
   const set = (k) => (e) => setForm((f) => ({ ...f, [k]: e.target.value }));
 
   const selectedCategory = categories.find((c) => c.id === form.category_id);
-  const milkTea = isMilkTeaCategory(selectedCategory);
+  const sizesAllowed = canHaveSizes(form.item_type, selectedCategory);
   const sizeRows = Array.isArray(form.size_options) ? form.size_options : null;
-  const sizesOn = milkTea && !!sizeRows && sizeRows.length > 0;
+  const sizesOn = sizesAllowed && !!sizeRows && sizeRows.length > 0;
 
   function toggleSizes(on) {
+    const medium = form.price || '';
+    const large = medium === '' ? '' : String(Math.round((Number(medium) + 5) * 100) / 100);
     setForm((f) => ({
       ...f,
       size_options: on
-        ? DEFAULT_SIZE_ROWS.map((s) => ({ ...s, price: s.price || f.price || '' }))
+        ? DEFAULT_SIZE_ROWS.map((s) => ({
+            ...s,
+            price: s.id === 'large' ? (s.price || large) : (s.price || medium),
+          }))
         : null,
     }));
   }
@@ -382,12 +390,12 @@ function ItemForm({ initial, categories, onSave, onCancel, busy, merchantId }) {
           </select>
         </Field>
       </div>
-      {/* Drink sizes — Milk Tea categories only */}
-      {milkTea && (
+      {/* Drink sizes — drink items / drink-like categories */}
+      {sizesAllowed && (
         <div className="rounded-xl border border-brand-border bg-white p-3.5">
           <label className="flex items-center justify-between cursor-pointer">
             <span className="text-xs font-bold text-brand-dark uppercase tracking-wider">
-              Size options (Small / Medium / Large)
+              Size options (Medium / Large)
             </span>
             <span className="relative inline-flex items-center">
               <input

@@ -1,5 +1,8 @@
 import React from 'react';
 import { motion } from 'framer-motion';
+// Chuchay and the rest of the curated brands now come from the same seed list
+// the restaurant grid uses (data/restaurants.js), so a partner is added in one
+// place instead of two.
 import { useMarketingPartners } from '../lib/useMarketingPartners';
 
 const PartnerCard = ({ partner }) => (
