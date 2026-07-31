@@ -75,7 +75,7 @@ const VideoShowcase = () => {
           </h2>
 
           <p className="text-brand-grey text-base md:text-lg leading-relaxed max-w-lg">
-            From browsing restaurants to live order tracking — see how
+            From browsing restaurants to live order tracking, see how
             SmartMappia makes everyday delivery and booking effortless.
           </p>
 

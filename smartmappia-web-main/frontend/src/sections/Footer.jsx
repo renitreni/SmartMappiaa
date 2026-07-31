@@ -154,7 +154,7 @@ const Footer = () => {
             </a>
 
             <p className="text-sm leading-relaxed max-w-xs text-white/50">
-              Order food, send packages, and book airport transfers — all in one app
+              Order food, send packages, and book airport transfers, all in one app
               with real-time tracking and exclusive rewards across Riyadh.
             </p>
 

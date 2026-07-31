@@ -2,7 +2,7 @@ import React from "react";
 import { Link } from "react-router-dom";
 import { motion } from "framer-motion";
 import { Star, Clock, Flame, ArrowRight, Sparkles } from "lucide-react";
-import { restaurants as restaurantData } from "../data/restaurants";
+import { useMarketingPartners, MAX_GRID_CARDS } from "../lib/useMarketingPartners";
 
 const stats = [
   { value: "500+", label: "Partner restaurants" },
@@ -28,7 +28,7 @@ const tagStyles = {
 
 function RestaurantCard({ resto, index }) {
   return (
-    <Link to="/food" className="block">
+    <Link to={resto.href || "/food"} className="block">
       <motion.article
         custom={index}
         variants={cardVariants}
@@ -52,16 +52,25 @@ function RestaurantCard({ resto, index }) {
             <div className="absolute inset-0 bg-linear-to-t from-black/60 via-black/15 to-transparent" />
           )}
 
-          <span
-            className={`absolute top-4 left-4 text-[10px] font-black uppercase tracking-wider px-3 py-1.5 rounded-full shadow-md ${tagStyles[resto.tag]}`}
-          >
-            {resto.tag}
-          </span>
+          {/* Badge and rating are absolutely positioned, so omitting either
+              leaves no gap. A DB-featured restaurant has no rating until real
+              customers review it, and may carry no badge at all. */}
+          {resto.tag && (
+            <span
+              className={`absolute top-4 left-4 text-[10px] font-black uppercase tracking-wider px-3 py-1.5 rounded-full shadow-md ${
+                tagStyles[resto.tag] || "bg-white/95 text-brand-dark"
+              }`}
+            >
+              {resto.tag}
+            </span>
+          )}
 
-          <div className="absolute top-4 right-4 flex items-center gap-1 bg-white/95 backdrop-blur-sm text-brand-black text-xs font-black px-2.5 py-1.5 rounded-full shadow-md">
-            <Star className="w-3.5 h-3.5 text-brand-orange fill-brand-orange" strokeWidth={0} />
-            {resto.rating}
-          </div>
+          {resto.rating != null && (
+            <div className="absolute top-4 right-4 flex items-center gap-1 bg-white/95 backdrop-blur-sm text-brand-black text-xs font-black px-2.5 py-1.5 rounded-full shadow-md">
+              <Star className="w-3.5 h-3.5 text-brand-orange fill-brand-orange" strokeWidth={0} />
+              {resto.rating}
+            </div>
+          )}
 
           <div className="absolute bottom-4 left-4 right-4 flex items-center justify-between">
             <span className="inline-flex items-center gap-1.5 bg-white/95 backdrop-blur-sm text-brand-dark text-xs font-bold px-3 py-1.5 rounded-full shadow-sm">
@@ -78,13 +87,21 @@ function RestaurantCard({ resto, index }) {
           <h3 className="text-lg font-black text-brand-black tracking-tight group-hover:text-brand-orange transition-colors leading-snug mb-2">
             {resto.name}
           </h3>
-          <p className="text-brand-grey text-sm font-medium mb-4">{resto.cuisine}</p>
+          {resto.cuisine && (
+            <p className="text-brand-grey text-sm font-medium mb-4">{resto.cuisine}</p>
+          )}
 
           <div className="flex items-center justify-between pt-4 border-t border-brand-border">
-            <span className="inline-flex items-center gap-1 text-xs text-brand-grey font-medium">
-              <Flame className="w-3.5 h-3.5 text-brand-orange" strokeWidth={2.5} />
-              {resto.reviews} reviews
-            </span>
+            {/* The empty span keeps justify-between pushing "Order Now" right
+                when a restaurant has no reviews yet. */}
+            {resto.reviews ? (
+              <span className="inline-flex items-center gap-1 text-xs text-brand-grey font-medium">
+                <Flame className="w-3.5 h-3.5 text-brand-orange" strokeWidth={2.5} />
+                {resto.reviews} reviews
+              </span>
+            ) : (
+              <span />
+            )}
             <span className="inline-flex items-center gap-1.5 text-sm font-bold text-brand-orange opacity-0 translate-y-1 group-hover:opacity-100 group-hover:translate-y-0 transition-all duration-300">
               Order Now
               <ArrowRight className="w-4 h-4" strokeWidth={2.5} />
@@ -97,6 +114,11 @@ function RestaurantCard({ resto, index }) {
 }
 
 const Restaurants = () => {
+  // Admin-featured restaurants first, then the curated seeds. Seeded from the
+  // bundle so this renders instantly — no skeleton, no layout shift.
+  const partners = useMarketingPartners();
+  const cards = partners.slice(0, MAX_GRID_CARDS);
+
   return (
     <section
       id="restaurants"
@@ -130,7 +152,7 @@ const Restaurants = () => {
 
             <p className="text-brand-grey text-sm md:text-base mt-4 font-medium leading-relaxed">
               Discover top-rated restaurants with blazing-fast delivery, live
-              tracking, and exclusive deals — all in one tap.
+              tracking, and exclusive deals, all in one tap.
             </p>
 
             <Link
@@ -161,7 +183,7 @@ const Restaurants = () => {
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-6 lg:gap-7">
-          {restaurantData.map((resto, index) => (
+          {cards.map((resto, index) => (
             <RestaurantCard key={resto.id} resto={resto} index={index} />
           ))}
         </div>
@@ -185,7 +207,7 @@ const Restaurants = () => {
                 Craving something delicious right now?
               </h3>
               <p className="text-white/85 text-sm md:text-base font-medium leading-relaxed">
-                Browse live menus, track your rider on the map, and pay in a tap —
+                Browse live menus, track your rider on the map, and pay in a tap,
                 all on SmartMappia.
               </p>
             </div>
