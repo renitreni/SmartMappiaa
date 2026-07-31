@@ -9,10 +9,17 @@
 //     3 SAR (drink_dessert_addon)
 //   * delivery fee: flat 10 SAR within 15 km (3-month promo);
 //     outside the radius checkout is rejected for now
-//   * total = subtotal + delivery_fee (the margin is charged to the
+//   * VAT: 15% charged ON TOP of (subtotal + delivery_fee) — both the food
+//     and the delivery service are taxable supplies in KSA
+//   * total = subtotal + delivery_fee + vat (the margin is charged to the
 //     MERCHANT's credit on accept, not to the customer)
+//
+// The minimum-order test runs on the EX-VAT subtotal, and the merchant's
+// payout/margin math never sees VAT — it is the platform's liability to
+// the tax authority, not revenue to split.
 // ---------------------------------------------------------------------
 const { config } = require('./config');
+const { vatFor } = require('./vat');
 
 function round2(n) {
   return Math.round((Number(n) + Number.EPSILON) * 100) / 100;
@@ -97,9 +104,10 @@ function priceOrder({ items, distanceKm }) {
   }
 
   const deliveryFee = round2(config.food.deliveryFeeSar);
-  const total = round2(subtotal + deliveryFee);
+  const { vatRate, vatAmount } = vatFor(subtotal + deliveryFee);
+  const total = round2(subtotal + deliveryFee + vatAmount);
 
-  return { ok: true, subtotal, marginTotal, deliveryFee, total, lines };
+  return { ok: true, subtotal, marginTotal, deliveryFee, vatRate, vatAmount, total, lines };
 }
 
 // Credit state after (hypothetically) charging `marginTotal` to a merchant.

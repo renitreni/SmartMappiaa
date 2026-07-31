@@ -1,6 +1,6 @@
 const express = require('express');
 const router = express.Router();
-const { requireMerchant } = require('../middleware/auth');
+const { requireMerchantVertical } = require('../middleware/auth');
 const { validateBody } = require('../lib/validate');
 const merchant = require('../controllers/merchantController');
 const merchantOrders = require('../controllers/merchantOrdersController');
@@ -35,7 +35,12 @@ const ITEM_FIELDS = {
   size_options: { type: 'array', itemType: 'object', maxItems: 6, nullable: true },
 };
 
-router.use(requireMerchant);
+// Vertical-scoped, mirroring routes/merchantShop.js. Without this a STORE
+// owner could drive the restaurant portal against their own merchant row and
+// create menu_items/menu_categories hanging off a store. Owner-scoping meant
+// it was never cross-tenant, but it is junk data in the wrong vertical and
+// exactly the asymmetry the guard was introduced to remove.
+router.use(requireMerchantVertical('food'));
 
 router.get('/profile', merchant.getProfile);
 router.patch('/profile', validateBody(BUSINESS_FIELDS), merchant.updateProfile);

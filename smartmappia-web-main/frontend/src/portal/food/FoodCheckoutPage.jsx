@@ -10,7 +10,7 @@ import { useNavigate, useSearchParams, Link } from 'react-router-dom';
 import { MapPin, AlertCircle, ArrowRight, Smartphone, CreditCard, Phone } from 'lucide-react';
 import { api } from '../lib/api';
 import { useAuth } from '../lib/AuthProvider';
-import { fmtSAR, FOOD_RADIUS_KM } from '../lib/constants';
+import { fmtSAR, vatLabel, FOOD_RADIUS_KM } from '../lib/constants';
 import { PortalShell, Card, Spinner, inputClass, btnPrimary, btnGhost } from '../components/ui';
 import LocationPicker from '../components/LocationPicker';
 import PaymentPanel from './PaymentPanel';
@@ -166,7 +166,7 @@ export default function FoodCheckoutPage() {
               />
               <p className="text-xs text-brand-grey">
                 Your location confirms you are within the {FOOD_RADIUS_KM} km delivery radius
-                ({fmtSAR(cart.deliveryFee)} flat fee).
+                ({fmtSAR(cart.deliveryFee)} flat delivery charge).
               </p>
             </Card>
 
@@ -240,10 +240,11 @@ export default function FoodCheckoutPage() {
               </div>
               <div className="mt-4 pt-3 border-t border-brand-border space-y-1.5 text-sm">
                 <div className="flex justify-between"><span className="text-brand-grey">Subtotal</span><span className="font-bold tabular-nums">{fmtSAR(cart.subtotal)}</span></div>
-                <div className="flex justify-between"><span className="text-brand-grey">Delivery fee</span><span className="font-bold tabular-nums">{fmtSAR(cart.deliveryFee)}</span></div>
+                <div className="flex justify-between"><span className="text-brand-grey">Delivery charge</span><span className="font-bold tabular-nums">{fmtSAR(cart.deliveryFee)}</span></div>
+                <div className="flex justify-between"><span className="text-brand-grey">{vatLabel(cart.vatRate)}</span><span className="font-bold tabular-nums">{fmtSAR(cart.vatAmount)}</span></div>
                 <div className="flex justify-between pt-1.5 border-t border-brand-border">
                   <span className="font-bold text-brand-dark">Total</span>
-                  <span className="font-black text-brand-orange tabular-nums">{fmtSAR(cart.subtotal + cart.deliveryFee)}</span>
+                  <span className="font-black text-brand-orange tabular-nums">{fmtSAR(cart.total)}</span>
                 </div>
               </div>
             </Card>

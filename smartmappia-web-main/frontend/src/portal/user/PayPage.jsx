@@ -8,6 +8,7 @@ import { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { Upload, CheckCircle2 } from 'lucide-react';
 import { api } from '../lib/api';
+import { vatLabel } from '../lib/constants';
 import { uploadProofFile } from '../lib/supabaseClient';
 import { PortalShell, Card, Field, fileInputClass, btnPrimary, Spinner } from '../components/ui';
 import TapPayButton from '../../components/booking/TapPayButton';
@@ -73,9 +74,12 @@ export default function PayPage() {
                 <>
                   <div className="flex justify-between"><span className="text-brand-grey">Base fare</span><span>SAR {instructions.fare.base.toFixed(2)}</span></div>
                   <div className="flex justify-between"><span className="text-brand-grey">Service fee ({instructions.fare.serviceFeePercent}%)</span><span>SAR {instructions.fare.serviceFee.toFixed(2)}</span></div>
+                  {Number(instructions.fare.vatAmount) > 0 && (
+                    <div className="flex justify-between"><span className="text-brand-grey">{vatLabel(instructions.fare.vatRate)}</span><span>SAR {Number(instructions.fare.vatAmount).toFixed(2)}</span></div>
+                  )}
                 </>
               )}
-              <div className="flex justify-between pt-2 border-t border-brand-border"><span className="text-brand-grey font-bold">Total to pay</span><span className="font-black text-brand-orange">SAR {(instructions.fare?.total ?? instructions.amount)}</span></div>
+              <div className="flex justify-between pt-2 border-t border-brand-border"><span className="text-brand-grey font-bold">Total to pay</span><span className="font-black text-brand-orange">SAR {Number(instructions.fare?.total ?? instructions.amount).toFixed(2)}</span></div>
               <div className="flex justify-between"><span className="text-brand-grey">Reference (note)</span><span className="font-mono font-bold">{instructions.reference}</span></div>
             </div>
 

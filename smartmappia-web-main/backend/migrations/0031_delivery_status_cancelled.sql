@@ -1,0 +1,47 @@
+-- =====================================================================
+-- Smart Mappia — Migration 0031: delivery_status gains 'cancelled'
+-- For: Supabase / PostgreSQL 15+
+--
+-- ONE STATEMENT, ON PURPOSE. Run this file BY ITSELF.
+--
+-- WHY IT IS ALONE: `ALTER TYPE ... ADD VALUE` carries transaction
+-- restrictions, and the Supabase SQL Editor executes a pasted script as a
+-- SINGLE transaction. When this line was part of 0030, its failure rolled
+-- back every statement above it — including the critical privilege
+-- lockdown — and the editor reported one error for a script that had
+-- appeared to be about ten separate changes. Nothing landed at all.
+--
+-- A statement that can abort an entire migration does not belong in the
+-- same file as anything else.
+--
+-- WHAT IT DOES: the delivery_status enum (0016) runs
+--   searching -> open -> assigned -> picked_up -> delivered
+-- with no way to record "this delivery ended without being completed".
+-- Cancelling an order releases its rider, and with no terminal value the
+-- row falls back to 'searching' — indistinguishable from a delivery that
+-- is actively looking for a rider, including to the open-pool index.
+--
+-- Shared with Food Delivery, which never releases on cancel today, so
+-- this is purely additive for that vertical and changes nothing there.
+--
+-- To run it: Supabase Dashboard -> SQL Editor -> paste this ONE statement
+-- -> Run. Safe to re-run (IF NOT EXISTS).
+--
+-- If it errors with "cannot run inside a transaction block", run it from
+-- a plain psql session instead:
+--   psql "<connection string>" -c "alter type delivery_status add value if not exists 'cancelled';"
+-- =====================================================================
+
+alter type delivery_status add value if not exists 'cancelled';
+
+-- =====================================================================
+-- Verification (a new enum value is not usable until this commits):
+--   select unnest(enum_range(null::delivery_status));
+--   -- expect: searching, open, assigned, picked_up, delivered, cancelled
+--
+-- Reversal notes:
+--   An enum value cannot be removed without recreating the type. If it
+--   ever must go, drop the dependent defaults, recreate delivery_status
+--   without 'cancelled', and re-point deliveries.status and
+--   shop_deliveries.status at it.
+-- =====================================================================

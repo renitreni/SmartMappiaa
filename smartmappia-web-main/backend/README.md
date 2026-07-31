@@ -1,139 +1,282 @@
 # Smart Mappia — Backend
 
-This is the backend for Smart Mappia's Airport **Pick & Drop**. It handles booking a ride, paying by
-STC Pay, matching a nearby driver Grab-style, tracking the trip live, driver verification (KYC), and
-notification plumbing.
+The API for Smart Mappia, a multi-service logistics platform for Saudi Arabia running two service
+lines from one codebase and one driver fleet:
 
-**Node.js + Express** (plain JavaScript, no build step) on **Supabase** (Postgres + Auth + private
-Storage + Realtime). Runs the same on your laptop (`server.js`) and on the production VPS via PM2.
+- **Pick & Drop** — scheduled airport transfers
+- **Food Delivery** — restaurant ordering and delivery within a 15 km radius
 
-> Quick start below. **Full platform reference (architecture, data model, deployment, security,
-> admin runbook):** [../docs/SMARTMAPPIA.md](../docs/SMARTMAPPIA.md). **Food Delivery deep-dive:**
-> [../docs/food-delivery/FOOD_DELIVERY.md](../docs/food-delivery/FOOD_DELIVERY.md). Older docs
-> (the previous backend guide, deployment log, etc.) are archived under
-> [../docs/archive/](../docs/archive/).
+**Node.js + Express** (plain JavaScript, CommonJS, no build step) on **Supabase** (Postgres 15, Auth,
+Storage, Realtime). Runs identically on a laptop and on the production VPS under PM2.
 
-**Live:** API at `https://api.smartmappia.com` (behind Nginx + HTTPS, PM2 process `smartmappia-api`).
+**Live:** `https://api.smartmappia.com` (Nginx + HTTPS, PM2 process `smartmappia-api`, Cloudflare in
+front).
+
+> Detailed engineering documentation is kept private and is **not** in this repository. If you have
+> the working copy, see `docs/engineering/` — a 20-part handbook covering architecture, the data
+> model, the dispatch engine, the money model, security, and operations. This README is intentionally
+> self-contained so it stands alone without it.
 
 ---
 
-## What's built
+## Architecture in brief
 
-**Auth** (Supabase JWT)
-- `POST /api/auth/signup` — create the account (email pre-confirmed)
-- `POST /api/auth/sync` — after login, upsert the profile + role (admin only via `ADMIN_EMAILS`)
+```
+Client (React SPA / Android WebView)
+  |
+  v  Bearer JWT
+Nginx  ->  Express (PM2, port 4000)
+             |
+   routes/ -> controllers/ -> lib/  ->  Supabase Postgres
+                                         Auth, Storage, Realtime
+```
 
-**Passenger / booking**
-- `POST /api/bookings` — create (requires sign-in; fare snapshot + booking code)
-- `GET  /api/bookings/:code` — booking summary · `POST /api/bookings/:code/cancel` — owner cancels
-- `GET  /api/bookings/:code/payment-instructions` — STC Pay details + fare
-- `POST /api/bookings/:code/payment-proof/signed-url` + `POST /api/bookings/:code/payment-proof`
-- `GET  /api/tracking/:code` — public live tracking (timeline, ETAs, driver position)
+Three layers, strictly one-directional:
 
-**Driver**
-- `GET  /api/driver/available` · `POST /api/driver/rides/:code/accept` · `POST /api/driver/location`
-- `GET  /api/driver/rides` · `POST /api/driver/rides/:code/status`
-- **KYC:** `POST /api/driver/documents/signed-url` · `POST /api/driver/documents` · `GET /api/driver/documents`
+| Layer | Responsibility | Must not |
+|---|---|---|
+| `routes/` | Paths, guards, rate limiters, validation schemas | Contain business logic |
+| `controllers/` | Parse the request, call `lib/`, shape the response | Query the database directly |
+| `lib/` | **All** business logic and database access | Reference `req` or `res` |
 
-**Admin** (`requireAdmin`)
-- `GET /api/admin/stats` · `/reports` · `/bookings` · `/bookings/:code`
-- `POST /api/admin/bookings/:code/verify-payment` · `/reject-payment` · `/assign-driver`
-- `GET /api/admin/drivers` · `POST /api/admin/drivers/:id/approval`
-- **KYC review:** `GET /api/admin/drivers/:id/documents` · `POST /api/admin/drivers/:id/documents/:docId/review`
+**There is no `services/` directory — `lib/` is the service layer.** It is substantial:
+`lib/dispatch.js` alone is 551 lines and holds the platform's most concurrency-sensitive code.
 
-**Notifications**
-- `POST /api/notifications/register` · `/unregister` · `GET /api/notifications` (device push tokens + log)
+Key invariants:
 
-**Routing (OSRM proxy)**
-- `GET /api/osrm/route/v1/driving/...` — proxies the private self-hosted OSRM (localhost:5000)
+- **All money is computed server-side** from database values. Client-sent amounts are ignored.
+- **The database arbitrates concurrency** — partial unique indexes and compare-and-swap updates, not
+  application locks.
+- **Realtime accelerates; polling guarantees.** Every broadcast failure is swallowed by design.
+- **`lib/config.js` is the only place that reads `process.env`.**
 
-### How auth works
-Supabase Auth (email + password). The frontend sends `Authorization: Bearer <jwt>`; the backend
-verifies it and reads the role from `profiles`.
+---
+
+## Endpoints
+
+Eleven route modules mounted in `app.js`.
+
+**Auth** — `/api/auth`
+- `POST /signup` — create an account. `role` accepts only `passenger` or `driver`; an email listed in
+  `ADMIN_EMAILS` is refused (`403`) to block register-then-auto-promote.
+- `POST /sync` — upsert the profile and resolve the role. A client-supplied role is never honoured.
+- `PATCH /profile` · `POST /avatar/signed-url`
+
+**Bookings (Pick & Drop)** — `/api/bookings`
+- `POST /` · `GET /` — create, own history
+- `GET /:code` — summary (public, code-gated) · `POST /:code/cancel`
+- `PATCH /:code/contact` · `POST /:code/rate-driver`
+- `GET /:code/payment-instructions` — STC Pay details and fare
+- `POST /:code/payment-proof/signed-url` · `POST /:code/payment-proof`
+
+**Tracking** — `GET /api/tracking/:code` (public, code-gated)
+
+**Driver** — `/api/driver`
+- Feed and rides: `GET /available` · `POST /rides/:code/accept` · `GET /rides` ·
+  `POST /rides/:code/status` · `POST /rides/:code/cancel`
+- Dispatch offers: `GET /offers` · `POST /offers/:id/accept` · `/decline`
+- Deliveries: `GET /deliveries` · `/deliveries/available` · `POST /deliveries/:code/claim` ·
+  `/cancel` · `/photo-url` · `/status`
+- `POST /location` · `PATCH /services` · `GET /cash`
+- KYC: `POST /documents/signed-url` · `POST /documents` · `GET /documents`
+
+**Merchant** — `/api/merchant` (entire router behind `requireMerchant`)
+- `GET|PATCH /profile` · logo and menu-image upload
+- `GET /analytics` · `GET /menu` · categories and items CRUD
+- Orders: `GET /orders` · `POST /orders/:code/accept` · `/reject` ·
+  `PATCH /orders/:code/status` — **authority caps at `ready`**
+
+**Food** — `/api/food`
+- Discovery: `GET /restaurants` · `/restaurants/:id` (public)
+- Cart: `GET|POST|PATCH|DELETE /cart[...]`
+- `POST /orders` — checkout. Re-reads menu prices, recomputes distance, enforces the SAR 30 minimum
+  and 15 km radius. Accepts `Idempotency-Key`.
+- `GET /orders` · `/orders/:code` · `PATCH /orders/:code/contact` · `POST /orders/:code/rate-driver`
+- Payments: `GET|POST /orders/:code/pay[...]` · `POST /orders/:code/tap-charge`
+- `POST /webhooks/tap` (signed) · `POST /events`
+
+**Admin** — `/api/admin` (entire router behind `requireAdmin`)
+- Rides: `GET /stats` · `/reports` · `/bookings[/:code]` ·
+  `POST /bookings/:code/verify-payment` — **this triggers ride dispatch** · `/reject-payment` ·
+  `/assign-driver`
+- Drivers: `GET /drivers` · `POST /drivers/:id/approval` · `GET /drivers/cash` ·
+  `POST /drivers/:id/settle-cash` · KYC review endpoints
+- Food: `GET /food/overview` · `GET /food/settlement` (payout-versus-markup CSV) · merchants CRUD,
+  suspend, reactivate, credit, owner provisioning · menu CRUD · full order control
+
+**Notifications** — `/api/notifications` — `GET /push-config` · `POST /register` · `/unregister` ·
+`GET /` · `PATCH /read`
+
+**Maps proxies** (public, rate-limited, 60-second LRU cache)
+- `GET /api/route` — Google Routes API
+- `GET /api/locations/search` · `/details` · `/reverse` · `/nearby` — Places and Geocoding
+
+The browser never holds a key with server privileges — `GOOGLE_MAPS_SERVER_KEY` stays here.
+
+**Health** — `GET /api/health` — liveness plus a database ping.
+
+---
+
+## Auth and roles
+
+Supabase Auth, email and password. **JWT bearer tokens only — no cookies, no sessions, no CSRF
+surface.** The frontend sends `Authorization: Bearer <jwt>`; `middleware/auth.js` verifies it and
+reads the role from `profiles`.
+
+| Guard | Requires |
+|---|---|
+| `requireToken` | Valid JWT; profile may not exist |
+| `requireAuth` | Valid JWT **and** a `profiles` row |
+| `requireAdmin` | `role = admin` |
+| `requireDriver` | driver or admin |
+| `requireMerchant` | merchant or admin |
+| `requireApprovedDriver` | driver + `driver_approved` (admin bypasses) |
+| `optionalAuth` | Attaches identity if present; never rejects |
+
 - **Passengers** must be signed in to book.
-- **Drivers** sign up but stay unapproved until they pass **document verification** (KYC) and an
-  admin approves — only then can they see the feed or accept rides.
-- **Admins** aren't a signup option; role is granted only to emails in `ADMIN_EMAILS` (or an
-  existing admin profile). Never self-elevated via the request body.
-- An **admin also passes the driver guards** (admin "View as" preview convenience).
+- **Drivers** sign up but stay unapproved until six KYC documents are verified. Verifying the last
+  one auto-approves. Only then can they see the feed or accept work.
+- **Merchants** cannot self-register. An admin provisions the owner via
+  `POST /api/admin/food/merchants/:id/owner`.
+- **Admins** are granted solely by the `ADMIN_EMAILS` allow-list, never from a request body.
+- **Admin passes the driver and merchant guards** — an admin account is a superset of every role.
+
+Row Level Security is enabled on all 28 tables. The backend uses the `service_role` key and bypasses
+it; RLS defends the path where a client uses the anon key directly.
 
 ---
 
 ## Get it running (local)
 
-1. **Database** — in Supabase SQL Editor run migrations in order:
-   `0001, 0002, 0003, 0005, 0006, 0007, 0008` (**skip `0004`** — pilot-only auto-approve).
-2. **Storage** — create two **private** buckets: `payment-proofs` and `driver-docs`,
-   and one **public** bucket: `merchant-images` (restaurant logos + menu photos).
-3. **Env** — `cp .env.example .env`, then fill `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`,
-   `ADMIN_EMAILS`, `SMART_MAPPIA_STCPAY_NUMBER`. Keep `AUTO_VERIFY_STCPAY_TEST_MODE=true` for local
-   testing; **`false` in production**.
-4. **Run** — `npm install && npm run dev` → `http://localhost:4000`.
-5. **Accounts** — `npm run seed:admin` (or `seed:accounts` for admin + user123 + driver123);
-   `npm run seed:admins` creates the named admins (Ruth, Nawaf) with generated passwords.
-   For custom admins: `ADMIN_SEED_EMAIL=you@x.com ADMIN_SEED_PASSWORD=... npm run seed:admin`.
+1. **Database** — in the Supabase SQL Editor run `backend/migrations/0001`–`0024` in order,
+   **skipping `0004`**.
 
-Health check: `curl http://localhost:4000/api/health`.
+   > `0004_auto_approve_drivers.PILOT.sql` removes the KYC gate from every driver. Pilot demos only.
+   > **Never run it in production.**
+
+2. **Storage** — create four buckets:
+
+   | Bucket | Visibility |
+   |---|---|
+   | `payment-proofs` | **Private** |
+   | `driver-docs` | **Private** |
+   | `merchant-images` | Public |
+   | `avatars` | Public (created lazily by the backend if absent) |
+
+3. **Env** — `cp .env.example .env`, then fill at minimum `SUPABASE_URL`,
+   `SUPABASE_SERVICE_ROLE_KEY`, `ADMIN_EMAILS`, `SMART_MAPPIA_STCPAY_NUMBER`,
+   `GOOGLE_MAPS_SERVER_KEY`.
+
+   Keep `AUTO_VERIFY_STCPAY_TEST_MODE=true` locally so payments self-verify.
+   **It must be `false` in production.**
+
+4. **Run** — `npm install && npm run dev` -> `http://localhost:4000`
+
+5. **Accounts** — `npm run seed:accounts` (admin + test passenger + test driver).
+
+   > Never run `npm run seed:admins` against production once the named admins exist — it resets them
+   > to fresh random passwords.
+
+6. **Verify** — `npm run check:migrations` and `curl http://localhost:4000/api/health`.
+
+   > The checker probes `0001`-`0003`, `0009`-`0016`, `0021`-`0024`. It does **not** probe
+   > `0017`-`0020` — verify `0019` manually, since it carries the margin confidentiality grants.
 
 ---
 
-## Production (VPS)
+## Production
 
-Deployed on a Hostinger VPS: Node + PM2 behind Nginx + Certbot (HTTPS), with self-hosted OSRM in
-Docker. `app.set('trust proxy', 1)` is on so rate limits key on the real client IP. Full runbook +
-exact commands: **[../docs/SMARTMAPPIA.md §16](../docs/SMARTMAPPIA.md#16-deployment--hosting--production)**
-(archived original: [../docs/archive/production/DEPLOYMENT_LOG.md](../docs/archive/production/DEPLOYMENT_LOG.md)).
+Deployed on a **Hostinger VPS**: Node under PM2 behind Nginx and Certbot, with Cloudflare in front.
+`app.set('trust proxy', 1)` is on so rate limits key on the real client IP.
 
-Redeploy after a change:
+Redeploy:
+
 ```bash
-cd /opt/SmartMappiaa && git pull
-cd smartmappia-web-main/backend && npm install --omit=dev && pm2 restart smartmappia-api
+cd /opt/SmartMappiaa && git pull && \
+cd smartmappia-web-main/backend && npm install --omit=dev && pm2 restart smartmappia-api && \
+cd ../frontend && npm install && npm run build
 ```
+
+Restarts are safe — all dispatch state lives in Postgres, so the sweepers resume cleanly.
+
+After deploying, check the boot log:
+
+```bash
+pm2 logs smartmappia-api --lines 50
+```
+
+| Line | Meaning |
+|---|---|
+| `Dispatch sweeper running (...)` | Healthy. **Its absence means dispatch has no cascade.** |
+| `[cors] CORS_ORIGINS is not set` | **Every browser origin is allowed.** Fix immediately. |
+| `[SECURITY] AUTO_VERIFY_STCPAY_TEST_MODE` | **Payments are auto-verifying.** Fix immediately. |
 
 ---
 
 ## Security notes
-- Per-endpoint **rate limiting** (`middleware/rateLimiters.js`) on top of a global cap.
-- **RLS** enabled on every table; the backend uses the `service_role` key (bypasses RLS) — keep it
-  server-only, never in `VITE_*`.
-- `.env` is gitignored; never commit secrets.
-- Before public launch: turn off `AUTO_VERIFY_STCPAY_TEST_MODE`, remove test accounts, rotate seed
-  passwords. See [../docs/SMARTMAPPIA.md §17](../docs/SMARTMAPPIA.md#17-security) (archived
-  checklist: [../docs/archive/production/LAUNCH_CHECKLIST.md](../docs/archive/production/LAUNCH_CHECKLIST.md)).
+
+- **Rate limiting** — global 240/min plus 20/min on auth, and 15 per-endpoint limiters in
+  `middleware/rateLimiters.js`. When debugging a `429`, check these first.
+- **Validation** — `lib/validate.js` whitelists request bodies, **rejects** unknown fields, and
+  replaces `req.body` with only validated fields, so mass assignment is structurally impossible.
+- **Geofencing** — driver status transitions asserting physical presence are gated on a fresh GPS fix
+  and **fail closed**.
+- **RLS** on every table; the `service_role` key bypasses it — keep it server-only, **never** under a
+  `VITE_` name.
+- **Column-level grants** (migration `0019`) hide `net_price`, `platform_margin_total`, and
+  `margin_*` from client roles. Any migration touching `menu_items`, `orders`, or `order_items` must
+  extend that grant list.
+- `.env` is gitignored. Never commit secrets.
+
+Before launch: set `CORS_ORIGINS`, set `AUTO_VERIFY_STCPAY_TEST_MODE=false`, remove test accounts,
+and rotate seed passwords.
 
 ---
 
 ## Project structure
+
 ```
 backend/
-├── controllers/  authController, bookingsController, paymentsController, trackingController,
-│                 adminController, driverController, driverDocsController, notificationsController
-├── middleware/   auth.js (JWT->role), rateLimiters.js
-├── lib/          supabase, config, fare, storage, tracking, payments, ledger, realtime, geo, notifications
-├── routes/       health, auth, bookings, tracking, admin, driver, merchant, locations, notifications, osrm
-├── app.js        server.js   vercel.json   package.json   .env.example
-└── migrations/   0001..0016 (+ 0004 PILOT — do not run in prod; 0009..0016 = Food Delivery)
+├── app.js            Express app: middleware + route mounts (exported, never listens)
+├── server.js         The entry point: dotenv, app.listen, startDispatchSweeper()
+├── routes/           health, auth, bookings, tracking, admin, driver, merchant,
+│                     notifications, route, food, locations
+├── controllers/      13 modules + food/ (admin, orders, merchant, ratings, dispatch, docs)
+├── middleware/       auth.js (6 guards), foodAuth.js (optionalAuth),
+│                     rateLimiters.js (15 limiters), idempotency.js
+├── lib/              THE SERVICE LAYER (24 files):
+│                       dispatch, foodMoney, fare, ledger, driverCash, payments,
+│                       foodOrderActions, geofence, geo, realtime, notifications,
+│                       webPush, storage, uploadValidation, validate, audit,
+│                       config, supabase, ...
+├── migrations/       0001..0024 (skip 0004 in production) + utilities/
+└── scripts/          seed-admin, seed-admins, seed-user, seed-driver,
+                      check-migrations, demo/
 ```
 
 ---
 
-## Web Push setup
+## Web Push
 
-1. Apply migration `migrations/0017_web_push_notifications.sql`.
-2. Generate one VAPID key pair:
-   `npx web-push generate-vapid-keys`
-3. Set `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, and `VAPID_SUBJECT` in the
-   backend environment, then redeploy the backend and frontend.
-4. Serve the frontend over HTTPS. Users can then enable phone notifications
-   from the in-app prompt. iOS requires adding the site to the Home Screen.
+1. Apply migration `0017`.
+2. `npx web-push generate-vapid-keys`
+3. Set `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT`, then redeploy both projects.
+4. Serve the frontend over HTTPS. iOS requires adding the site to the Home Screen.
 
-The operating system controls the background notification sound. The existing
-Web Audio chime is used while the app is visible.
+Dead subscriptions (404/410) are pruned automatically. The notification inbox row is the durable
+record; push and realtime are best-effort.
 
 ---
 
-## Still on the wishlist
-- **Tap Payments** backend (create-charge + webhook) — schema/enums ready (0006), handlers not built.
-- **Native push send** — web push is live; an FCM/APNs sender is still needed for a future Capacitor app.
-- **Atomic writes** — wrap multi-table verify/complete in Postgres RPCs.
-- **Automated tests** — syntax-checked + smoke-tested by hand for now.
+## Known gaps
+
+- **No automated tests.** The highest-value first step is unit tests for the pure modules
+  (`foodMoney.js`, `ledger.js`, `fare.js`, `validate.js`, `geo.js`) — no database required.
+- **No transactions.** The Supabase client exposes none, so multi-table writes are sequential.
+  Moving them into Postgres functions (RPCs) is the main outstanding integrity improvement.
+- **No monitoring or alerting.** An external uptime check on `/api/health` is the cheapest fix.
+- `GET /:code/payment-instructions` has no rate limiter, unlike its siblings.
+- `merchantOrderLimiter` is defined but not wired into `routes/merchant.js`.
+- `ADMIN_API_KEY` / `DRIVER_API_KEY` are legacy and used by no route.
+- `vercel.json` and `api/index.js` are **dead** — hosting is the Hostinger VPS only.
+- **Tap Payments** — schema, enums, and the webhook path exist; the flow is behind a flag and off.

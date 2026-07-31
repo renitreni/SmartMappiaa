@@ -38,36 +38,40 @@ function Countdown({ expiresAt }) {
 }
 
 function OfferCard({ offer, busy, onAccept, onDecline }) {
-  const isFood = offer.kind === 'food';
+  // Food and shop offers render the SAME card — the rider does the same job
+  // either way. Only the pickup noun changes.
+  const isDelivery = offer.kind === 'food' || offer.kind === 'shop';
+  const job = offer.food || offer.shop;
+  const pickupNoun = offer.kind === 'shop' ? 'Store' : 'Restaurant';
   return (
     <Card className="p-4 border-2 border-brand-orange/60 shadow-lg shadow-brand-orange/10 mb-4">
       <div className="flex items-center justify-between gap-2 mb-3">
         <Badge tone="amber">
-          {isFood ? <Bike className="w-3.5 h-3.5" /> : null}
-          {isFood ? 'New delivery offer' : 'New ride offer'}
+          {isDelivery ? <Bike className="w-3.5 h-3.5" /> : null}
+          {isDelivery ? 'New delivery offer' : 'New ride offer'}
         </Badge>
         <Countdown expiresAt={offer.expiresAt} />
       </div>
 
-      {isFood && offer.food && (
+      {isDelivery && job && (
         <div className="space-y-1 text-sm">
           <p className="font-black text-brand-black flex items-center gap-1.5">
-            <Store className="w-4 h-4 text-brand-orange shrink-0" /> {offer.food.merchantName || 'Restaurant'}
+            <Store className="w-4 h-4 text-brand-orange shrink-0" /> {job.merchantName || pickupNoun}
           </p>
-          {offer.food.pickupAddress && (
-            <p className="text-brand-grey text-xs truncate">Pick up: {offer.food.pickupAddress}</p>
+          {job.pickupAddress && (
+            <p className="text-brand-grey text-xs truncate">Pick up: {job.pickupAddress}</p>
           )}
-          <p className="text-brand-grey text-xs truncate">Deliver to: {offer.food.dropoffAddress}</p>
+          <p className="text-brand-grey text-xs truncate">Deliver to: {job.dropoffAddress}</p>
           <p className="text-xs">
             <span className="text-brand-grey">Order value:</span>{' '}
-            <span className="font-bold text-brand-dark">{fmtSAR(offer.food.total)}</span>
+            <span className="font-bold text-brand-dark">{fmtSAR(job.total)}</span>
             {offer.distanceKm != null && (
               <span className="text-brand-grey"> · {offer.distanceKm} km away</span>
             )}
           </p>
         </div>
       )}
-      {!isFood && offer.ride && (
+      {!isDelivery && offer.ride && (
         <div className="space-y-1 text-sm">
           <p className="font-black text-brand-black">Airport transfer · {fmtSAR(offer.ride.fareAmount)}</p>
           <p className="text-brand-grey text-xs truncate">From: {offer.ride.pickupAddress}</p>
@@ -99,7 +103,8 @@ function DeliveryCard({ delivery, busy, onStatus, onCancel }) {
   const enRoute = delivery.orderStatus === 'out_for_delivery';
   const [photo, setPhoto] = useState(null);
   const nextStatus = enRoute ? 'delivered' : 'picked_up';
-  // Navigate to the restaurant before pickup, then to the customer.
+  // Navigate to the pickup point before pickup, then to the customer.
+  const pickupNoun = delivery.kind === 'shop' ? 'store' : 'restaurant';
   const navTarget = enRoute
     ? { lat: delivery.dropoffLat, lng: delivery.dropoffLng }
     : { lat: delivery.merchant?.lat, lng: delivery.merchant?.lng };
@@ -109,14 +114,14 @@ function DeliveryCard({ delivery, busy, onStatus, onCancel }) {
       <div className="flex items-center justify-between gap-2">
         <p className="font-mono font-bold text-brand-dark">{delivery.orderCode}</p>
         <Badge tone={enRoute ? 'blue' : 'amber'}>
-          {enRoute ? 'Delivering' : 'Waiting at restaurant'}
+          {enRoute ? 'Delivering' : `Waiting at ${pickupNoun}`}
         </Badge>
       </div>
       <div className="mt-2 space-y-1 text-sm">
         <p className="text-brand-dark flex items-start gap-1.5">
           <Store className="w-4 h-4 text-brand-orange shrink-0 mt-0.5" />
           <span>
-            <span className="font-bold">{delivery.merchant?.name || 'Restaurant'}</span>
+            <span className="font-bold">{delivery.merchant?.name || (delivery.kind === 'shop' ? 'Store' : 'Restaurant')}</span>
             {delivery.merchant?.address && <span className="text-brand-grey"> · {delivery.merchant.address}</span>}
           </span>
         </p>
@@ -160,7 +165,7 @@ function DeliveryCard({ delivery, busy, onStatus, onCancel }) {
             rel="noreferrer"
             className={btnGhost + ' !py-2 !px-3 !text-xs !text-white !bg-brand-dark hover:!bg-black !border-brand-dark'}
           >
-            <Navigation className="w-3.5 h-3.5" /> {enRoute ? 'Navigate to customer' : 'Navigate to restaurant'}
+            <Navigation className="w-3.5 h-3.5" /> {enRoute ? 'Navigate to customer' : `Navigate to ${pickupNoun}`}
           </a>
         )}
       </div>
@@ -172,7 +177,7 @@ function DeliveryCard({ delivery, busy, onStatus, onCancel }) {
       <div className="mt-3 pt-3 border-t border-brand-border">
         <p className="text-xs font-bold text-brand-dark mb-1.5 flex items-center gap-1.5">
           <Camera className="w-3.5 h-3.5 text-brand-orange" />
-          {enRoute ? 'Take a photo to confirm delivery' : 'Take a photo of the order at the restaurant'}
+          {enRoute ? 'Take a photo to confirm delivery' : `Take a photo of the order at the ${pickupNoun}`}
         </p>
         {enRoute && (
           <p className="text-[11px] text-brand-grey mb-1.5">
@@ -295,7 +300,7 @@ export default function DriverDispatch({ online, foodEnabled = true, driverId, c
     try {
       const res = await api.driverOfferAccept(offer.id);
       setOffers((list) => list.filter((o) => o.id !== offer.id));
-      if (res.kind === 'food') await loadDeliveries();
+      if (res.kind === 'food' || res.kind === 'shop') await loadDeliveries();
       else onRideAccepted?.();
     } catch (err) {
       setError(err.message);
@@ -410,7 +415,7 @@ export default function DriverDispatch({ online, foodEnabled = true, driverId, c
           {pool.map((d) => (
             <Card key={d.orderCode} className="p-4 mb-3 flex items-center gap-3">
               <div className="min-w-0 flex-1">
-                <p className="font-bold text-brand-dark truncate">{d.merchant?.name || 'Restaurant'}</p>
+                <p className="font-bold text-brand-dark truncate">{d.merchant?.name || (d.kind === 'shop' ? 'Store' : 'Restaurant')}</p>
                 <p className="text-xs text-brand-grey truncate">
                   To: {d.dropoffAddress}
                   {d.distanceKm != null && ` · ${d.distanceKm} km from you`}

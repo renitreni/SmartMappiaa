@@ -24,6 +24,25 @@ const FOOD_EVENTS = [
 // Events a browser may report directly; everything else is server-observed.
 const CLIENT_EVENTS = ['view_menu', 'add_to_cart', 'checkout_attempt'];
 
+// The Ecommerce vocabulary. Shares this table (and the 0016 retention job)
+// via the shop_order_id column added in migration 0028 — the fd_ table name
+// is now a misnomer, but renaming it would break that job and every
+// existing query.
+const SHOP_EVENTS = [
+  'view_store',
+  'add_to_cart',
+  'checkout_attempt',
+  'payment_success',
+  'merchant_order_accept',
+  'out_of_stock_block',
+  'low_stock_reached',
+  'credit_limit_warning',
+  'service_suspended',
+];
+
+// Same discovery/engagement subset rule as food.
+const SHOP_CLIENT_EVENTS = ['view_store', 'add_to_cart', 'checkout_attempt'];
+
 async function logFoodEvent({ eventName, userId = null, orderId = null, merchantId = null, params = null }) {
   try {
     if (!FOOD_EVENTS.includes(eventName)) {
@@ -42,4 +61,29 @@ async function logFoodEvent({ eventName, userId = null, orderId = null, merchant
   }
 }
 
-module.exports = { FOOD_EVENTS, CLIENT_EVENTS, logFoodEvent };
+async function logShopEvent({ eventName, userId = null, shopOrderId = null, merchantId = null, params = null }) {
+  try {
+    if (!SHOP_EVENTS.includes(eventName)) {
+      console.error(`logShopEvent: unknown event "${eventName}" ignored`);
+      return;
+    }
+    await supabase.from('fd_analytics_events').insert({
+      event_name: eventName,
+      user_id: userId,
+      shop_order_id: shopOrderId,
+      merchant_id: merchantId,
+      params,
+    });
+  } catch (err) {
+    console.error('logShopEvent error:', err.message || err);
+  }
+}
+
+module.exports = {
+  FOOD_EVENTS,
+  CLIENT_EVENTS,
+  logFoodEvent,
+  SHOP_EVENTS,
+  SHOP_CLIENT_EVENTS,
+  logShopEvent,
+};

@@ -58,7 +58,7 @@ export default function TapPayButton({ bookingCode, className = '' }) {
       }
     >
       <CreditCard className="w-4 h-4" />
-      Pay online — STC Pay / mada / card
+      Pay online with STC Pay / mada / card
       {!TAP_ENABLED && (
         <span className="ml-1 text-[10px] font-bold uppercase bg-white/20 px-1.5 py-0.5 rounded">
           Soon

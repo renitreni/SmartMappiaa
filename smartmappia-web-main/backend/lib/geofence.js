@@ -45,7 +45,22 @@ async function resolveDriverPosition(driverId, bodyLat, bodyLng) {
 // { httpStatus, body } error payload for the caller to return directly.
 async function assertWithinGeofence({ driverId, target, radiusMeters, bodyLat, bodyLng }) {
   if (!config.geofence.enabled) return null;
-  if (!target || target.lat == null || target.lng == null) return null; // nothing to check against
+
+  // FAIL CLOSED on a missing pin. This used to `return null` (pass) — but
+  // "nothing to check against" is indistinguishable from "the check was
+  // removed", and merchant lat/lng is nullable. A merchant who cleared their
+  // own pin silently disabled the pickup geofence for every delivery at
+  // their location, turning the photo-proof control into an honour system.
+  // A missing pin is an operations problem, not a licence to skip the check.
+  if (!target || target.lat == null || target.lng == null) {
+    return {
+      httpStatus: 409,
+      body: {
+        error: 'This pickup location has no map pin set — contact Smart Mappia support.',
+        failure_reason: 'target_location_missing',
+      },
+    };
+  }
 
   const driverPos = await resolveDriverPosition(driverId, bodyLat, bodyLng);
   if (!driverPos) {

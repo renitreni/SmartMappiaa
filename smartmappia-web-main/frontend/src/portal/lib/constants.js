@@ -20,15 +20,41 @@ export function roleHome(role, next = '/') {
   return safeNext ? next : '/home';
 }
 
-// Fare model (mirrors backend lib/fare.js): flat base + 3.75% service fee.
+// KSA VAT, charged on top of the pre-tax amounts (mirrors backend lib/vat.js).
+// Display only — every amount actually charged comes from the server, and a
+// stored order/booking carries the rate it was really billed at.
+export const VAT_RATE = 0.15;
+
+// "VAT (15%)". Prefers the rate stored on the row so a receipt reprinted
+// after a rate change still shows what was charged.
+export function vatLabel(rate) {
+  const r = Number(rate);
+  const pct = Number.isFinite(r) && r > 0 ? r * 100 : VAT_RATE * 100;
+  return `VAT (${Math.round(pct * 100) / 100}%)`;
+}
+
+// Fare model (mirrors backend lib/fare.js): flat base + 3.75% service fee,
+// then 15% VAT on top. `fareTotal` is the ex-VAT fare that gets stored as
+// bookings.fare_amount; `total` is what the passenger pays.
 export const FARE_BASE = 100;
 export const SERVICE_FEE_RATE = 0.0375;
 
 export function fareBreakdown() {
+  const round2 = (n) => Math.round(n * 100) / 100;
   const base = FARE_BASE;
-  const serviceFee = Math.round(base * SERVICE_FEE_RATE * 100) / 100;
-  const total = Math.round((base + serviceFee) * 100) / 100;
-  return { base, serviceFeeRate: SERVICE_FEE_RATE, serviceFeePercent: +(SERVICE_FEE_RATE * 100).toFixed(2), serviceFee, total };
+  const serviceFee = round2(base * SERVICE_FEE_RATE);
+  const fareTotal = round2(base + serviceFee);
+  const vatAmount = round2(fareTotal * VAT_RATE);
+  return {
+    base,
+    serviceFeeRate: SERVICE_FEE_RATE,
+    serviceFeePercent: +(SERVICE_FEE_RATE * 100).toFixed(2),
+    serviceFee,
+    fareTotal,
+    vatRate: VAT_RATE,
+    vatAmount,
+    total: round2(fareTotal + vatAmount),
+  };
 }
 
 // Riyadh airports with approximate coordinates (used for map + matching).
@@ -171,3 +197,59 @@ export const FOOD_PAYMENT_METHODS = {
   tap: 'Card (Tap)',
   cash: 'Cash on delivery',
 };
+
+// --- Ecommerce ("shop") ----------------------------------------------
+
+// Business rules mirrored from backend lib/shopMoney.js for DISPLAY ONLY —
+// the server re-validates all of them at checkout/accept. The credit limit
+// is shared with food (one credit model, one set of columns).
+export const SHOP_MIN_ORDER = 50;
+export const SHOP_DELIVERY_FEE = 15;
+export const SHOP_RADIUS_KM = 15;
+
+export const SHOP_ORDER_STATUS = {
+  pending: { label: 'Pending', tone: 'amber' },
+  accepted: { label: 'Accepted', tone: 'blue' },
+  packing: { label: 'Packing', tone: 'blue' },
+  ready: { label: 'Ready', tone: 'blue' },
+  out_for_delivery: { label: 'Out for delivery', tone: 'blue' },
+  delivered: { label: 'Delivered', tone: 'green' },
+  cancelled: { label: 'Cancelled', tone: 'red' },
+  rejected: { label: 'Rejected', tone: 'red' },
+};
+
+// Payment statuses are the same enum as food (fd_payment_status is shared).
+export function shopStatusMeta(status) {
+  return SHOP_ORDER_STATUS[status] || { label: status || 'Unknown', tone: 'grey' };
+}
+
+export const shopPaymentMeta = foodPaymentMeta;
+
+// The fulfillment ladder shown on the tracking stepper.
+export const SHOP_TRACK_STEPS = [
+  { id: 'pending', label: 'Order placed', desc: 'Waiting for the store to confirm your order.' },
+  { id: 'accepted', label: 'Confirmed', desc: 'The store confirmed your order.' },
+  { id: 'packing', label: 'Packing', desc: 'The store is packing your items.' },
+  { id: 'ready', label: 'Ready', desc: 'Your order is packed and waiting for the rider.' },
+  { id: 'out_for_delivery', label: 'Out for delivery', desc: 'Your rider picked up the order and is on the way to you.' },
+  { id: 'delivered', label: 'Delivered', desc: 'Thanks for shopping with Smart Mappia.' },
+];
+
+export const SHOP_PAYMENT_METHODS = {
+  stcpay: 'STC Pay',
+  tap: 'Card (Tap)',
+  cash: 'Cash on delivery',
+};
+
+// Stock is never exposed as a number to customers — the API sends a band
+// instead, because an exact count polled over time reveals a store's sales
+// velocity per SKU. These are the only three values a storefront ever sees.
+export const AVAILABILITY = {
+  in_stock: { label: 'In stock', tone: 'green' },
+  low: { label: 'Only a few left', tone: 'amber' },
+  out: { label: 'Out of stock', tone: 'red' },
+};
+
+export function availabilityMeta(band) {
+  return AVAILABILITY[band] || AVAILABILITY.in_stock;
+}

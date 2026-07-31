@@ -10,7 +10,7 @@
 // ---------------------------------------------------------------------
 const { supabase } = require('../lib/supabase');
 const { config } = require('../lib/config');
-const { fareBreakdown } = require('../lib/fare');
+const { fareBreakdown, payableAmount, bookingVat } = require('../lib/fare');
 const { addTrackingEvent } = require('../lib/tracking');
 const { verifyBookingPayment } = require('../lib/payments');
 const { pushBookingStatus, pingAdmin } = require('../lib/realtime');
@@ -26,7 +26,10 @@ const PAYABLE_STATUSES = ['awaiting_proof', 'proof_uploaded', 'under_review', 'r
 async function loadBooking(bookingCode) {
   const { data, error } = await supabase
     .from('bookings')
-    .select('id, booking_code, fare_amount, currency, payment_method, payment_status, booking_status')
+    .select(
+      'id, booking_code, fare_amount, vat_amount, vat_rate, total_amount, currency, ' +
+        'payment_method, payment_status, booking_status'
+    )
     .eq('booking_code', bookingCode)
     .single();
   if (error || !data) return null;
@@ -53,21 +56,29 @@ async function getPaymentInstructions(req, res) {
     }
     if (cashBlocked(res, booking)) return;
 
+    // Breakdown runs on the EX-VAT fare; VAT is a separate snapshot line.
     const fare = fareBreakdown(booking.fare_amount);
+    const vatAmount = bookingVat(booking);
+    const payable = payableAmount(booking);
 
     return res.json({
       bookingCode: booking.booking_code,
       paymentMethod: booking.payment_method,
       paymentStatus: booking.payment_status,
-      amount: booking.fare_amount,
+      // What to transfer: fare + VAT.
+      amount: payable,
       currency: booking.currency,
-      // Itemized fare: base + 3.75% service fee = total.
+      // Itemized: base + 3.75% service fee = fare, + VAT = total.
       fare: {
         base: fare.base,
         serviceFeeRate: fare.serviceFeeRate,
         serviceFeePercent: +(fare.serviceFeeRate * 100).toFixed(2),
         serviceFee: fare.serviceFee,
-        total: fare.total,
+        fareTotal: fare.total,
+        vatAmount,
+        vatRate: Number(booking.vat_rate) || 0,
+        vatPercent: +((Number(booking.vat_rate) || 0) * 100).toFixed(2),
+        total: payable,
         currency: fare.currency,
       },
       stcPay: {
@@ -77,7 +88,7 @@ async function getPaymentInstructions(req, res) {
       // The booking code IS the transfer note so we can match the payment.
       reference: booking.booking_code,
       instructions: [
-        `Open STC Pay and send ${booking.fare_amount} ${booking.currency} to ${config.stcPay.number} (${config.stcPay.recipientName}).`,
+        `Open STC Pay and send ${payable} ${booking.currency} to ${config.stcPay.number} (${config.stcPay.recipientName}).`,
         `Put your booking code ${booking.booking_code} in the transfer note.`,
         'Take a screenshot of the successful transfer.',
         'Upload that screenshot as your payment proof to confirm your booking.',

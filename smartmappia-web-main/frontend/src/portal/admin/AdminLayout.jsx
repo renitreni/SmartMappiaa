@@ -7,6 +7,7 @@ import {
   ClipboardList,
   Users,
   UtensilsCrossed,
+  ShoppingBag,
   BarChart3,
   RefreshCw,
   LogOut,
@@ -119,6 +120,7 @@ export const ADMIN_NAV = [
   { id: 'bookings', label: 'Bookings', icon: ClipboardList },
   { id: 'drivers', label: 'Drivers', icon: Users },
   { id: 'food', label: 'Food', icon: UtensilsCrossed },
+  { id: 'shop', label: 'Shop', icon: ShoppingBag },
   { id: 'reports', label: 'Reports', icon: BarChart3 },
 ];
 
@@ -138,6 +140,10 @@ const PAGE_COPY = {
   food: {
     title: 'Food Delivery',
     subtitle: 'Merchants, credit limits, order payments, and riders.',
+  },
+  shop: {
+    title: 'Ecommerce',
+    subtitle: 'Stores, catalogue and markup, orders, inventory and settlement.',
   },
   reports: {
     title: 'Reports',

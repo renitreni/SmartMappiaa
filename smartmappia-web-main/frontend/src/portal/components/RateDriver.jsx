@@ -1,6 +1,7 @@
 // ---------------------------------------------------------------------
-// Driver star rating (1-5) — shared by Food Delivery (delivered orders)
-// and Pick & Drop (completed trips). One rating per job, enforced
+// Driver star rating (1-5) — shared by Food Delivery (delivered orders),
+// Ecommerce (delivered shop orders) and Pick & Drop (completed trips).
+// `kind` is 'food' | 'shop' | 'ride'. One rating per job, enforced
 // server-side; an "already rated" response flips into the thanks state.
 // ---------------------------------------------------------------------
 import { useState } from 'react';
@@ -23,6 +24,7 @@ export default function RateDriver({ kind, code, driverName, existing = null }) 
     try {
       const body = { stars, ...(comment.trim() ? { comment: comment.trim() } : {}) };
       if (kind === 'food') await api.rateFoodDriver(code, body);
+      else if (kind === 'shop') await api.rateShopDriver(code, body);
       else await api.rateRideDriver(code, body);
       setDone(true);
     } catch (err) {

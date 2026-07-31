@@ -13,7 +13,26 @@ import { validateUploadFile, UPLOAD_ACCEPT, UPLOAD_FORMATS_HINT } from '../lib/u
 import { fmtSAR } from '../lib/constants';
 import { Card, Field, fileInputClass, btnPrimary, btnGhost, Spinner } from '../components/ui';
 
-export default function PaymentPanel({ code, onPaid }) {
+// Which api methods to drive. The STC Pay proof flow is byte-for-byte the
+// same in both verticals — only the endpoints differ — so the panel is
+// parameterised rather than copied.
+const API_BY_VERTICAL = {
+  food: {
+    paymentInfo: (code) => api.foodPaymentInfo(code),
+    signedUrl: (code, body) => api.foodPaySignedUrl(code, body),
+    recordPayment: (code, body) => api.foodRecordPayment(code, body),
+    tapCharge: (code) => api.foodTapCharge(code),
+  },
+  shop: {
+    paymentInfo: (code) => api.shopPaymentInfo(code),
+    signedUrl: (code, body) => api.shopPaySignedUrl(code, body),
+    recordPayment: (code, body) => api.shopRecordPayment(code, body),
+    tapCharge: (code) => api.shopTapCharge(code),
+  },
+};
+
+export default function PaymentPanel({ code, onPaid, vertical = 'food' }) {
+  const calls = API_BY_VERTICAL[vertical] || API_BY_VERTICAL.food;
   const [info, setInfo] = useState(null);
   const [loadErr, setLoadErr] = useState(null);
   const [error, setError] = useState(null);
@@ -22,8 +41,8 @@ export default function PaymentPanel({ code, onPaid }) {
   const [tapBusy, setTapBusy] = useState(false);
 
   useEffect(() => {
-    api.foodPaymentInfo(code).then(setInfo).catch((e) => setLoadErr(e.message));
-  }, [code]);
+    calls.paymentInfo(code).then(setInfo).catch((e) => setLoadErr(e.message));
+  }, [code, calls]);
 
   async function submitProof() {
     if (!file) return setError('Please choose a screenshot of your STC Pay transfer.');
@@ -33,9 +52,9 @@ export default function PaymentPanel({ code, onPaid }) {
     setError(null);
     setBusy(true);
     try {
-      const signed = await api.foodPaySignedUrl(code, { file_name: file.name, mime_type: check.mimeType });
+      const signed = await calls.signedUrl(code, { file_name: file.name, mime_type: check.mimeType });
       await uploadProofFile(signed.bucket, signed.path, signed.token, file);
-      const result = await api.foodRecordPayment(code, {
+      const result = await calls.recordPayment(code, {
         path: signed.path,
         file_name: file.name,
         mime_type: check.mimeType,
@@ -53,7 +72,7 @@ export default function PaymentPanel({ code, onPaid }) {
     setError(null);
     setTapBusy(true);
     try {
-      const { url } = await api.foodTapCharge(code);
+      const { url } = await calls.tapCharge(code);
       window.location.href = url; // hosted Tap page; webhook confirms
     } catch (err) {
       setError(err.message);

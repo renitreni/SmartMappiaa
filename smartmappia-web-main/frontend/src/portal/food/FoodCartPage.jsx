@@ -9,7 +9,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useNavigate, useSearchParams, Link } from 'react-router-dom';
 import { Minus, Plus, Trash2, ShoppingCart, AlertCircle, ArrowRight } from 'lucide-react';
 import { api } from '../lib/api';
-import { fmtSAR } from '../lib/constants';
+import { fmtSAR, vatLabel } from '../lib/constants';
 import { PortalShell, Card, Badge, Spinner, btnPrimary, btnGhost } from '../components/ui';
 
 const MAX_QTY = 50;
@@ -206,13 +206,17 @@ export default function FoodCartPage() {
                 <span className="font-bold tabular-nums">{fmtSAR(cart.subtotal)}</span>
               </div>
               <div className="flex justify-between">
-                <span className="text-brand-grey">Delivery fee (within 15 km)</span>
+                <span className="text-brand-grey">Delivery charge (within 15 km)</span>
                 <span className="font-bold tabular-nums">{fmtSAR(cart.deliveryFee)}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-brand-grey">{vatLabel(cart.vatRate)}</span>
+                <span className="font-bold tabular-nums">{fmtSAR(cart.vatAmount)}</span>
               </div>
               <div className="flex justify-between pt-2 border-t border-brand-border">
                 <span className="font-bold text-brand-dark">Total</span>
                 <span className="font-black text-brand-orange tabular-nums">
-                  {fmtSAR(cart.subtotal + cart.deliveryFee)}
+                  {fmtSAR(cart.total)}
                 </span>
               </div>
             </Card>
@@ -250,7 +254,7 @@ export default function FoodCartPage() {
               title={!meetsMin ? `Minimum order is ${fmtSAR(cart.minOrder)}` : undefined}
             >
               {meetsMin ? (
-                <>Checkout · {fmtSAR(cart.subtotal + cart.deliveryFee)} <ArrowRight className="w-4 h-4" /></>
+                <>Checkout · {fmtSAR(cart.total)} <ArrowRight className="w-4 h-4" /></>
               ) : (
                 <>Add {fmtSAR(cart.shortfall)} more to checkout</>
               )}

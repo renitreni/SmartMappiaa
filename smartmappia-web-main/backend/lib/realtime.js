@@ -83,6 +83,25 @@ function pingFoodAdmin(orderCode) {
   return broadcast('admin-food', 'changed', { orderCode });
 }
 
+// --- Ecommerce ("shop") channels ---
+//   shop-order-<orderCode> -> the customer tracking one shop order
+//   merchant-<merchantId>  -> REUSED as-is; a store's dashboard subscribes
+//                             to the same per-merchant topic a restaurant
+//                             does, so pushMerchantFeed needs no shop twin
+//   admin-shop             -> shared feed for the admin Shop tab
+// Same payload discipline as food: order code and statuses only, never
+// internal UUIDs of other parties and never margin data.
+
+// Notify the customer watching one shop order.
+function pushShopOrderStatus(orderCode, payload) {
+  return broadcast(`shop-order-${orderCode}`, 'status', payload);
+}
+
+// Generic "something changed" ping for the admin Shop tab.
+function pingShopAdmin(orderCode) {
+  return broadcast('admin-shop', 'changed', { orderCode });
+}
+
 module.exports = {
   broadcast,
   pushBookingStatus,
@@ -92,4 +111,6 @@ module.exports = {
   pushFoodOrderStatus,
   pushMerchantFeed,
   pingFoodAdmin,
+  pushShopOrderStatus,
+  pingShopAdmin,
 };

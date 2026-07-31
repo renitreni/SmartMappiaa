@@ -50,6 +50,9 @@ async function listRestaurants(req, res) {
     let query = supabase
       .from('merchants')
       .select(PUBLIC_MERCHANT_FIELDS)
+      // merchants is shared with the Ecommerce vertical (migration 0026).
+      // Without this filter, stores would appear in restaurant discovery.
+      .eq('vertical', 'food')
       .eq('is_active', true)
       .eq('status', 'active')
       // Featured restaurants lead the grid (drives the homepage section),
@@ -73,6 +76,7 @@ async function listRestaurants(req, res) {
     const { data: cuisines } = await supabase
       .from('merchants')
       .select('cuisine_type')
+      .eq('vertical', 'food')
       .eq('is_active', true)
       .eq('status', 'active')
       .not('cuisine_type', 'is', null);
@@ -99,7 +103,7 @@ async function getRestaurant(req, res) {
     const { id } = req.params;
     const { data: merchant, error } = await supabase
       .from('merchants')
-      .select(`${PUBLIC_MERCHANT_FIELDS}, is_active, status`)
+      .select(`${PUBLIC_MERCHANT_FIELDS}, vertical, is_active, status`)
       .eq('id', id)
       .maybeSingle();
 
@@ -107,7 +111,10 @@ async function getRestaurant(req, res) {
       console.error('getRestaurant error:', error);
       return res.status(500).json({ error: 'Could not load the restaurant' });
     }
-    if (!merchant || !merchant.is_active || merchant.status !== 'active') {
+    // A shop merchant reached by id is a 404 here, not a partial render — the
+    // food storefront must not confirm that some other kind of merchant sits
+    // at that id, and its catalogue lives in different tables anyway.
+    if (!merchant || merchant.vertical !== 'food' || !merchant.is_active || merchant.status !== 'active') {
       return res.status(404).json({ error: 'Restaurant not found or currently closed' });
     }
 
@@ -135,7 +142,7 @@ async function getRestaurant(req, res) {
       params: { restaurant_id: id, cuisine_type: merchant.cuisine_type },
     });
 
-    const { is_active, status, ...publicMerchant } = merchant;
+    const { vertical, is_active, status, ...publicMerchant } = merchant;
     return res.json({
       restaurant: publicMerchant,
       categories: categories || [],

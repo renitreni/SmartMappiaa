@@ -10,6 +10,8 @@
 //   requireAdmin          -> requireAuth + role 'admin'         (req.adminId)
 //   requireDriver         -> requireAuth + role 'driver'        (req.driverId)
 //   requireMerchant       -> requireAuth + role 'merchant'      (req.merchantOwnerId)
+//   requireMerchantVertical('food'|'shop')
+//                         -> requireMerchant + that merchant's vertical (req.merchant)
 //   requireApprovedDriver -> requireDriver + driver_approved = true
 // ---------------------------------------------------------------------
 const { supabase } = require('../lib/supabase');
@@ -95,6 +97,61 @@ function requireMerchant(req, res, next) {
   });
 }
 
+// Merchants are single-vertical: merchants.owner_id is UNIQUE, so an owner
+// maps to exactly one merchant, and that row's `vertical` (migration 0026)
+// decides which portal they get. This guard keeps a restaurant owner out of
+// the store API and vice versa.
+//
+// It attaches req.merchant so the controller does not re-query, and it 403s
+// rather than 404s: the caller IS a merchant, just not of this kind, and
+// pretending the endpoint does not exist would be misleading to a real user.
+// Admins bypass, consistent with every other guard here.
+function requireMerchantVertical(vertical) {
+  return function guard(req, res, next) {
+    requireMerchant(req, res, async () => {
+      // requireAuth invokes this callback without awaiting it, so an
+      // unhandled rejection here would surface as a process-level crash on
+      // Node >= 15. Everything below is wrapped.
+      try {
+        const { data, error } = await supabase
+          .from('merchants')
+          .select('id, name, vertical, is_active, status, credit_limit, credit_used')
+          .eq('owner_id', req.merchantOwnerId)
+          .maybeSingle();
+        if (error) {
+          console.error('requireMerchantVertical error:', error);
+          return res.status(500).json({ error: 'Unexpected server error' });
+        }
+        // Admin bypass. It still runs the lookup first so req.merchant is
+        // populated when the admin happens to own a merchant row — an
+        // earlier version returned early and 404'd admins across the whole
+        // portal, because every controller resolves the store from
+        // req.merchantOwnerId.
+        if (req.role === 'admin') {
+          if (data) req.merchant = data;
+          return next();
+        }
+        if (!data) {
+          return res.status(404).json({ error: 'No business profile is linked to this account' });
+        }
+        if ((data.vertical || 'food') !== vertical) {
+          return res.status(403).json({
+            error:
+              vertical === 'shop'
+                ? 'This account manages a restaurant, not a store'
+                : 'This account manages a store, not a restaurant',
+          });
+        }
+        req.merchant = data;
+        return next();
+      } catch (err) {
+        console.error('requireMerchantVertical error:', err);
+        return res.status(500).json({ error: 'Unexpected server error' });
+      }
+    });
+  };
+}
+
 function requireApprovedDriver(req, res, next) {
   requireDriver(req, res, () => {
     // Admin bypasses the approval gate (admins are implicitly approved).
@@ -109,4 +166,12 @@ function requireApprovedDriver(req, res, next) {
   });
 }
 
-module.exports = { requireToken, requireAuth, requireAdmin, requireDriver, requireMerchant, requireApprovedDriver };
+module.exports = {
+  requireToken,
+  requireAuth,
+  requireAdmin,
+  requireDriver,
+  requireMerchant,
+  requireMerchantVertical,
+  requireApprovedDriver,
+};

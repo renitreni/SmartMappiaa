@@ -79,4 +79,18 @@ module.exports = {
   merchantOrderLimiter: make(30),
   // Client analytics events — cheap writes, but cap the firehose.
   foodEventsLimiter: make(60),
+
+  // --- Ecommerce ("shop") ---
+  // Store browse/search. Also the scrape ceiling on the public catalogue:
+  // exact stock is already hidden by the 0029 grants, but this caps how fast
+  // the banded availability could be sampled to infer sales velocity.
+  shopSearchLimiter: make(60),
+  // Checkout — each call reserves real inventory inside a transaction, so
+  // this bucket is doing more than rate control: it caps how fast one caller
+  // can lock up a store's stock before the expiry sweeper reclaims it.
+  shopCheckoutLimiter: make(10),
+  // Payment proof/charge endpoints — same posture as proofLimiter.
+  shopPayLimiter: make(10),
+  // Client analytics events.
+  shopEventsLimiter: make(60),
 };

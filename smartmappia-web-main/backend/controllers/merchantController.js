@@ -15,7 +15,7 @@ const { validateImageFile, validateMenuImageFile } = require('../lib/uploadValid
 const { normalizeSizeOptions } = require('../lib/foodSizes');
 
 const MERCHANT_SELECT =
-  'id, name, cuisine_type, description, logo_url, address, lat, lng, ' +
+  'id, name, vertical, cuisine_type, description, logo_url, address, lat, lng, ' +
   'is_active, status, credit_limit, credit_used, is_featured, badge, created_at';
 
 async function loadOwnedMerchant(ownerId) {
@@ -33,6 +33,9 @@ function merchantView(m) {
   return {
     id: m.id,
     name: m.name,
+    // 'food' | 'shop' (migration 0026). The portal renders a restaurant or a
+    // store dashboard off this; owner_id is UNIQUE so it is never ambiguous.
+    vertical: m.vertical || 'food',
     cuisineType: m.cuisine_type,
     description: m.description,
     logoUrl: m.logo_url,

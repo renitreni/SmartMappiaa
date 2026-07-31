@@ -18,6 +18,7 @@ const {
   buildProfileUpsert,
 } = require('../lib/profileSchema');
 const { buildAvatarPath, createAvatarUploadUrl, avatarPublicUrl } = require('../lib/storage');
+const { opsError } = require('../lib/opsError');
 
 // The camelCase profile JSON every auth endpoint returns to the UI.
 function profileJson(profile, merchant = null) {
@@ -164,6 +165,36 @@ async function syncProfile(req, res) {
       .eq('id', id)
       .maybeSingle();
 
+    // PRIVILEGE ESCALATION GUARD.
+    //
+    // Admin is derived from the auth email matching ADMIN_EMAILS. POST /signup
+    // refuses those addresses outright (control #3, handbook §13.3.4) — but a
+    // user can also change their own auth email AFTER registering, straight
+    // from the Profile page via supabase.auth.updateUser({ email }). Without
+    // the check below that was a complete bypass:
+    //
+    //   register as a passenger
+    //   -> updateUser({ email: '<a known admin address>' })
+    //   -> POST /api/auth/sync
+    //   -> role = 'admin', full /api/admin surface
+    //
+    // Supabase's "Secure email change" setting mitigates it by requiring
+    // confirmation at the target address, but a dashboard toggle is not a
+    // control we own. An admin-email claim arriving on an ALREADY EXISTING
+    // non-admin profile is never legitimate: real admins are provisioned by
+    // the seed scripts, which write the profile row with role 'admin' before
+    // anyone signs in, so they match the `existing.role === 'admin'` branch.
+    if (isAdminEmail && existing && existing.role !== 'admin') {
+      console.error('[SECURITY] admin-email claim on an existing non-admin profile', {
+        userId: id,
+        email: emailLc,
+        currentRole: existing.role,
+      });
+      return res.status(403).json({
+        error: 'This email address is reserved. Please contact Smart Mappia support.',
+      });
+    }
+
     // Decide the role.
     let role;
     if (isAdminEmail || (existing && existing.role === 'admin')) {
@@ -205,13 +236,19 @@ async function syncProfile(req, res) {
 
     if (error) {
       console.error('syncProfile upsert error:', error);
-      const hint =
+      const schemaLooksIncomplete =
         (error.message || '').includes('date_of_birth') ||
         (error.message || '').includes('driver_approved') ||
-        (error.message || '').includes('service_types')
-          ? ' Database migrations may be incomplete — run the SQL files in backend/migrations/ (0001, 0002, 0003, 0020) in the Supabase SQL Editor.'
-          : '';
-      return res.status(500).json({ error: 'Could not sync your profile.' + hint });
+        (error.message || '').includes('service_types');
+      return res.status(500).json(
+        opsError(
+          req,
+          'Could not sync your profile.',
+          schemaLooksIncomplete
+            ? 'Database migrations may be incomplete — run the SQL files in backend/migrations/ (0001, 0002, 0003, 0020) in the Supabase SQL Editor.'
+            : null
+        )
+      );
     }
 
     let merchant = null;
@@ -248,9 +285,13 @@ async function updateProfile(req, res) {
         if (key in b) patch[key] = b[key] || null;
       }
     } else if ('address' in b || 'avatar_url' in b) {
-      return res.status(409).json({
-        error: 'Address/profile picture need a database update — run backend/migrations/0024_profile_and_contact.sql in the Supabase SQL Editor.',
-      });
+      return res.status(409).json(
+        opsError(
+          req,
+          'Saved addresses and profile pictures are temporarily unavailable. Your other details were not changed.',
+          'Run backend/migrations/0024_profile_and_contact.sql in the Supabase SQL Editor.'
+        )
+      );
     }
     if (Object.keys(patch).length === 0) {
       return res.status(400).json({ error: 'Nothing to update' });
