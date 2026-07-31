@@ -117,3 +117,17 @@ export function notifyUnderDevelopment() {
     timer: 2000,
   });
 }
+
+/** Restaurant listed but menu not ready yet — stay on discovery. */
+export function notifyMenuUnavailable(restaurantName) {
+  return Swal.fire({
+    icon: 'info',
+    title: 'Menu not available yet',
+    html: restaurantName
+      ? `<strong>${restaurantName}</strong> is coming soon.<br/>Please wait while we finish adding their menu.`
+      : 'This restaurant’s menu is not available yet. Please wait while we fix this.',
+    showConfirmButton: false,
+    timer: 2000,
+    timerProgressBar: true,
+  });
+}
