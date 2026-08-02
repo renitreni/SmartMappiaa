@@ -5,6 +5,7 @@ import { Star, Clock, Flame, ArrowRight, Sparkles } from "lucide-react";
 import { api } from "../portal/lib/api";
 import { notifyMenuUnavailable } from "../portal/lib/notify";
 import { useMarketingPartners, MAX_GRID_CARDS } from "../lib/useMarketingPartners";
+import { findLiveRestaurantMatch } from "../lib/restaurantLinks";
 
 const stats = [
   { value: "500+", label: "Partner restaurants" },
@@ -27,24 +28,6 @@ const tagStyles = {
   Trending: "bg-brand-red text-white",
   New: "bg-green-500 text-white",
 };
-
-function normalizeName(name) {
-  return String(name || "")
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "");
-}
-
-// Match a marketing partner to a live merchant so "Order now" opens the real menu.
-function findLiveMatch(demoName, liveList) {
-  const demoKey = normalizeName(demoName);
-  if (!demoKey) return null;
-  return (
-    liveList.find((r) => {
-      const liveKey = normalizeName(r.name);
-      return liveKey === demoKey || liveKey.includes(demoKey) || demoKey.includes(liveKey);
-    }) || null
-  );
-}
 
 function RestaurantCard({ resto, index, onOpen }) {
   return (
@@ -167,7 +150,7 @@ const Restaurants = () => {
     const map = {};
     if (!liveRestaurants.length) return map;
     for (const resto of cards) {
-      const match = findLiveMatch(resto.name, liveRestaurants);
+      const match = findLiveRestaurantMatch(resto.name, liveRestaurants);
       if (match) {
         map[resto.id] = { id: match.id, hasMenu: match.hasMenu !== false };
       }
