@@ -21,6 +21,7 @@
     "seed:demo": "node scripts/demo/seed-demo.js",
     "seed:pay": "node scripts/demo/seed-pay.js",
     "seed:request": "node scripts/demo/seed-request.js",
+    "sim:driver": "node scripts/demo/simulate-driver.js",
     "seed:clean": "node scripts/demo/seed-clean.js"
   },
   "engines": {

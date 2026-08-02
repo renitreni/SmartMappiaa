@@ -26,6 +26,7 @@ const {
   announceRequestTaken,
   pingAdmin,
   pushFoodOrderStatus,
+  pushShopOrderStatus,
 } = require('../lib/realtime');
 
 // driver_ride_status value -> resulting booking_status + human title +
@@ -210,20 +211,108 @@ async function acceptRide(req, res) {
 // --- POST /api/driver/location ---------------------------------------
 // Driver app posts GPS periodically. We store it and push it live to the
 // passenger(s) whose active ride this driver is currently handling.
+//
+// The app pings every ~4s so the customer's marker has enough fixes to glide
+// continuously instead of teleporting once every 12s. Accepting that rate does
+// NOT mean doing 3x the work: the two expensive effects are throttled
+// independently below, keeping row growth and Realtime message volume at
+// roughly the old 12s cadence while the map still feels live.
+//
+// State is a module-level Map, i.e. per-process. That is correct on the
+// long-running VPS (one process — the same assumption lib/dispatch.js's
+// sweeper already makes). On serverless each instance would keep its own
+// clock and throttle less aggressively; it degrades toward "write/broadcast
+// every ping", never toward dropping a ride's updates.
+const lastPing = new Map(); // driverId -> { wroteAt, sentAt, lat, lng }
+
+// Persist at most one row per this interval. driver_locations is write-heavy
+// and retained 30 days (0016/0028), so 4s pings unthrottled would be ~900
+// rows/hour/driver against a Free-tier budget.
+const WRITE_EVERY_MS = 10000;
+// Broadcast at most this often. Supabase Free allows a finite number of
+// Realtime messages per month and every ping fans out to each active job.
+const BROADCAST_EVERY_MS = 8000;
+// ...unless the driver has covered an unusual amount of ground since the last
+// push, in which case send early so the marker doesn't visibly cut a corner
+// by interpolating a straight line across a long, curved gap.
+//
+// This is an EXCEPTION, and the threshold has to be picked against the real
+// per-ping distances or it stops being one. Measured with 4s pings:
+//
+//     city      30 km/h  ->  ~37m per ping
+//     road      60 km/h  ->  ~75m per ping
+//     motorway 120 km/h  -> ~147m per ping
+//
+// A first attempt at 60m fired on every ping from 30 km/h upward — the time
+// throttle never applied and Realtime ran at one message per ping, near the
+// Free-tier ceiling. 150m overcorrected: it sat just above the motorway
+// figure, so it never fired at any realistic speed and was dead code.
+//
+// 120m sits in the gap. City and normal road speeds fall well under it and
+// are governed by the 8s window; motorway speed clears it and updates every
+// ping. That is the right bias for an airport-transfer service — the fast
+// leg is where a stale position is most visibly wrong, and it is also where
+// the marker would otherwise interpolate ~290m in a straight line.
+const BROADCAST_IF_MOVED_KM = 0.12;
+
+// Keep the Map from growing without bound as drivers come and go across a
+// long-lived process. Entries older than an hour cannot affect a throttle
+// decision, so dropping them is free.
+function pruneLastPing(now) {
+  if (lastPing.size < 500) return;
+  for (const [id, v] of lastPing) {
+    if (now - Math.max(v.wroteAt || 0, v.sentAt || 0) > 3600000) lastPing.delete(id);
+  }
+}
+
 async function updateDriverLocation(req, res) {
   try {
-    const { lat, lng, accuracy } = req.body || {};
+    const { lat, lng, accuracy, heading, speed_kmh: speedKmh } = req.body || {};
     if (lat == null || lng == null) {
       return res.status(400).json({ error: 'lat and lng are required' });
     }
 
-    const { error } = await supabase.from('driver_locations').insert({
-      driver_id: req.driverId,
-      lat: Number(lat),
-      lng: Number(lng),
-      accuracy_meters: accuracy != null ? Number(accuracy) : null,
-    });
-    if (error) { console.error('driver query error:', error); return res.status(500).json({ error: 'Unexpected server error' }); }
+    const here = { lat: Number(lat), lng: Number(lng) };
+    const now = Date.now();
+    const prev = lastPing.get(req.driverId) || {};
+    pruneLastPing(now);
+
+    // --- 1. Persist (throttled) ---
+    if (!prev.wroteAt || now - prev.wroteAt >= WRITE_EVERY_MS) {
+      const { error } = await supabase.from('driver_locations').insert({
+        driver_id: req.driverId,
+        lat: here.lat,
+        lng: here.lng,
+        accuracy_meters: accuracy != null ? Number(accuracy) : null,
+        // Device compass/speedometer (migration 0033). Null is normal —
+        // stationary or unsupported — and readers fall back to a derived
+        // bearing rather than treating it as an error.
+        heading: heading != null ? Number(heading) : null,
+        speed_kmh: speedKmh != null ? Number(speedKmh) : null,
+      });
+      if (error) { console.error('driver query error:', error); return res.status(500).json({ error: 'Unexpected server error' }); }
+      lastPing.set(req.driverId, { ...prev, wroteAt: now });
+    }
+
+    // --- 2. Fan out to live maps (throttled, distance-aware) ---
+    const movedKm = prev.lat != null ? haversineKm(prev, here) : null;
+    const shouldBroadcast =
+      !prev.sentAt ||
+      now - prev.sentAt >= BROADCAST_EVERY_MS ||
+      (movedKm != null && movedKm >= BROADCAST_IF_MOVED_KM);
+    if (!shouldBroadcast) return res.json({ ok: true });
+    lastPing.set(req.driverId, { ...(lastPing.get(req.driverId) || prev), sentAt: now, lat: here.lat, lng: here.lng });
+
+    // The position payload every vertical sends. heading rides along so the
+    // customer's car icon can point the right way on the FIRST frame after a
+    // page reload, instead of starting due north and waiting for two fixes.
+    const at = new Date().toISOString();
+    const fix = {
+      ...here,
+      at,
+      heading: heading != null ? Number(heading) : null,
+      speedKmh: speedKmh != null ? Number(speedKmh) : null,
+    };
 
     // Push live position to any active ride this driver is on.
     const { data: activeRides, error: activeRidesError } = await supabase
@@ -233,14 +322,10 @@ async function updateDriverLocation(req, res) {
       .in('driver_ride_status', ACTIVE_RIDE_STATUSES);
     if (activeRidesError) console.error('updateDriverLocation activeRides query error:', activeRidesError);
 
-    const at = new Date().toISOString();
     (activeRides || []).forEach((r) => {
-      const distanceKm = haversineKm(
-        { lat: Number(lat), lng: Number(lng) },
-        { lat: r.pickup_lat, lng: r.pickup_lng }
-      );
+      const distanceKm = haversineKm(here, { lat: r.pickup_lat, lng: r.pickup_lng });
       pushBookingStatus(r.booking_code, {
-        driverLocation: { lat: Number(lat), lng: Number(lng), at },
+        driverLocation: fix,
         etaMinutes: etaMinutes(distanceKm),
       });
     });
@@ -256,13 +341,30 @@ async function updateDriverLocation(req, res) {
 
     (activeDeliveries || []).forEach((d) => {
       const o = d.orders;
-      const distanceKm = haversineKm(
-        { lat: Number(lat), lng: Number(lng) },
-        { lat: o.delivery_lat, lng: o.delivery_lng }
-      );
+      const distanceKm = haversineKm(here, { lat: o.delivery_lat, lng: o.delivery_lng });
       pushFoodOrderStatus(o.order_code, {
         status: o.status,
-        riderLocation: { lat: Number(lat), lng: Number(lng), at },
+        riderLocation: fix,
+        riderEtaMinutes: etaMinutes(distanceKm),
+      });
+    });
+
+    // ...and any shop delivery. This branch did not exist: a rider could be
+    // carrying an ecommerce order and the customer's map had no pin to move,
+    // which is why shop tracking looked permanently frozen.
+    const { data: shopDeliveries, error: shopDeliveriesError } = await supabase
+      .from('shop_deliveries')
+      .select('order_id, shop_orders!inner ( order_code, status, delivery_lat, delivery_lng )')
+      .eq('driver_id', req.driverId)
+      .in('shop_orders.status', ['accepted', 'packing', 'ready', 'out_for_delivery']);
+    if (shopDeliveriesError) console.error('updateDriverLocation shopDeliveries query error:', shopDeliveriesError);
+
+    (shopDeliveries || []).forEach((d) => {
+      const o = d.shop_orders;
+      const distanceKm = haversineKm(here, { lat: o.delivery_lat, lng: o.delivery_lng });
+      pushShopOrderStatus(o.order_code, {
+        status: o.status,
+        riderLocation: fix,
         riderEtaMinutes: etaMinutes(distanceKm),
       });
     });

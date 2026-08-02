@@ -63,12 +63,6 @@ export default function TrackPage() {
 
   useEffect(() => { refetch(); }, [refetch]);
 
-  // Polling safety net (also covers the case where realtime isn't configured).
-  useEffect(() => {
-    const id = setInterval(() => { if (!doneRef.current) refetch(); }, 8000);
-    return () => clearInterval(id);
-  }, [refetch]);
-
   // Realtime: live position + status changes.
   const connected = useBroadcast(
     `booking-${code}`,
@@ -81,6 +75,16 @@ export default function TrackPage() {
     },
     realtimeEnabled
   );
+
+  // Polling safety net for when realtime isn't configured or the socket drops.
+  // Skipped while the broadcast channel is live — it already delivers every
+  // position and status change, so polling on top was a redundant request
+  // every 8s per open tracking page. Matches FoodTrackPage/ShopTrackPage.
+  useEffect(() => {
+    if (connected) return undefined;
+    const id = setInterval(() => { if (!doneRef.current) refetch(); }, 8000);
+    return () => clearInterval(id);
+  }, [refetch, connected]);
 
   // Real road route (OSRM) for the current leg: driver→pickup while the driver
   // is on the way, otherwise pickup→dropoff (shown immediately, even before a
@@ -114,8 +118,13 @@ export default function TrackPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [routeSig]);
 
-  // Derive speed + heading from successive driver positions for the live badge
-  // and the car's facing direction.
+  // Speed + heading for the live badge and the car's facing direction.
+  //
+  // The driver's device now sends its own compass/speedometer reading, so use
+  // that when present and only fall back to deriving from two fixes. The
+  // derived value lags by a full ping, jitters when GPS wanders at a red
+  // light, and — because it needs two fixes — left the car pointing due north
+  // for the first several seconds after every page load.
   useEffect(() => {
     const cur = live.driverLocation || data?.driverLocation;
     if (!cur || cur.lat == null) return;
@@ -179,6 +188,12 @@ export default function TrackPage() {
 
   const meta = statusMeta(data.bookingStatus);
   const driverLoc = live.driverLocation || data.driverLocation;
+  // Prefer the heading the driver's device reported over one derived from two
+  // fixes: it is available on the very first frame (so the car doesn't sit
+  // pointing due north right after a page load), doesn't lag a ping behind,
+  // and doesn't jitter when GPS wanders while the car is stopped at a light.
+  const driverHeading = driverLoc?.heading ?? movement.heading;
+  const driverSpeedKmh = driverLoc?.speedKmh ?? movement.speedKmh;
   // Live driver ETA wins; otherwise fall back to the OSRM route's trip time.
   const eta = live.etaMinutes ?? data.liveEtaMinutes ?? route?.durationMin ?? null;
   const isActive = ACTIVE.includes(data.driverRideStatus);
@@ -191,7 +206,7 @@ export default function TrackPage() {
   const markers = [
     pickup && { ...pickup, type: 'pickup', label: 'Pickup', key: 'p' },
     dropoff && { ...dropoff, type: 'dropoff', label: 'Drop-off', key: 'd' },
-    driverLoc && { lat: driverLoc.lat, lng: driverLoc.lng, type: 'driver', label: 'Your driver', key: 'driver', heading: movement.heading },
+    driverLoc && { lat: driverLoc.lat, lng: driverLoc.lng, type: 'driver', label: 'Your driver', key: 'driver', heading: driverHeading },
   ].filter(Boolean);
 
   const mapLegend = [
@@ -254,9 +269,9 @@ export default function TrackPage() {
                 </div>
                 <div className="font-black text-brand-black leading-tight">{eta} min</div>
                 {isActive && driverLoc && (
-                  movement.moving && movement.speedKmh != null ? (
+                  driverSpeedKmh != null && (movement.moving || driverSpeedKmh >= 3) ? (
                     <div className="text-[10px] font-bold text-green-600 leading-none mt-0.5">
-                      Moving · ~{Math.round(movement.speedKmh)} km/h
+                      Moving · ~{Math.round(driverSpeedKmh)} km/h
                     </div>
                   ) : (
                     <div className="text-[10px] font-bold text-brand-grey leading-none mt-0.5">Stopped</div>

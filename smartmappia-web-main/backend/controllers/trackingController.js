@@ -8,6 +8,7 @@
 // ---------------------------------------------------------------------
 const { supabase } = require('../lib/supabase');
 const { haversineKm, etaMinutes } = require('../lib/geo');
+const { latestDriverFix } = require('../lib/tracking');
 
 // Ride states where showing a live driver position makes sense.
 const ACTIVE_RIDE_STATUSES = ['accepted', 'on_the_way', 'arrived', 'started'];
@@ -58,21 +59,16 @@ async function getTracking(req, res) {
         driver = { name: d.full_name, whatsapp: d.whatsapp_number };
       }
 
-      // Only surface a live dot while the ride is actually active.
+      // Only surface a live dot while the ride is actually active, and only
+      // if the fix is recent — latestDriverFix drops anything staler than
+      // config.dispatch.driverFreshMinutes. A driver whose phone died used to
+      // stay pinned on the map indefinitely, which reads as "he's parked
+      // around the corner" and keeps the passenger waiting instead of calling.
       if (ACTIVE_RIDE_STATUSES.includes(booking.driver_ride_status)) {
-        const { data: loc } = await supabase
-          .from('driver_locations')
-          .select('lat, lng, recorded_at')
-          .eq('driver_id', booking.assigned_driver_id)
-          .order('recorded_at', { ascending: false })
-          .limit(1)
-          .maybeSingle();
-        if (loc) {
-          driverLocation = { lat: loc.lat, lng: loc.lng, at: loc.recorded_at };
-          const distanceKm = haversineKm(
-            { lat: loc.lat, lng: loc.lng },
-            { lat: booking.pickup_lat, lng: booking.pickup_lng }
-          );
+        const fix = await latestDriverFix(booking.assigned_driver_id);
+        if (fix) {
+          driverLocation = fix;
+          const distanceKm = haversineKm(fix, { lat: booking.pickup_lat, lng: booking.pickup_lng });
           liveEtaMinutes = etaMinutes(distanceKm);
         }
       }

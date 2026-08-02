@@ -20,6 +20,7 @@ const crypto = require('crypto');
 const { supabase } = require('../../lib/supabase');
 const { config } = require('../../lib/config');
 const { haversineKm, etaMinutes } = require('../../lib/geo');
+const { latestDriverFix } = require('../../lib/tracking');
 const { priceOrder } = require('../../lib/foodMoney');
 const { findSizeOption } = require('../../lib/foodSizes');
 const { logFoodEvent } = require('../../lib/foodEvents');
@@ -404,21 +405,19 @@ async function getOrder(req, res) {
         etaMinutes: null,
       };
       // Live pin: the rider's most recent GPS fix (their device pings every
-      // ~12s while online) + a rough ETA to the drop-off point. Only while
+      // ~4s while online) + a rough ETA to the drop-off point. Only while
       // the delivery is actually active — otherwise a past customer could
       // keep polling this endpoint and track the rider's live position long
       // after their own order was delivered (mirrors the ride-tracking gate
       // in trackingController.js's ACTIVE_RIDE_STATUSES).
+      //
+      // latestDriverFix also drops a fix that is simply too old to trust, so
+      // a rider who went offline mid-delivery stops rendering rather than
+      // freezing on the map pretending to still be en route.
       if (['assigned', 'picked_up'].includes(delivery.status)) {
-        const { data: lastFix } = await supabase
-          .from('driver_locations')
-          .select('lat, lng, recorded_at')
-          .eq('driver_id', delivery.driver_id)
-          .order('recorded_at', { ascending: false })
-          .limit(1)
-          .maybeSingle();
+        const lastFix = await latestDriverFix(delivery.driver_id);
         if (lastFix) {
-          rider.location = { lat: lastFix.lat, lng: lastFix.lng, at: lastFix.recorded_at };
+          rider.location = lastFix;
           const dist = haversineKm(lastFix, { lat: order.delivery_lat, lng: order.delivery_lng });
           rider.etaMinutes = etaMinutes(dist);
         }

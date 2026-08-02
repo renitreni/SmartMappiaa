@@ -43,6 +43,11 @@ router.post(
     lat: { type: 'number', required: true, min: -90, max: 90 },
     lng: { type: 'number', required: true, min: -180, max: 180 },
     accuracy: { type: 'number', min: 0, max: 100000, nullable: true },
+    // Device compass + speedometer (migration 0033). Nullable because a
+    // desktop has neither and a phone reports no heading while stopped —
+    // omitting them must stay a valid ping, not a 400.
+    heading: { type: 'number', min: 0, max: 360, nullable: true },
+    speed_kmh: { type: 'number', min: 0, max: 400, nullable: true },
   }),
   updateDriverLocation
 );

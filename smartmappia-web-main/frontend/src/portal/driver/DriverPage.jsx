@@ -63,6 +63,17 @@ import RoutedRideMap from '../components/RoutedRideMap';
 
 const ACTIVE = ['accepted', 'on_the_way', 'arrived', 'started'];
 
+// How often the device posts GPS. Fast enough that the customer's map has a
+// fix to glide toward at all times — the previous 12s left their marker
+// visibly frozen between updates. The backend throttles what it stores and
+// re-broadcasts, so a quicker ping here does not multiply database rows or
+// Realtime messages. Stays under the 30/min POST /location rate limit.
+const PING_MS = 4000;
+
+// The open-ride feed. Unchanged: new requests do not appear fast enough to
+// justify polling it at GPS cadence.
+const AVAILABLE_POLL_MS = 12000;
+
 // Driver service-type preferences (profiles.service_types, migration 0020).
 // 'shop' = Ecommerce. Live since the dispatch cascade learned a third job
 // kind; the rider queue merges food and shop deliveries.
@@ -729,10 +740,14 @@ export default function DriverPage() {
   // service_types regardless.
   const foodEnabled = effectiveServices.includes('food') || effectiveServices.includes('shop');
 
-  // A rider carrying an active food delivery must keep sending GPS even when
-  // they haven't toggled "online" for ride offers — otherwise the customer's
-  // live tracking map has no pin. DriverDispatch reports this up.
-  const [hasActiveDelivery, setHasActiveDelivery] = useState(false);
+  // A rider carrying an active food/shop delivery must keep sending GPS even
+  // when they haven't toggled "online" for ride offers — otherwise the
+  // customer's live tracking map has no pin. DriverDispatch reports this up as
+  // the current leg's destination ({lat,lng}), or null when idle, so the map
+  // below can also frame and follow the rider against where they're heading.
+  const [deliveryTarget, setDeliveryTarget] = useState(null);
+
+  const hasActiveDelivery = !!deliveryTarget;
 
   const [available, setAvailable] = useState([]);
 
@@ -781,7 +796,21 @@ export default function DriverPage() {
 
       const dt = (now - prev.t) / 1000;
 
-      setDriverMove({ ...movementFrom(prev, coords, dt), heading: bearingDeg(prev, coords) });
+      const derived = movementFrom(prev, coords, dt);
+
+      setDriverMove({
+
+        ...derived,
+
+        // The chip's own readings beat anything derived from two fixes: no
+        // lag, no jitter from GPS wander at a standstill. Fall back only when
+        // the device does not report them (desktop, or stationary).
+
+        speedKmh: coords.speedKmh ?? derived.speedKmh,
+
+        heading: coords.heading ?? bearingDeg(prev, coords),
+
+      });
 
     }
 
@@ -835,6 +864,11 @@ export default function DriverPage() {
 
 
 
+  // GPS ping. Deliberately separate from the ride-feed poll below: the
+  // customer's map needs frequent fixes to animate smoothly, but the open-ride
+  // list changes on human timescales and re-fetching it this often would be
+  // three times the requests for no new information (and would eat into the
+  // API's general rate limit).
   useEffect(() => {
 
     if ((!online && !hasActiveDelivery && !activeRide) || !driverApproved) return undefined;
@@ -845,53 +879,78 @@ export default function DriverPage() {
 
       const c = coordsRef.current;
 
-      if (c) {
+      if (!c) return;
 
-        try {
+      try {
 
-          await api.driverLocation({ lat: c.lat, lng: c.lng, accuracy: c.accuracy });
+        await api.driverLocation({
+          lat: c.lat,
+          lng: c.lng,
+          accuracy: c.accuracy,
+          // Straight from the device compass when it has one. Sending it lets
+          // the customer's car icon face the right way immediately, instead of
+          // pointing due north until two fixes have accumulated. Null on
+          // desktop and while parked — the backend accepts that.
+          heading: c.heading,
+          speed_kmh: c.speedKmh,
+        });
 
-          if (!stop) { setPingFailStreak(0); setPingAuthIssue(false); }
+        if (!stop) { setPingFailStreak(0); setPingAuthIssue(false); }
 
-        } catch (err) {
+      } catch (err) {
 
-          // Previously swallowed completely — a driver could move for their
-          // whole shift while every ping silently failed (expired session,
-          // revoked approval, a transient 500/429) and nothing on screen or
-          // in the logs would show it. Surface it instead of hiding it.
+        // Previously swallowed completely — a driver could move for their
+        // whole shift while every ping silently failed (expired session,
+        // revoked approval, a transient 500/429) and nothing on screen or
+        // in the logs would show it. Surface it instead of hiding it.
 
-          console.error('driver location ping failed:', err.status, err.message);
+        console.error('driver location ping failed:', err.status, err.message);
 
-          if (!stop) setPingFailStreak((n) => n + 1);
+        if (!stop) setPingFailStreak((n) => n + 1);
 
-          if (err.status === 401 || err.status === 403) {
+        if (err.status === 401 || err.status === 403) {
 
-            if (!stop) setPingAuthIssue(true);
+          if (!stop) setPingAuthIssue(true);
 
-            // The dashboard's "online/approved" view may be running on a stale
-            // cached profile — re-sync so it reflects what the backend just
-            // enforced (e.g. approval revoked mid-shift) instead of continuing
-            // to look normal while every ping is rejected.
+          // The dashboard's "online/approved" view may be running on a stale
+          // cached profile — re-sync so it reflects what the backend just
+          // enforced (e.g. approval revoked mid-shift) instead of continuing
+          // to look normal while every ping is rejected.
 
-            refreshProfile?.();
-
-          }
+          refreshProfile?.();
 
         }
 
       }
 
-      if (online && ridesEnabled && !activeRide && !stop) loadAvailable();
-
     };
 
     tick();
 
-    const id = setInterval(tick, 12000);
+    const id = setInterval(tick, PING_MS);
 
     return () => { stop = true; clearInterval(id); };
 
-  }, [online, hasActiveDelivery, driverApproved, activeRide, ridesEnabled, loadAvailable]);
+  }, [online, hasActiveDelivery, driverApproved, activeRide, refreshProfile]);
+
+
+
+  // Open-ride feed, kept at its original cadence.
+  useEffect(() => {
+
+    if (!online || !driverApproved || !ridesEnabled || activeRide) return undefined;
+
+    let stop = false;
+
+    const tick = () => { if (!stop) loadAvailable(); };
+
+    tick();
+
+    const id = setInterval(tick, AVAILABLE_POLL_MS);
+
+    return () => { stop = true; clearInterval(id); };
+
+  }, [online, driverApproved, ridesEnabled, activeRide, loadAvailable]);
 
 
 
@@ -1112,6 +1171,10 @@ export default function DriverPage() {
 
 
 
+  // Where this rider is heading right now. Falls through to the delivery leg
+  // when there is no ride: a rider on a food/shop job used to get neither a
+  // target nor camera follow, so their own map sat still while they drove.
+
   const navTarget = activeRide
 
     ? activeRide.driverRideStatus === 'started'
@@ -1120,7 +1183,7 @@ export default function DriverPage() {
 
       : { lat: activeRide.pickupLat, lng: activeRide.pickupLng }
 
-    : null;
+    : deliveryTarget;
 
 
 
@@ -1244,7 +1307,7 @@ export default function DriverPage() {
           driverId={profile?.id}
           coords={coords}
           onRideAccepted={loadActive}
-          onActiveDeliveryChange={setHasActiveDelivery}
+          onActiveDeliveryChange={setDeliveryTarget}
         />
 
 
@@ -1301,7 +1364,7 @@ export default function DriverPage() {
 
                 className="!rounded-none !border-0 !shadow-none"
 
-                follow={!!activeRide && !!here}
+                follow={(!!activeRide || hasActiveDelivery) && !!here}
 
                 followTarget={navTarget}
 

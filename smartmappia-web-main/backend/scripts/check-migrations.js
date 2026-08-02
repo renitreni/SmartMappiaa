@@ -524,6 +524,30 @@ const CHECKS = [
     sqlFile: '0032_merchant_location_grant_and_probe.sql',
   },
   {
+    id: '0033',
+    name: 'driver GPS heading + speed + driver_locations write lockdown',
+    // Two halves. The columns feed the moving-car map: without them the pin
+    // still renders but snaps to due north on every reload, so it fails soft
+    // in the UI and would otherwise go unnoticed.
+    //
+    // The grant half finishes what 0030 missed — driver_locations kept its
+    // default table-wide write grants. Dormant (RLS has no UPDATE policy, so
+    // such a write hits 0 rows), but it goes live the moment anyone adds one,
+    // across every column at once. Nothing needs client write here: GPS is
+    // written by the service role via POST /api/driver/location.
+    run: async () => {
+      const { error } = await supabase.from('driver_locations').select('heading, speed_kmh').limit(0);
+      if (error) return error.message;
+      return (
+        (await assertRoleLacksUpdate('authenticated', 'driver_locations', 'heading')) ||
+        (await assertRoleLacksUpdate('authenticated', 'driver_locations', 'lat')) ||
+        (await assertRoleLacksUpdate('anon', 'driver_locations', 'lat')) ||
+        null
+      );
+    },
+    sqlFile: '0033_driver_location_heading.sql',
+  },
+  {
     id: '0030-priv',
     name: 'write grants revoked from the public client roles (CRITICAL)',
     // The privilege half of 0030. Needs the anon key for the same reason
