@@ -1,7 +1,8 @@
 # Smart Mappia — Frontend
 
 The React app for Smart Mappia: the marketing site plus the customer, driver, merchant, and admin
-portals for both service lines (Pick & Drop airport transfers and Food Delivery).
+portals for all three service lines: Pick & Drop airport transfers, Food Delivery, and Ecommerce
+(partner stores selling physical goods, behind a feature flag until the first store trades).
 
 **React 19 + Vite 8 + Tailwind CSS 4 + React Router 7.** Supabase for auth, realtime, and uploads.
 **Google Maps Platform** for maps, routing, geocoding, and places. The same build is wrapped with
@@ -94,8 +95,8 @@ src/
 
 | Access | Routes |
 |---|---|
-| **Public** | `/` landing · `/login` · `/signup` · `/pay/:code` · `/track/:code` · `/food` · `/food/r/:id` |
-| **Any signed-in user** | `/notifications` · `/transactions` · `/profile` · `/food/cart` · `/food/checkout` · `/food/orders` · `/food/track/:code` |
+| **Public** | `/` landing · `/login` · `/signup` · `/pay/:code` · `/track/:code` · `/food` · `/food/r/:id` · `/shop` · `/shop/s/:id` |
+| **Any signed-in user** | `/notifications` · `/transactions` · `/profile` · `/food/cart` · `/food/checkout` · `/food/orders` · `/food/track/:code` · `/shop/cart` · `/shop/checkout` · `/shop/orders` · `/shop/track/:code` |
 | **passenger** | `/home` · `/book` |
 | **driver** | `/driver` |
 | **merchant** | `/merchant` |
@@ -107,6 +108,12 @@ whoever is meeting the passenger.
 
 Driver, merchant, and admin each use **one route with conditional sub-screens** (tabs), not nested
 routes. Sub-screens are therefore not linkable and are lost on refresh.
+
+`/merchant` serves two different portals. `merchants.owner_id` is unique, so an owner maps to exactly
+one business, and that row's `vertical` (`food` or `shop`) decides which dashboard renders.
+`MerchantPortal` resolves it **server-side** and lazy-loads one of the two, so a restaurant owner
+never downloads the store bundle or vice versa. The shell and nav are shared; only the tabs differ —
+a restaurant manages a menu, a store manages products, variants and stock.
 
 Role gating is via `RequireAuth`; the post-login landing page comes from `roleHome()` in
 `portal/lib/constants.js`.

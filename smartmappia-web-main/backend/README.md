@@ -1,10 +1,12 @@
 # Smart Mappia — Backend
 
-The API for Smart Mappia, a multi-service logistics platform for Saudi Arabia running two service
+The API for Smart Mappia, a multi-service logistics platform for Saudi Arabia running three service
 lines from one codebase and one driver fleet:
 
 - **Pick & Drop** — scheduled airport transfers
 - **Food Delivery** — restaurant ordering and delivery within a 15 km radius
+- **Ecommerce** — partner stores selling physical goods, with stock and product variants
+  (feature-flagged off by default via `SHOP_ENABLED`)
 
 **Node.js + Express** (plain JavaScript, CommonJS, no build step) on **Supabase** (Postgres 15, Auth,
 Storage, Realtime). Runs identically on a laptop and on the production VPS under PM2.
@@ -54,7 +56,7 @@ Key invariants:
 
 ## Endpoints
 
-Eleven route modules mounted in `app.js`.
+Twelve route modules mounted in `app.js`.
 
 **Auth** — `/api/auth`
 - `POST /signup` — create an account. `role` accepts only `passenger` or `driver`; an email listed in
@@ -117,6 +119,27 @@ The browser never holds a key with server privileges — `GOOGLE_MAPS_SERVER_KEY
 
 ---
 
+**Ecommerce (shop)** — `/api/shop`, `/api/merchant/shop`, `/api/admin/shop`
+
+Mirrors the food surface endpoint for endpoint. 69 endpoints in total: 17 customer, 20 store owner,
+32 admin. `/api/shop` and `/api/merchant/shop` return `503` unless `SHOP_ENABLED=true`.
+
+- `GET /api/shop/stores` · `GET /api/shop/stores/:id` — discovery and catalogue (public)
+- cart CRUD · `POST /api/shop/orders` — checkout (idempotent; server recomputes all money)
+- `/api/merchant/shop/*` — the store owner's portal: catalogue, variants, stock, order queue
+- `/api/admin/shop/*` — stores, catalogue, orders, inventory, settlement
+
+Two things worth knowing about this vertical:
+
+**Checkout is a single Postgres transaction.** It writes four tables while decrementing stock, so it
+runs inside the `shop_place_order` RPC rather than as a sequence of statements. The stock check rides
+on the `UPDATE` predicate itself, so two concurrent checkouts for the last unit cannot both succeed.
+Money is still computed in JavaScript (`lib/shopMoney.js`); the RPC only provides atomicity.
+
+**Stock counts are not public.** Exact real-time inventory is sales velocity — polled over time it
+reveals how many units of every SKU a store sells per day. The customer API returns a banded
+`in_stock` / `low` / `out`, and the underlying columns are revoked from the public database roles.
+
 ## Auth and roles
 
 Supabase Auth, email and password. **JWT bearer tokens only — no cookies, no sessions, no CSRF
@@ -141,7 +164,7 @@ reads the role from `profiles`.
 - **Admins** are granted solely by the `ADMIN_EMAILS` allow-list, never from a request body.
 - **Admin passes the driver and merchant guards** — an admin account is a superset of every role.
 
-Row Level Security is enabled on all 28 tables. The backend uses the `service_role` key and bypasses
+Row Level Security is enabled on all 38 tables. The backend uses the `service_role` key and bypasses
 it; RLS defends the path where a client uses the anon key directly.
 
 ---
@@ -232,6 +255,29 @@ Before launch: set `CORS_ORIGINS`, set `AUTO_VERIFY_STCPAY_TEST_MODE=false`, rem
 and rotate seed passwords.
 
 ---
+
+### Grants filter reads. They also have to filter writes.
+
+Supabase grants table-wide `INSERT/UPDATE/DELETE` on every public-schema table to the `anon` and
+`authenticated` roles by default, leaving Row Level Security as the only barrier. Wherever a policy
+was broader than the columns it was meant to protect, the gap was total — a policy of
+`using (id = auth.uid())` on `profiles` let **any signed-in user set their own `role` to `admin`**
+straight through PostgREST, with nothing but the public key.
+
+Migrations `0030` and `0032` revoke those write grants and give back only the columns each party
+legitimately edits. `npm run check:migrations` verifies both directions: that the client roles have
+lost the dangerous grants, and that a user can still edit their own name.
+
+Two classes of check exist because the service role cannot detect either problem — it holds every
+privilege and sees every column:
+
+| Check | Client | Catches |
+|---|---|---|
+| Grant | anon key | a confidential column becoming readable |
+| Privilege | `check_column_privilege` RPC | a client role regaining `UPDATE` |
+
+Set `SUPABASE_ANON_KEY` in `.env` (it is public by design — it already ships in the frontend bundle)
+or these report `[SKIP]`, which is not a pass.
 
 ## Project structure
 
