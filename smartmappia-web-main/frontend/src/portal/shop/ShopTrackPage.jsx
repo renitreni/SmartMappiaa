@@ -5,10 +5,11 @@
 // polling fallback whenever the socket is not connected. Realtime
 // accelerates; polling guarantees.
 // ---------------------------------------------------------------------
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { Phone, MessageCircle, ShoppingBag, MapPin } from 'lucide-react';
 import { api } from '../lib/api';
+import { bearingDeg } from '../lib/geo';
 import { useBroadcast } from '../lib/useBroadcast';
 import {
   fmtSAR,
@@ -63,12 +64,26 @@ export default function ShopTrackPage() {
   const navigate = useNavigate();
   const [data, setData] = useState(null);
   const [error, setError] = useState(null);
+  // Live rider position. Shop tracking previously drew only the store and the
+  // delivery address, so the map was static for the entire delivery even
+  // though a rider was moving the whole time.
+  const [riderLive, setRiderLive] = useState(null); // { lat, lng, at, heading, speedKmh, etaMinutes }
+  const [riderHeading, setRiderHeading] = useState(0);
+  const prevRiderRef = useRef(null);
 
   const load = useCallback(() => {
     api
       .shopOrder(code)
       .then((d) => {
         setData(d);
+        if (d?.rider?.location) {
+          setRiderLive((prev) => {
+            const fresh = d.rider.location;
+            // Keep the newer of poll vs broadcast — they race.
+            if (prev && new Date(prev.at) > new Date(fresh.at)) return prev;
+            return { ...fresh, etaMinutes: d.rider.etaMinutes };
+          });
+        }
         setError(null);
       })
       .catch((e) => setError(e.message));
@@ -76,9 +91,39 @@ export default function ShopTrackPage() {
 
   useEffect(load, [load]);
 
+  // Bearing derived from two consecutive fixes — the fallback for devices with
+  // no compass. The chip's own reading is preferred at render (see `heading`).
+  useEffect(() => {
+    if (!riderLive?.lat || !riderLive?.lng) return;
+    const prev = prevRiderRef.current;
+    const cur = { lat: riderLive.lat, lng: riderLive.lng };
+    if (prev && (prev.lat !== cur.lat || prev.lng !== cur.lng)) {
+      const b = bearingDeg(prev, cur);
+      if (b != null) setRiderHeading(b);
+    }
+    prevRiderRef.current = cur;
+  }, [riderLive?.lat, riderLive?.lng]);
+
+  const heading = riderLive?.heading ?? riderHeading;
+
   const status = data?.order?.status;
   const realtimeEnabled = !!status && !TERMINAL.includes(status);
-  const connected = useBroadcast(`shop-order-${code}`, { status: () => load() }, realtimeEnabled);
+  // A GPS ping only moves the pin; anything else is a real state change and
+  // needs a refetch. Previously every payload triggered a full reload, which
+  // at GPS cadence would be a request per ping.
+  const connected = useBroadcast(
+    `shop-order-${code}`,
+    {
+      status: (payload) => {
+        if (payload && payload.riderLocation) {
+          setRiderLive({ ...payload.riderLocation, etaMinutes: payload.riderEtaMinutes ?? null });
+        } else {
+          load();
+        }
+      },
+    },
+    realtimeEnabled
+  );
 
   // Polling fallback: only while the socket is down and the order is live.
   useEffect(() => {
@@ -126,6 +171,27 @@ export default function ShopTrackPage() {
       label: 'Delivery',
     });
   }
+  // The moving rider. Stable key so the map tweens this marker between fixes
+  // instead of destroying and recreating it (which would snap, not glide).
+  if (riderLive?.lat != null && riderLive?.lng != null) {
+    markers.push({
+      key: 'rider',
+      lat: riderLive.lat,
+      lng: riderLive.lng,
+      type: 'driver',
+      label: rider?.name || 'Your rider',
+      heading,
+    });
+  }
+
+  const dropoff =
+    order.delivery_lat != null ? { lat: order.delivery_lat, lng: order.delivery_lng } : null;
+  const storePoint = store?.lat != null ? { lat: store.lat, lng: store.lng } : null;
+  // Route the leg the rider is actually on: to the store before pickup, to the
+  // customer after it. Before a rider is assigned, show store -> customer.
+  const pickedUp = order.status === 'out_for_delivery';
+  const routeFrom = riderLive ? { lat: riderLive.lat, lng: riderLive.lng } : storePoint;
+  const routeTo = riderLive && !pickedUp ? storePoint : dropoff;
 
   return (
     <PortalShell
@@ -163,9 +229,11 @@ export default function ShopTrackPage() {
         <Card className="p-0 overflow-hidden mb-4">
           <RoutedRideMap
             markers={markers}
-            from={store?.lat != null ? { lat: store.lat, lng: store.lng } : null}
-            to={order.delivery_lat != null ? { lat: order.delivery_lat, lng: order.delivery_lng } : null}
+            from={routeFrom}
+            to={routeTo}
             height={240}
+            follow={!!riderLive}
+            followTarget={pickedUp ? dropoff : storePoint}
           />
         </Card>
       )}

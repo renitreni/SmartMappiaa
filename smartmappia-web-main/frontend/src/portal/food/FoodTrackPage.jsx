@@ -215,8 +215,8 @@ export default function FoodTrackPage() {
   const { profile, user } = useAuth();
   const [data, setData] = useState(null);
   const [error, setError] = useState(null);
-  // Live rider position, pushed on every GPS ping (~12s while online).
-  const [riderLive, setRiderLive] = useState(null); // { lat, lng, at, etaMinutes }
+  // Live rider position, pushed on every GPS ping (~4s while online).
+  const [riderLive, setRiderLive] = useState(null); // { lat, lng, at, heading, speedKmh, etaMinutes }
   // Rider heading so the car icon points along travel (mirrors TrackPage).
   const [riderHeading, setRiderHeading] = useState(0);
   const prevRiderRef = useRef(null);
@@ -231,6 +231,11 @@ export default function FoodTrackPage() {
     }
     prevRiderRef.current = cur;
   }, [riderLive?.lat, riderLive?.lng]);
+
+  // The device's own compass reading when it has one — accurate immediately,
+  // including on the very first fix after a reload, where the derived bearing
+  // above has no previous point to work from and leaves the car facing north.
+  const heading = riderLive?.heading ?? riderHeading;
 
   const load = useCallback(async () => {
     try {
@@ -362,7 +367,7 @@ export default function FoodTrackPage() {
                     : null
                 }
                 markers={[
-                  { type: 'driver', lat: riderLive.lat, lng: riderLive.lng, key: 'rider', heading: riderHeading },
+                  { type: 'driver', lat: riderLive.lat, lng: riderLive.lng, key: 'rider', heading },
                   data.merchant && data.merchant.lat != null
                     ? { type: 'pickup', lat: data.merchant.lat, lng: data.merchant.lng, label: data.merchant.name, key: 'restaurant' }
                     : null,

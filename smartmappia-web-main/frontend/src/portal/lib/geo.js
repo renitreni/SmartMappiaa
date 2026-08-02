@@ -83,6 +83,128 @@ export function movementFrom(prev, curr, dtSeconds, movingThresholdKmh = 3) {
   return { speedKmh, moving: speedKmh != null && speedKmh >= movingThresholdKmh };
 }
 
+// ---------------------------------------------------------------------
+// Route-following ("snap to path").
+//
+// This is how Grab / Foodpanda / Uber keep the vehicle on the road. The
+// naive approach — tween the marker straight from the last GPS fix to the
+// next — draws a chord across whatever lies between them, so the car visibly
+// cuts corners and drives through buildings. GPS fixes arrive seconds apart;
+// a straight line between two of them is simply not the path the car took.
+//
+// The fix needs no extra API calls and no Roads API spend, because we already
+// have the road geometry: the Routes API polyline the map is drawing anyway.
+// So instead of interpolating in free space, we:
+//   1. project the driver onto that polyline (nearest point on the route),
+//   2. animate the DISTANCE ALONG the polyline between the old and new
+//      projections, reading lat/lng back off the road geometry each frame,
+//   3. take the heading from the polyline's tangent, so the car points the
+//      way the road goes rather than at the next GPS sample.
+//
+// Distances use an equirectangular projection into local metres. Over the few
+// km a route leg spans that is accurate to well under a metre and is far
+// cheaper than haversine per segment per frame.
+// ---------------------------------------------------------------------
+
+const M_PER_DEG_LAT = 110540;
+const M_PER_DEG_LNG = 111320;
+
+// Precompute per-segment lengths and cumulative distance. Do this once when
+// the route changes, not per animation frame.
+export function pathMetrics(path) {
+  if (!path || path.length < 2) return null;
+  const lat0 = toRad(path[0].lat);
+  const kx = Math.cos(lat0) * M_PER_DEG_LNG;
+  const xy = path.map((p) => ({ x: p.lng * kx, y: p.lat * M_PER_DEG_LAT }));
+  const cum = [0];
+  for (let i = 1; i < xy.length; i += 1) {
+    const dx = xy[i].x - xy[i - 1].x;
+    const dy = xy[i].y - xy[i - 1].y;
+    cum.push(cum[i - 1] + Math.hypot(dx, dy));
+  }
+  return { path, xy, cum, total: cum[cum.length - 1], kx };
+}
+
+// Nearest point on the route to p. Returns how far along the route that is
+// (metres) and how far off-route p was, so the caller can decide whether the
+// driver is actually on this road at all.
+export function projectOnPath(metrics, p) {
+  if (!metrics || !p || p.lat == null) return null;
+  const { xy, cum, kx } = metrics;
+  const px = p.lng * kx;
+  const py = p.lat * M_PER_DEG_LAT;
+  let best = { distAlong: 0, offsetM: Infinity };
+  for (let i = 1; i < xy.length; i += 1) {
+    const ax = xy[i - 1].x;
+    const ay = xy[i - 1].y;
+    const bx = xy[i].x;
+    const by = xy[i].y;
+    const dx = bx - ax;
+    const dy = by - ay;
+    const segLen2 = dx * dx + dy * dy;
+    // Degenerate segment (duplicate points appear in encoded polylines).
+    const t = segLen2 === 0 ? 0 : Math.max(0, Math.min(1, ((px - ax) * dx + (py - ay) * dy) / segLen2));
+    const cx = ax + t * dx;
+    const cy = ay + t * dy;
+    const offsetM = Math.hypot(px - cx, py - cy);
+    if (offsetM < best.offsetM) {
+      best = { distAlong: cum[i - 1] + Math.sqrt(segLen2) * t, offsetM };
+    }
+  }
+  return best;
+}
+
+// Read a position (and the road's direction there) back off the route at a
+// given distance along it.
+export function pointAlongPath(metrics, distAlong) {
+  if (!metrics) return null;
+  const { path, cum, total } = metrics;
+  const d = Math.max(0, Math.min(total, distAlong));
+  // Binary search the segment containing d.
+  let lo = 1;
+  let hi = cum.length - 1;
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1;
+    if (cum[mid] < d) lo = mid + 1;
+    else hi = mid;
+  }
+  const i = lo;
+  const segLen = cum[i] - cum[i - 1];
+  const t = segLen === 0 ? 0 : (d - cum[i - 1]) / segLen;
+  const a = path[i - 1];
+  const b = path[i];
+  return {
+    lat: a.lat + (b.lat - a.lat) * t,
+    lng: a.lng + (b.lng - a.lng) * t,
+    // Tangent of the road here — this is what makes the car follow bends
+    // instead of swinging toward the next GPS sample.
+    heading: bearingDeg(a, b),
+  };
+}
+
+// Pull the device's own heading + speed off a GeolocationCoordinates.
+//
+// Preferred over bearingDeg() because it comes from the chip's sensor fusion
+// on the current instant, where a derived bearing needs two fixes seconds
+// apart and so lags, jitters when GPS wanders at a standstill, and is simply
+// unavailable on the first fix after a page load.
+//
+// Both are null on desktop and while stopped, hence the explicit isFinite
+// guards — the browser can hand back null OR NaN here depending on engine.
+// Speed arrives in m/s; the rest of the app talks km/h (see movementFrom).
+export function readMotion(coords) {
+  if (!coords) return { heading: null, speedKmh: null };
+  const heading = Number.isFinite(coords.heading) ? coords.heading : null;
+  const speed = Number.isFinite(coords.speed) ? coords.speed : null;
+  return {
+    // A stationary device can report heading 0 as "unknown" rather than null;
+    // trusting it would snap a parked car to due north. Speed disambiguates:
+    // genuinely heading due north while moving keeps its 0.
+    heading: heading != null && (heading !== 0 || (speed != null && speed > 0.5)) ? heading : null,
+    speedKmh: speed != null ? speed * 3.6 : null,
+  };
+}
+
 // Watch (or one-shot) the device location.
 //   useGeolocation({ watch: true, enabled: isOnline })
 export function useGeolocation({ watch = false, enabled = true } = {}) {
@@ -102,6 +224,11 @@ export function useGeolocation({ watch = false, enabled = true } = {}) {
         lat: pos.coords.latitude,
         lng: pos.coords.longitude,
         accuracy: pos.coords.accuracy,
+        // Straight off the chip. Null is the NORMAL case, not an error:
+        // desktops have no compass at all, and phones report heading as null
+        // whenever the device is stationary (a parked car has no direction of
+        // travel). Callers fall back to bearingDeg() between two fixes.
+        ...readMotion(pos.coords),
       });
     };
     const onErr = (e) => setError(e?.message || 'Could not get your location.');

@@ -9,13 +9,29 @@
 // old renderer's pinHtml.js — they are plain DOM elements, which Google's
 // AdvancedMarkerElement takes directly as marker content.
 // ---------------------------------------------------------------------
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { RIYADH_CENTER } from '../../lib/constants';
-import { haversineKm } from '../../lib/geo';
+import { haversineKm, pathMetrics, projectOnPath, pointAlongPath } from '../../lib/geo';
 import { buildPinEl, refreshPinEl, updateDriverHeading, pinSignature } from '../maplibre/pinHtml';
 
 const BROWSER_KEY = import.meta.env.VITE_GOOGLE_MAPS_BROWSER_KEY;
 const MAP_ID = import.meta.env.VITE_GOOGLE_MAP_ID;
+
+// How long to glide for before we have two fixes to measure a real gap from
+// (i.e. the second fix of a session). Roughly the driver app's ping interval.
+const DEFAULT_TWEEN_MS = 4000;
+
+// How far off the drawn route a driver may be and still be considered "on"
+// it. Beyond this we stop snapping and tween in a straight line, because the
+// driver genuinely is not on the road we are drawing — they have diverged,
+// taken a turn the route did not anticipate, or the route is stale. Snapping
+// a truly off-route car onto the polyline would teleport it sideways, which
+// is a worse lie than a short straight segment.
+//
+// 70m covers normal GPS error (a phone in a city reports 5-30m, worse beside
+// tall buildings) plus dual-carriageway width, without swallowing a car that
+// is actually on a parallel street.
+const SNAP_TOLERANCE_M = 70;
 
 // Load the Google Maps JS API once per session and resolve to the google.maps
 // namespace. Uses the modern async bootstrap + importLibrary so we stay off the
@@ -75,6 +91,7 @@ export default function GoogleMap({
   const routeRef = useRef(null); // { casing, main }
   const infoRef = useRef(null); // shared InfoWindow for pin labels
   const driverPosRef = useRef(null); // live (tweened) driver position
+  const lastFixAtRef = useRef(null); // when the previous fix landed, to size the tween
   const rafRef = useRef(null);
   const didFollowFitRef = useRef(false);
   const [ready, setReady] = useState(false);
@@ -82,6 +99,14 @@ export default function GoogleMap({
 
   const valid = markers.filter((m) => m && m.lat != null && m.lng != null);
   const driver = valid.find((m) => m.type === 'driver') || null;
+
+  // Route geometry, precomputed for snapping. Declared here (above the tween
+  // effect that reads it) because the segment lengths only change when the
+  // route itself does — recomputing them per animation frame would be waste.
+  const lineSig =
+    line && line.length >= 2 ? JSON.stringify(line.map((p) => [p.lat, p.lng])) : '';
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const metrics = useMemo(() => (line && line.length >= 2 ? pathMetrics(line) : null), [lineSig]);
 
   // Cap the zoom after a fitBounds (Google has no maxZoom arg) so a close pair
   // of points doesn't slam to street level.
@@ -207,7 +232,11 @@ export default function GoogleMap({
     }
   }, [markers, ready]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // --- 3. Driver tween: glide 1200ms between GPS fixes -----------------------
+  // --- 3. Driver tween: glide between GPS fixes ------------------------------
+  // The duration is measured, not fixed. A hard-coded 1200ms was the reason
+  // the car looked frozen: fixes arrive every several seconds, so the marker
+  // finished its glide almost immediately and then sat still until the next
+  // one. Spending the whole gap in motion is what reads as "live".
   useEffect(() => {
     if (!ready || !driver) return undefined;
     let entry = null;
@@ -223,27 +252,69 @@ export default function GoogleMap({
     if (jump === 0 || jump > 0.5) {
       entry.marker.position = to;
       driverPosRef.current = to;
+      lastFixAtRef.current = performance.now();
       return undefined;
     }
-    const duration = 1200;
+
     const start = performance.now();
+    // Assume the next fix lands after the same gap as the last one. Clamped:
+    // the floor keeps a burst of fixes from looking jittery, and the ceiling
+    // stops one long GPS gap (tunnel, backgrounded app) from committing the
+    // car to a minute-long crawl it can never catch up from.
+    const gap = lastFixAtRef.current ? start - lastFixAtRef.current : DEFAULT_TWEEN_MS;
+    const duration = Math.min(9000, Math.max(1000, gap));
+    lastFixAtRef.current = start;
+
+    // --- Follow the ROAD, not the chord between two GPS fixes ---
+    // Both ends are projected onto the drawn route; if both sit on it we
+    // animate the distance ALONG the route and read lat/lng back off the road
+    // geometry each frame. That is what stops the car cutting corners and
+    // driving through buildings between fixes. Falls back to a straight tween
+    // whenever there is no route, or the driver is genuinely off it.
+    let snap = null;
+    if (metrics) {
+      const a = projectOnPath(metrics, from);
+      const b = projectOnPath(metrics, to);
+      if (a && b && a.offsetM <= SNAP_TOLERANCE_M && b.offsetM <= SNAP_TOLERANCE_M) {
+        snap = { fromD: a.distAlong, toD: b.distAlong };
+      }
+    }
+
     if (rafRef.current) cancelAnimationFrame(rafRef.current);
     const step = (now) => {
       const t = Math.min(1, (now - start) / duration);
-      const lat = from.lat + (to.lat - from.lat) * t;
-      const lng = from.lng + (to.lng - from.lng) * t;
-      entry.marker.position = { lat, lng };
-      driverPosRef.current = { lat, lng };
+      // Ease out slightly: real vehicles decelerate into a stop, and a purely
+      // linear tween that ends dead-still every cycle looks mechanical.
+      const e = 1 - (1 - t) * (1 - t);
+      let pos;
+      if (snap) {
+        const d = snap.fromD + (snap.toD - snap.fromD) * e;
+        const onRoad = pointAlongPath(metrics, d);
+        pos = { lat: onRoad.lat, lng: onRoad.lng };
+        // Point the car along the road it is on. Only while genuinely moving:
+        // at a standstill the tangent of a near-zero step is noise, and the
+        // device's own heading (already applied by the reconciler) is better.
+        if (onRoad.heading != null && Math.abs(snap.toD - snap.fromD) > 3) {
+          updateDriverHeading(entry.el, onRoad.heading);
+        }
+      } else {
+        pos = {
+          lat: from.lat + (to.lat - from.lat) * e,
+          lng: from.lng + (to.lng - from.lng) * e,
+        };
+      }
+      entry.marker.position = pos;
+      driverPosRef.current = pos;
       if (t < 1) rafRef.current = requestAnimationFrame(step);
     };
     rafRef.current = requestAnimationFrame(step);
     return undefined;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [driver?.lat, driver?.lng, ready]);
+  }, [driver?.lat, driver?.lng, ready, lineSig]);
 
   // --- 4. Route line data ----------------------------------------------------
-  const lineSig =
-    line && line.length >= 2 ? JSON.stringify(line.map((p) => [p.lat, p.lng])) : '';
+  // lineSig is computed at the top of the component — the tween effect above
+  // needs it too, for the route-snapping metrics.
   useEffect(() => {
     if (!ready || !routeRef.current) return;
     const path = line && line.length >= 2 ? line.map((p) => ({ lat: p.lat, lng: p.lng })) : [];

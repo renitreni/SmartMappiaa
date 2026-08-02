@@ -290,9 +290,22 @@ export default function DriverDispatch({ online, foodEnabled = true, driverId, c
 
   // Tell the parent (DriverPage) so it keeps GPS pinging while a delivery is
   // active, even when the rider isn't "online" — that's what feeds the pin.
+  //
+  // Reports the current leg's destination rather than a bare boolean, so the
+  // parent's map can frame and follow the rider against where they are
+  // actually heading. Same rule the delivery card uses: the merchant until
+  // pickup, the customer after it. Null when there is no active delivery.
+  const activeDelivery = deliveries[0] || null;
+  const deliveryTarget = !activeDelivery
+    ? null
+    : activeDelivery.orderStatus === 'out_for_delivery'
+      ? { lat: activeDelivery.dropoffLat, lng: activeDelivery.dropoffLng }
+      : { lat: activeDelivery.merchant?.lat, lng: activeDelivery.merchant?.lng };
+  const targetSig = deliveryTarget ? `${deliveryTarget.lat},${deliveryTarget.lng}` : '';
   useEffect(() => {
-    onActiveDeliveryChange?.(deliveries.length > 0);
-  }, [deliveries.length, onActiveDeliveryChange]);
+    onActiveDeliveryChange?.(deliveryTarget);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [targetSig, onActiveDeliveryChange]);
 
   async function acceptOffer(offer) {
     setBusyId(offer.id);

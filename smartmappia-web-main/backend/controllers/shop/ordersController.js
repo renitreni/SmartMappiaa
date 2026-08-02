@@ -26,7 +26,8 @@
 const crypto = require('crypto');
 const { supabase } = require('../../lib/supabase');
 const { config } = require('../../lib/config');
-const { haversineKm } = require('../../lib/geo');
+const { haversineKm, etaMinutes } = require('../../lib/geo');
+const { latestDriverFix } = require('../../lib/tracking');
 const { priceShopOrder, resolveUnitPricing } = require('../../lib/shopMoney');
 const { placeShopOrder } = require('../../lib/stock');
 const { logShopEvent } = require('../../lib/foodEvents');
@@ -360,7 +361,25 @@ async function getOrder(req, res) {
           phone: profile.mobile_number,
           avatarUrl: profile.avatar_url,
           status: delivery.status,
+          location: null,
+          etaMinutes: null,
         };
+        // Live pin + rough ETA, mirroring food's getOrder. This was missing
+        // entirely, so ShopTrackPage had nothing to draw and the map looked
+        // permanently frozen even while a rider was actively en route.
+        //
+        // Gated on the delivery being active for the same reason food is: a
+        // past customer must not be able to keep polling a delivered order and
+        // follow the rider around for the rest of their shift.
+        if (['assigned', 'picked_up'].includes(delivery.status)) {
+          const lastFix = await latestDriverFix(delivery.driver_id);
+          if (lastFix) {
+            rider.location = lastFix;
+            rider.etaMinutes = etaMinutes(
+              haversineKm(lastFix, { lat: order.delivery_lat, lng: order.delivery_lng })
+            );
+          }
+        }
       }
     }
 

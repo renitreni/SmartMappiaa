@@ -75,7 +75,7 @@ function pinInnerHtml(marker) {
 
   const inner = isDriver
     ? `<div class="sm-map-driver-core">
-        <span class="sm-map-driver-heading" style="display:inline-flex;transition:transform 0.6s ease;transform:rotate(${marker.heading ?? 0}deg)">
+        <span class="sm-map-driver-heading" data-sm-angle="${Number(marker.heading) || 0}" style="display:inline-flex;transition:transform 0.6s ease;transform:rotate(${Number(marker.heading) || 0}deg)">
           ${CAR_SVG}
         </span>
       </div>`
@@ -106,7 +106,33 @@ export function refreshPinEl(el, marker) {
 // Rotate the driver car in place — mutating the transform (instead of
 // rebuilding the DOM like Leaflet's setIcon did) lets the 0.6s CSS
 // transition actually animate the turn.
+//
+// The angle we write is CUMULATIVE, not the raw compass bearing, because CSS
+// interpolates transforms numerically: going from 350deg to 10deg is a real
+// heading change of +20deg, but written literally the car spins 340deg
+// backwards — a full pirouette at every turn through north. Tracking the
+// unwrapped angle on the element and moving by the shortest signed delta keeps
+// every turn going the way the vehicle actually turned. Values grow without
+// bound (720deg, 1080deg, ...), which is fine: rotate() has no modulus and the
+// element is discarded when the marker is.
 export function updateDriverHeading(el, heading) {
   const span = el.querySelector('.sm-map-driver-heading');
-  if (span && heading != null) span.style.transform = `rotate(${heading}deg)`;
+  if (!span || heading == null) return;
+
+  const prev = Number(span.dataset.smAngle);
+  if (!Number.isFinite(prev)) {
+    // First heading for this element: adopt it outright, no animation to make.
+    span.dataset.smAngle = String(heading);
+    span.style.transform = `rotate(${heading}deg)`;
+    return;
+  }
+
+  // Shortest signed turn from where the car is pointing to where it should be.
+  let delta = (heading - prev) % 360;
+  if (delta > 180) delta -= 360;
+  if (delta < -180) delta += 360;
+
+  const next = prev + delta;
+  span.dataset.smAngle = String(next);
+  span.style.transform = `rotate(${next}deg)`;
 }
