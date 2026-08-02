@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import { useState, useEffect } from "react";
 import { Link } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import {
@@ -12,9 +12,11 @@ import {
   HelpCircle,
   LogOut,
   LayoutDashboard,
+  UserCircle,
 } from "lucide-react";
 import { useAuth } from "../portal/lib/AuthProvider";
 import { roleHome } from "../portal/lib/constants";
+import { UserMenu } from "../portal/components/ui";
 
 const menuLinks = [
   { name: "Home",         href: "#home",         Icon: Home },
@@ -28,7 +30,7 @@ const menuLinks = [
 ];
 
 function AuthActions({ mobile = false, onNavigate }) {
-  const { session, user, role, profileLoading, signOut } = useAuth();
+  const { session, user, profile, role, profileLoading, signOut } = useAuth();
 
   const wrapClass = mobile
     ? "flex flex-col gap-2"
@@ -45,17 +47,16 @@ function AuthActions({ mobile = false, onNavigate }) {
   if (session && role) {
     const dashboardPath = role !== "passenger" ? roleHome(role) : null;
     const dashboardLabel =
-      role === "admin" ? "Admin dashboard" : role === "driver" ? "Driver dashboard" : null;
-    const displayName = user?.email?.split("@")[0] || "Account";
+      role === "admin"
+        ? "Admin dashboard"
+        : role === "driver"
+          ? "Driver dashboard"
+          : role === "merchant"
+            ? "Business dashboard"
+            : null;
 
     return (
       <div className={wrapClass}>
-        {!mobile && (
-          <span className="hidden xl:inline text-xs font-bold text-brand-grey max-w-[120px] truncate">
-            {displayName}
-          </span>
-        )}
-
         {dashboardPath && (
           <Link
             to={dashboardPath}
@@ -90,21 +91,33 @@ function AuthActions({ mobile = false, onNavigate }) {
           </Link>
         )}
 
-        <button
-          type="button"
-          onClick={() => {
-            onNavigate?.();
-            signOut();
-          }}
-          className={
-            mobile
-              ? "flex items-center justify-center gap-2 w-full font-black py-3 rounded-2xl text-sm text-brand-grey border border-brand-border cursor-pointer"
-              : "inline-flex items-center gap-1.5 whitespace-nowrap text-sm font-bold px-3 py-2 rounded-full cursor-pointer text-brand-grey hover:text-brand-dark hover:bg-brand-surface transition-colors"
-          }
-        >
-          <LogOut className="w-4 h-4" />
-          Sign out
-        </button>
+        {mobile ? (
+          <>
+            <Link
+              to="/profile"
+              onClick={onNavigate}
+              className="flex items-center justify-center gap-2 w-full font-black py-3 rounded-2xl text-sm text-brand-dark border border-brand-border cursor-pointer"
+            >
+              <UserCircle className="w-4 h-4" />
+              {profile?.fullName || user?.email?.split("@")[0] || "My Profile"}
+            </Link>
+            <button
+              type="button"
+              onClick={() => {
+                onNavigate?.();
+                signOut();
+              }}
+              className="flex items-center justify-center gap-2 w-full font-black py-3 rounded-2xl text-sm text-brand-grey border border-brand-border cursor-pointer"
+            >
+              <LogOut className="w-4 h-4" />
+              Sign out
+            </button>
+          </>
+        ) : (
+          // Desktop: avatar + name dropdown (My Profile / Order History /
+          // Settings / Logout) — same menu as the portal header.
+          <UserMenu />
+        )}
       </div>
     );
   }
@@ -120,12 +133,15 @@ function AuthActions({ mobile = false, onNavigate }) {
             : "whitespace-nowrap text-sm font-bold px-3 py-2 rounded-full cursor-pointer text-brand-dark hover:text-brand-orange transition-colors"
         }
       >
-        Sign in
+        Log in
       </Link>
-      <Link to="/book" onClick={onNavigate}>
+      {/* Signed-out visitors get account CTAs, not a booking CTA — booking
+          requires an account anyway, so "Book a Ride" only sent them to a
+          login wall. The primary (orange) action is Sign up. */}
+      <Link to="/signup" onClick={onNavigate}>
         {mobile ? (
           <span className="block text-center w-full bg-brand-orange text-white font-black py-4 rounded-2xl text-sm cursor-pointer shadow-lg shadow-brand-orange/25">
-            Book a Ride
+            Sign up
           </span>
         ) : (
           <motion.span
@@ -134,7 +150,7 @@ function AuthActions({ mobile = false, onNavigate }) {
             transition={{ type: "spring", stiffness: 400, damping: 18 }}
             className="inline-block whitespace-nowrap bg-brand-orange text-white text-xs font-black px-5 py-3 rounded-full cursor-pointer shadow-md shadow-brand-orange/25 hover:shadow-xl hover:shadow-brand-orange/30 transition-shadow duration-300"
           >
-            Book a Ride
+            Sign up
           </motion.span>
         )}
       </Link>
@@ -174,19 +190,20 @@ const Navbar = () => {
                    px-6 md:px-20 flex items-center justify-between
                    fixed top-0 left-0 z-50"
       >
-        <a href="#home" className="flex items-center gap-3">
+        <a href="#home" className="flex items-center gap-2.5 shrink-0" aria-label="Smart Mappia home">
           <motion.div
             whileHover={{ scale: 1.1, rotate: -5 }}
             transition={{ type: "spring", stiffness: 320, damping: 14 }}
-            className="w-12 h-12 flex items-center justify-center overflow-hidden"
+            className="w-10 h-10 shrink-0 flex items-center justify-center"
           >
             <img
-              src="/mappia-new-logo.png"
-              alt="SmartMappia Logo"
+              src="/mappia-icon-transparent.png"
+              alt=""
+              aria-hidden="true"
               className="w-full h-full object-contain"
             />
           </motion.div>
-          <span className="text-xl font-black tracking-tight text-brand-black">
+          <span className="text-lg font-black tracking-tight whitespace-nowrap text-brand-black">
             Smart <span className="text-brand-orange">Mappia</span>
           </span>
         </a>

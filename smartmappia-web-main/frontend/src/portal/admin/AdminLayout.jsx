@@ -6,12 +6,14 @@ import {
   LayoutDashboard,
   ClipboardList,
   Users,
+  UtensilsCrossed,
+  ShoppingBag,
+  BarChart3,
   RefreshCw,
   LogOut,
   Menu,
   X,
   ExternalLink,
-  Bell,
   ChevronDown,
   Eye,
   User,
@@ -22,6 +24,7 @@ import { useState, useRef, useEffect } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { useAuth } from '../lib/AuthProvider';
 import { useViewMode } from '../lib/ViewModeProvider';
+import NotificationBell from '../components/NotificationBell';
 
 // Admin-only action menu that replaces the old Refresh button. Lets the admin
 // refresh data or preview the user/driver portal WITHOUT logging out (the
@@ -116,6 +119,9 @@ export const ADMIN_NAV = [
   { id: 'overview', label: 'Overview', icon: LayoutDashboard },
   { id: 'bookings', label: 'Bookings', icon: ClipboardList },
   { id: 'drivers', label: 'Drivers', icon: Users },
+  { id: 'food', label: 'Food', icon: UtensilsCrossed },
+  { id: 'shop', label: 'Shop', icon: ShoppingBag },
+  { id: 'reports', label: 'Reports', icon: BarChart3 },
 ];
 
 const PAGE_COPY = {
@@ -130,6 +136,18 @@ const PAGE_COPY = {
   drivers: {
     title: 'Drivers',
     subtitle: 'Approve new drivers and manage fleet access.',
+  },
+  food: {
+    title: 'Food Delivery',
+    subtitle: 'Merchants, credit limits, order payments, and riders.',
+  },
+  shop: {
+    title: 'Ecommerce',
+    subtitle: 'Stores, catalogue and markup, orders, inventory and settlement.',
+  },
+  reports: {
+    title: 'Reports',
+    subtitle: 'Bookings and revenue over time — export to CSV.',
   },
 };
 
@@ -249,13 +267,9 @@ export default function AdminLayout({ activeTab, onTabChange, onRefresh, childre
             </div>
 
             <div className="flex items-center gap-2 shrink-0">
-              <button
-                type="button"
-                className="hidden sm:flex p-2.5 rounded-xl bg-white border border-black/5 text-brand-grey hover:text-brand-dark cursor-pointer shadow-sm"
-                title="Notifications"
-              >
-                <Bell className="w-4 h-4" />
-              </button>
+              <div className="rounded-xl bg-white border border-black/5 shadow-sm">
+                <NotificationBell />
+              </div>
               <ViewSwitchMenu onRefresh={onRefresh} />
               <Link
                 to="/"

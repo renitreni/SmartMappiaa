@@ -8,6 +8,7 @@ import { AIRPORTS, fareBreakdown, airportDropdownOptions } from "../portal/lib/c
 import {
   DirectionToggle,
   FareSummary,
+  LegalConsentNote,
 } from "../components/booking/BookingUI";
 
 const FARE = fareBreakdown();
@@ -18,7 +19,7 @@ const DISTRICT_OPTIONS = DISTRICTS.map((dist) => ({ value: dist, label: `${dist}
 
 const perks = [
   { Icon: MapPin, text: "Olaya, Sulamania, Malaz & Batha" },
-  { Icon: Shield, text: "Fixed rates — no hidden fees" },
+  { Icon: Shield, text: "Fixed rates, no hidden fees" },
   { Icon: Clock, text: "24/7 secure app access" },
 ];
 
@@ -100,7 +101,7 @@ const PickDrop = () => {
           >
             <div className="px-6 md:px-8 pt-7 pb-5 border-b border-brand-border bg-gradient-to-br from-brand-warm/80 to-white">
               <h3 className="text-lg font-black text-brand-black tracking-tight">Quick fare estimate</h3>
-              <p className="text-xs text-brand-grey mt-1">Select your trip — price updates instantly</p>
+              <p className="text-xs text-brand-grey mt-1">Select your trip and the price updates instantly</p>
             </div>
 
             <div className="px-6 md:px-8 py-6 space-y-6 overflow-visible">
@@ -132,6 +133,7 @@ const PickDrop = () => {
             </div>
 
             <div className="px-6 md:px-8 pb-7">
+              <LegalConsentNote className="mb-3" />
               <Link
                 to={bookUrl}
                 className="flex w-full items-center justify-center gap-2 bg-brand-orange hover:bg-brand-orange/90 text-white font-black py-4 rounded-xl transition-all duration-300 shadow-lg shadow-brand-orange/25 text-sm cursor-pointer group"

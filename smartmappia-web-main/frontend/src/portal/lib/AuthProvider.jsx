@@ -6,8 +6,12 @@
 // returned profile (role + driverApproved) is what the UI gates on.
 // ---------------------------------------------------------------------
 import { createContext, useContext, useEffect, useRef, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { supabase } from './supabaseClient';
 import { api } from './api';
+import { ensureLocationPermission } from './geo';
+import { setDiagnosticsAudience } from './notify';
+import { unregisterCurrentWebPush } from './pushNotifications';
 
 const AuthCtx = createContext(null);
 const PENDING_KEY = 'sm_pending_profile';
@@ -19,6 +23,7 @@ export function AuthProvider({ children }) {
   const [profileError, setProfileError] = useState(null);
   const [loading, setLoading] = useState(true);
   const syncedFor = useRef(null);
+  const navigate = useNavigate();
 
   async function loadProfile() {
     setProfileLoading(true);
@@ -64,10 +69,18 @@ export function AuthProvider({ children }) {
     const uid = session?.user?.id;
     if (uid && syncedFor.current !== uid) {
       syncedFor.current = uid;
-      loadProfile();
+      loadProfile().then((p) => {
+        // Proactively ask for location once, right after sign-in — only for the
+        // roles that actually use it (passengers + drivers), never admin/merchant.
+        const role = p?.role;
+        // Only admins may see diagnostic detail in error popups (notify.js).
+        setDiagnosticsAudience(role);
+        if (role && role !== 'admin' && role !== 'merchant') ensureLocationPermission();
+      });
     } else if (!uid) {
       syncedFor.current = null;
       setProfile(null);
+      setDiagnosticsAudience(null); // signed out: back to the safe default
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session?.user?.id]);
@@ -104,8 +117,13 @@ export function AuthProvider({ children }) {
     },
 
     async signOut() {
+      await unregisterCurrentWebPush();
       if (supabase) await supabase.auth.signOut();
       setProfile(null);
+      syncedFor.current = null;
+      // Leave any role-protected page so a stale URL can't become ?next=/admin
+      // and bounce the next account into the wrong area.
+      navigate('/', { replace: true });
     },
 
     refreshProfile: loadProfile,

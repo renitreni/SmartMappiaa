@@ -4,6 +4,7 @@
 // knows who the caller is and what role they have.
 // ---------------------------------------------------------------------
 import { supabase } from './supabaseClient';
+import { notifyError } from './notify';
 
 const API_BASE = import.meta.env.VITE_API_BASE || 'http://localhost:4000';
 
@@ -14,13 +15,26 @@ async function authHeader() {
   return token ? { Authorization: `Bearer ${token}` } : {};
 }
 
-async function request(path, { method = 'GET', body, headers = {} } = {}) {
+// Pass { silent: true } for background/polling calls so a transient failure
+// doesn't fire a popup every few seconds. All other errors show one via Swal.
+async function request(path, { method = 'GET', body, headers = {}, silent = false } = {}) {
   const auth = await authHeader();
-  const res = await fetch(`${API_BASE}${path}`, {
-    method,
-    headers: { 'Content-Type': 'application/json', ...auth, ...headers },
-    body: body !== undefined ? JSON.stringify(body) : undefined,
-  });
+
+  let res;
+  try {
+    res = await fetch(`${API_BASE}${path}`, {
+      method,
+      headers: { 'Content-Type': 'application/json', ...auth, ...headers },
+      body: body !== undefined ? JSON.stringify(body) : undefined,
+    });
+  } catch {
+    // Network/CORS failure: the server couldn't be reached at all.
+    const err = new Error('Network error: could not reach the server. Please check your connection.');
+    err.status = 0;
+    if (!silent) notifyError(err.message);
+    throw err;
+  }
+
   let data = null;
   try {
     data = await res.json();
@@ -32,6 +46,7 @@ async function request(path, { method = 'GET', body, headers = {} } = {}) {
     const err = new Error(msg);
     err.status = res.status;
     err.details = data && data.details;
+    if (!silent) notifyError(msg);
     throw err;
   }
   return data;
@@ -42,19 +57,51 @@ export const api = {
 
   // --- auth ---
   authSignup: (body) => request('/api/auth/signup', { method: 'POST', body }),
-  authSync: (body = {}) => request('/api/auth/sync', { method: 'POST', body }),
+  authSync: (body = {}) => request('/api/auth/sync', { method: 'POST', body, silent: true }),
+  // Profile page: name / phones / address / avatar (email + password go
+  // through Supabase Auth on the client).
+  updateProfile: (body) => request('/api/auth/profile', { method: 'PATCH', body }),
+  avatarSignedUrl: (body) => request('/api/auth/avatar/signed-url', { method: 'POST', body }),
 
   // --- passenger ---
   createBooking: (b) => request('/api/bookings', { method: 'POST', body: b }),
+  myBookings: () => request('/api/bookings', { silent: true }), // Pick & Drop history
   getBooking: (code) => request(`/api/bookings/${code}`),
   cancelBooking: (code, reason) => request(`/api/bookings/${code}/cancel`, { method: 'POST', body: { reason } }),
+  // Contact number stays editable while the trip is active (even in progress).
+  updateBookingContact: (code, body) => request(`/api/bookings/${code}/contact`, { method: 'PATCH', body }),
   paymentInstructions: (code) => request(`/api/bookings/${code}/payment-instructions`),
   proofSignedUrl: (code, body) => request(`/api/bookings/${code}/payment-proof/signed-url`, { method: 'POST', body }),
   recordProof: (code, body) => request(`/api/bookings/${code}/payment-proof`, { method: 'POST', body }),
-  tracking: (code) => request(`/api/tracking/${code}`),
+  // Tap Payments hosted-redirect charge (backend endpoint pending — see NOTES §2).
+  createTapCharge: (code) => request(`/api/payments/${code}/tap-charge`, { method: 'POST' }),
+  tracking: (code) => request(`/api/tracking/${code}`, { silent: true }), // polled every 8s
+
+  // --- location search / nearby places (Google Places + Geocoding via backend) ---
+  // `token` is a per-typing-session token shared with locationDetails so the
+  // autocomplete keystrokes bill as one cheap Places session.
+  locationSearch: (q, coords = {}, token) => {
+    const params = new URLSearchParams({ q });
+    if (coords.lat != null && coords.lng != null) {
+      params.set('lat', coords.lat);
+      params.set('lng', coords.lng);
+    }
+    if (token) params.set('token', token);
+    return request(`/api/locations/search?${params}`, { silent: true });
+  },
+  // Resolve a selected autocomplete prediction to its coordinates (ends the session).
+  locationDetails: (id, token) => {
+    const params = new URLSearchParams({ id });
+    if (token) params.set('token', token);
+    return request(`/api/locations/details?${params}`, { silent: true });
+  },
+  locationReverse: (lat, lng) => request(`/api/locations/reverse?lat=${encodeURIComponent(lat)}&lng=${encodeURIComponent(lng)}`, { silent: true }),
+  locationNearby: (lat, lng, radius = 1200) =>
+    request(`/api/locations/nearby?lat=${encodeURIComponent(lat)}&lng=${encodeURIComponent(lng)}&radius=${encodeURIComponent(radius)}`, { silent: true }),
 
   // --- admin (role enforced by backend) ---
   adminStats: () => request('/api/admin/stats'),
+  adminReports: (range) => request(`/api/admin/reports?range=${encodeURIComponent(range)}`),
   adminList: (query = '') => request(`/api/admin/bookings${query}`),
   adminDetail: (code) => request(`/api/admin/bookings/${code}`),
   adminVerify: (code, body = {}) => request(`/api/admin/bookings/${code}/verify-payment`, { method: 'POST', body }),
@@ -63,14 +110,275 @@ export const api = {
   adminDrivers: () => request('/api/admin/drivers'),
   adminApproveDriver: (driverId, approved = true) =>
     request(`/api/admin/drivers/${driverId}/approval`, { method: 'POST', body: { approved } }),
+  adminDriverDocuments: (driverId) => request(`/api/admin/drivers/${driverId}/documents`),
+  adminReviewDoc: (driverId, docId, body) =>
+    request(`/api/admin/drivers/${driverId}/documents/${docId}/review`, { method: 'POST', body }),
+  // Driver cash settlement (pick & drop cash rides)
+  adminDriverCash: () => request('/api/admin/drivers/cash'),
+  adminSettleDriverCash: (driverId, body) =>
+    request(`/api/admin/drivers/${driverId}/settle-cash`, { method: 'POST', body }),
 
   // --- driver (identity from token) ---
   driverAvailable: (lat, lng) => {
     const q = lat != null && lng != null ? `?lat=${lat}&lng=${lng}` : '';
-    return request(`/api/driver/available${q}`);
+    return request(`/api/driver/available${q}`, { silent: true }); // polled feed
   },
-  driverRides: () => request('/api/driver/rides'),
+  driverRides: () => request('/api/driver/rides', { silent: true }), // polled feed
+  driverCash: () => request('/api/driver/cash', { silent: true }), // what the driver owes us
   driverAccept: (code) => request(`/api/driver/rides/${code}/accept`, { method: 'POST' }),
-  driverStatus: (code, status) => request(`/api/driver/rides/${code}/status`, { method: 'POST', body: { status } }),
-  driverLocation: (body) => request('/api/driver/location', { method: 'POST', body }),
+  // coords: the driver's current {lat,lng} — required server-side to confirm
+  // "arrived" (GPS-vicinity check; a stale/missing fix is rejected, not
+  // silently allowed through).
+  driverStatus: (code, status, coords) =>
+    request(`/api/driver/rides/${code}/status`, { method: 'POST', body: { status, lat: coords?.lat, lng: coords?.lng } }),
+  // Give up an accepted ride before it starts -> auto re-dispatched to next-nearest.
+  driverCancelRide: (code, reason) => request(`/api/driver/rides/${code}/cancel`, { method: 'POST', body: { reason } }),
+  driverLocation: (body) => request('/api/driver/location', { method: 'POST', body, silent: true }), // 12s GPS ping
+  // Which verticals this driver works: ['pick_drop','food','shop'].
+  driverServices: (service_types) =>
+    request('/api/driver/services', { method: 'PATCH', body: { service_types } }),
+  // driver verification documents
+  driverDocSignedUrl: (body) => request('/api/driver/documents/signed-url', { method: 'POST', body }),
+  driverRecordDoc: (body) => request('/api/driver/documents', { method: 'POST', body }),
+  driverDocuments: () => request('/api/driver/documents', { silent: true }),
+
+  // --- notifications ---
+  // The signed-in user's own notification history (last 50), powering the bell.
+  listNotifications: () => request('/api/notifications', { silent: true }),
+  notificationPushConfig: () => request('/api/notifications/push-config', { silent: true }),
+  registerPushToken: (body) => request('/api/notifications/register', { method: 'POST', body, silent: true }),
+  unregisterPushToken: (token) => request('/api/notifications/unregister', { method: 'POST', body: { token }, silent: true }),
+  markNotificationsRead: () => request('/api/notifications/read', { method: 'PATCH', silent: true }),
+
+  // --- food delivery: customer ---
+  foodRestaurants: (params = '') => request(`/api/food/restaurants${params}`, { silent: true }),
+  foodRestaurant: (id) => request(`/api/food/restaurants/${id}`, { silent: true }),
+  foodCart: (merchantId) => request(`/api/food/cart?merchant_id=${encodeURIComponent(merchantId)}`, { silent: true }),
+  foodCartAdd: (body) => request('/api/food/cart/items', { method: 'POST', body }),
+  foodCartUpdate: (id, quantity) => request(`/api/food/cart/items/${id}`, { method: 'PATCH', body: { quantity } }),
+  foodCartRemove: (id) => request(`/api/food/cart/items/${id}`, { method: 'DELETE' }),
+  // Checkout: the backend recomputes all money and enforces the 30 SAR
+  // minimum + 15 km radius; a 422 carries failure_reason for the UI.
+  foodCheckout: (body, idempotencyKey) =>
+    request('/api/food/orders', { method: 'POST', body, headers: idempotencyKey ? { 'Idempotency-Key': idempotencyKey } : {}, silent: true }),
+  foodOrders: () => request('/api/food/orders'),
+  foodOrder: (code) => request(`/api/food/orders/${code}`, { silent: true }), // polled on tracking
+  foodOrderContact: (code, contact_phone) =>
+    request(`/api/food/orders/${code}/contact`, { method: 'PATCH', body: { contact_phone } }),
+  foodPaymentInfo: (code) => request(`/api/food/orders/${code}/pay`),
+  foodPaySignedUrl: (code, body) => request(`/api/food/orders/${code}/pay/signed-url`, { method: 'POST', body }),
+  foodRecordPayment: (code, body) => request(`/api/food/orders/${code}/pay`, { method: 'POST', body }),
+  foodTapCharge: (code) => request(`/api/food/orders/${code}/tap-charge`, { method: 'POST' }),
+  foodEvent: (body) => request('/api/food/events', { method: 'POST', body, silent: true }),
+
+  // --- ecommerce ("shop"): customer ---
+  // Mirrors the food block one-for-one. Two differences worth knowing:
+  //   * responses carry a banded `availability` ('in_stock'|'low'|'out'),
+  //     never an exact stock count — exact inventory is withheld by the
+  //     column grants in migration 0029
+  //   * shopCheckout can fail with 409 out_of_stock in addition to the
+  //     422 min_order / outside_radius that food has
+  shopStores: (params = '') => request(`/api/shop/stores${params}`, { silent: true }),
+  shopStore: (id) => request(`/api/shop/stores/${id}`, { silent: true }),
+  shopCart: (merchantId) => request(`/api/shop/cart?merchant_id=${encodeURIComponent(merchantId)}`, { silent: true }),
+  shopCartAdd: (body) => request('/api/shop/cart/items', { method: 'POST', body }),
+  shopCartUpdate: (id, quantity) => request(`/api/shop/cart/items/${id}`, { method: 'PATCH', body: { quantity } }),
+  shopCartRemove: (id) => request(`/api/shop/cart/items/${id}`, { method: 'DELETE' }),
+  // Idempotency-Key stops a double-tap or a retry creating two orders — and,
+  // because checkout reserves stock, two reservations.
+  shopCheckout: (body, idempotencyKey) =>
+    request('/api/shop/orders', {
+      method: 'POST',
+      body,
+      headers: idempotencyKey ? { 'Idempotency-Key': idempotencyKey } : {},
+      silent: true,
+    }),
+  shopOrders: () => request('/api/shop/orders'),
+  shopOrder: (code) => request(`/api/shop/orders/${code}`, { silent: true }), // polled on tracking
+  shopOrderContact: (code, contact_phone) =>
+    request(`/api/shop/orders/${code}/contact`, { method: 'PATCH', body: { contact_phone } }),
+  shopPaymentInfo: (code) => request(`/api/shop/orders/${code}/pay`),
+  shopPaySignedUrl: (code, body) => request(`/api/shop/orders/${code}/pay/signed-url`, { method: 'POST', body }),
+  shopRecordPayment: (code, body) => request(`/api/shop/orders/${code}/pay`, { method: 'POST', body }),
+  shopTapCharge: (code) => request(`/api/shop/orders/${code}/tap-charge`, { method: 'POST' }),
+  rateShopDriver: (code, body) =>
+    request(`/api/shop/orders/${code}/rate-driver`, { method: 'POST', body, silent: true }),
+  shopEvent: (body) => request('/api/shop/events', { method: 'POST', body, silent: true }),
+
+  // --- food delivery: driver dispatch (Grab-style offers + deliveries) ---
+  driverOffers: () => request('/api/driver/offers', { silent: true }), // polled while online
+  driverOfferAccept: (id) => request(`/api/driver/offers/${id}/accept`, { method: 'POST', silent: true }),
+  driverOfferDecline: (id) => request(`/api/driver/offers/${id}/decline`, { method: 'POST', silent: true }),
+  driverDeliveries: () => request('/api/driver/deliveries', { silent: true }),
+  driverOpenDeliveries: (lat, lng) => {
+    const q = lat != null && lng != null ? `?lat=${lat}&lng=${lng}` : '';
+    return request(`/api/driver/deliveries/available${q}`, { silent: true }); // polled feed
+  },
+  driverClaimDelivery: (code) => request(`/api/driver/deliveries/${code}/claim`, { method: 'POST' }),
+  // Give up an accepted delivery before pickup -> auto re-dispatched to next-nearest.
+  driverCancelDelivery: (code, reason) =>
+    request(`/api/driver/deliveries/${code}/cancel`, { method: 'POST', body: { reason } }),
+  // Photo proof is mandatory: upload first, then send the path with the status.
+  driverDeliveryPhotoUrl: (code, body) => request(`/api/driver/deliveries/${code}/photo-url`, { method: 'POST', body }),
+  // coords: the driver's current {lat,lng} — required server-side to confirm
+  // picked_up/delivered are actually happening near the restaurant/customer.
+  driverDeliveryStatus: (code, status, photo_path, coords) =>
+    request(`/api/driver/deliveries/${code}/status`, {
+      method: 'POST',
+      body: { status, photo_path, lat: coords?.lat, lng: coords?.lng },
+    }),
+
+  // --- business owner / merchant ---
+  merchantProfile: () => request('/api/merchant/profile'),
+  merchantUpdateProfile: (body) => request('/api/merchant/profile', { method: 'PATCH', body }),
+  merchantLogoSignedUrl: (body) => request('/api/merchant/logo/signed-url', { method: 'POST', body }),
+  merchantLogoConfirm: (body) => request('/api/merchant/logo/confirm', { method: 'POST', body }),
+  merchantMenuItemImageSignedUrl: (body) =>
+    request('/api/merchant/menu/items/image/signed-url', { method: 'POST', body }),
+  merchantMenuItemImageConfirm: (body) =>
+    request('/api/merchant/menu/items/image/confirm', { method: 'POST', body }),
+  merchantAnalytics: () => request('/api/merchant/analytics'),
+  merchantMenu: () => request('/api/merchant/menu'),
+  merchantAddCategory: (body) => request('/api/merchant/menu/categories', { method: 'POST', body }),
+  merchantUpdateCategory: (id, body) => request(`/api/merchant/menu/categories/${id}`, { method: 'PATCH', body }),
+  merchantDeleteCategory: (id) => request(`/api/merchant/menu/categories/${id}`, { method: 'DELETE' }),
+  merchantAddItem: (body) => request('/api/merchant/menu/items', { method: 'POST', body }),
+  merchantUpdateItem: (id, body) => request(`/api/merchant/menu/items/${id}`, { method: 'PATCH', body }),
+  merchantDeleteItem: (id) => request(`/api/merchant/menu/items/${id}`, { method: 'DELETE' }),
+  // Order management (the restaurant's own live incoming-orders dashboard).
+  merchantOrders: (query = '') => request(`/api/merchant/orders${query}`),
+  merchantAcceptOrder: (code) => request(`/api/merchant/orders/${code}/accept`, { method: 'POST', silent: true }),
+  merchantRejectOrder: (code, reason) => request(`/api/merchant/orders/${code}/reject`, { method: 'POST', body: { reason } }),
+  merchantOrderStatus: (code, status) => request(`/api/merchant/orders/${code}/status`, { method: 'PATCH', body: { status } }),
+
+  // --- store owner (ecommerce merchant portal) ---
+  // Parallel to the block above. The store owner never sees net_price: it is
+  // absent from every response here and rejected by every route schema, so
+  // the markup stays an admin-only number.
+  merchantShopProfile: () => request('/api/merchant/shop/profile'),
+  merchantShopUpdateProfile: (body) => request('/api/merchant/shop/profile', { method: 'PATCH', body }),
+  merchantShopImageSignedUrl: (body) =>
+    request('/api/merchant/shop/images/signed-url', { method: 'POST', body }),
+  merchantShopCatalogue: () => request('/api/merchant/shop/catalogue'),
+  merchantShopAnalytics: () => request('/api/merchant/shop/analytics'),
+  merchantShopAddCategory: (body) => request('/api/merchant/shop/categories', { method: 'POST', body }),
+  merchantShopUpdateCategory: (id, body) =>
+    request(`/api/merchant/shop/categories/${id}`, { method: 'PATCH', body }),
+  merchantShopDeleteCategory: (id) =>
+    request(`/api/merchant/shop/categories/${id}`, { method: 'DELETE' }),
+  merchantShopAddProduct: (body) => request('/api/merchant/shop/products', { method: 'POST', body }),
+  merchantShopUpdateProduct: (id, body) =>
+    request(`/api/merchant/shop/products/${id}`, { method: 'PATCH', body }),
+  merchantShopDeleteProduct: (id) => request(`/api/merchant/shop/products/${id}`, { method: 'DELETE' }),
+  merchantShopAddVariant: (productId, body) =>
+    request(`/api/merchant/shop/products/${productId}/variants`, { method: 'POST', body }),
+  merchantShopUpdateVariant: (productId, variantId, body) =>
+    request(`/api/merchant/shop/products/${productId}/variants/${variantId}`, { method: 'PATCH', body }),
+  merchantShopDeleteVariant: (productId, variantId) =>
+    request(`/api/merchant/shop/products/${productId}/variants/${variantId}`, { method: 'DELETE' }),
+  merchantShopSetStock: (productId, body) =>
+    request(`/api/merchant/shop/products/${productId}/stock`, { method: 'PATCH', body }),
+  merchantShopInventory: () => request('/api/merchant/shop/inventory'),
+  merchantShopOrders: () => request('/api/merchant/shop/orders'),
+  merchantShopAcceptOrder: (code) =>
+    request(`/api/merchant/shop/orders/${code}/accept`, { method: 'POST', silent: true }),
+  merchantShopRejectOrder: (code, reason) =>
+    request(`/api/merchant/shop/orders/${code}/reject`, { method: 'POST', body: { reason } }),
+  merchantShopOrderStatus: (code, status) =>
+    request(`/api/merchant/shop/orders/${code}/status`, { method: 'PATCH', body: { status } }),
+
+  // --- ecommerce: admin ---
+  // The only block that sends or receives net_price. Everything else in this
+  // file deals in list prices only.
+  adminShopOverview: () => request('/api/admin/shop/overview'),
+  adminShopStores: () => request('/api/admin/shop/stores'),
+  adminShopCreateStore: (body) => request('/api/admin/shop/stores', { method: 'POST', body }),
+  adminShopUpdateStore: (id, body) => request(`/api/admin/shop/stores/${id}`, { method: 'PATCH', body }),
+  adminShopDeleteStore: (id) => request(`/api/admin/shop/stores/${id}`, { method: 'DELETE' }),
+  adminShopSuspend: (id, reason) =>
+    request(`/api/admin/shop/stores/${id}/suspend`, { method: 'POST', body: { reason } }),
+  adminShopReactivate: (id) => request(`/api/admin/shop/stores/${id}/reactivate`, { method: 'POST' }),
+  adminShopCredit: (id, body) => request(`/api/admin/shop/stores/${id}/credit`, { method: 'POST', body }),
+  adminShopStoreImageSignedUrl: (id, body) =>
+    request(`/api/admin/shop/stores/${id}/image/signed-url`, { method: 'POST', body }),
+  adminShopSetOwner: (id, body) => request(`/api/admin/shop/stores/${id}/owner`, { method: 'POST', body }),
+  adminShopCatalogue: (id) => request(`/api/admin/shop/stores/${id}/catalogue`),
+  adminShopAddCategory: (id, body) =>
+    request(`/api/admin/shop/stores/${id}/categories`, { method: 'POST', body }),
+  adminShopUpdateCategory: (catId, body) =>
+    request(`/api/admin/shop/categories/${catId}`, { method: 'PATCH', body }),
+  adminShopDeleteCategory: (catId) => request(`/api/admin/shop/categories/${catId}`, { method: 'DELETE' }),
+  adminShopAddProduct: (id, body) =>
+    request(`/api/admin/shop/stores/${id}/products`, { method: 'POST', body }),
+  adminShopUpdateProduct: (productId, body) =>
+    request(`/api/admin/shop/products/${productId}`, { method: 'PATCH', body }),
+  adminShopDeleteProduct: (productId) =>
+    request(`/api/admin/shop/products/${productId}`, { method: 'DELETE' }),
+  adminShopAddVariant: (productId, body) =>
+    request(`/api/admin/shop/products/${productId}/variants`, { method: 'POST', body }),
+  adminShopUpdateVariant: (productId, variantId, body) =>
+    request(`/api/admin/shop/products/${productId}/variants/${variantId}`, { method: 'PATCH', body }),
+  adminShopDeleteVariant: (productId, variantId) =>
+    request(`/api/admin/shop/products/${productId}/variants/${variantId}`, { method: 'DELETE' }),
+  adminShopInventory: (merchantId) =>
+    request(`/api/admin/shop/inventory?merchant_id=${encodeURIComponent(merchantId)}`),
+  adminShopOrders: (query = '') => request(`/api/admin/shop/orders${query}`),
+  adminShopAcceptOrder: (code) =>
+    request(`/api/admin/shop/orders/${code}/accept`, { method: 'POST', silent: true }),
+  adminShopRejectOrder: (code, reason) =>
+    request(`/api/admin/shop/orders/${code}/reject`, { method: 'POST', body: { reason } }),
+  adminShopOrderStatus: (code, status) =>
+    request(`/api/admin/shop/orders/${code}/status`, { method: 'PATCH', body: { status } }),
+  adminShopVerifyPayment: (code, reference) =>
+    request(`/api/admin/shop/orders/${code}/verify-payment`, { method: 'POST', body: { reference } }),
+  adminShopRejectPayment: (code, reason) =>
+    request(`/api/admin/shop/orders/${code}/reject-payment`, { method: 'POST', body: { reason } }),
+  adminShopRefund: (code) => request(`/api/admin/shop/orders/${code}/refund`, { method: 'POST' }),
+  adminShopCancelOrder: (code, reason) =>
+    request(`/api/admin/shop/orders/${code}/cancel`, { method: 'POST', body: { reason } }),
+  adminShopAssignDriver: (code, driver_id) =>
+    request(`/api/admin/shop/orders/${code}/assign-driver`, { method: 'POST', body: { driver_id } }),
+  adminShopOrderPhotos: (code) => request(`/api/admin/shop/orders/${code}/photos`),
+  adminShopSettlement: (from, to) =>
+    request(`/api/admin/shop/settlement?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`),
+
+  // --- driver ratings (1-5 stars after a delivered order / completed trip) ---
+  rateFoodDriver: (code, body) => request(`/api/food/orders/${code}/rate-driver`, { method: 'POST', body, silent: true }),
+  rateRideDriver: (code, body) => request(`/api/bookings/${code}/rate-driver`, { method: 'POST', body, silent: true }),
+
+  // --- food delivery: admin (admins run the restaurants — no owner accounts) ---
+  adminFoodOverview: () => request('/api/admin/food/overview'),
+  // Settlement report: what we owe each restaurant vs. our markup, by date range.
+  adminFoodSettlement: (from, to) =>
+    request(`/api/admin/food/settlement?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`),
+  adminFoodMerchants: () => request('/api/admin/food/merchants'),
+  adminFoodCreateMerchant: (body) => request('/api/admin/food/merchants', { method: 'POST', body }),
+  adminFoodUpdateMerchant: (id, body) => request(`/api/admin/food/merchants/${id}`, { method: 'PATCH', body }),
+  adminFoodDeleteMerchant: (id) => request(`/api/admin/food/merchants/${id}`, { method: 'DELETE' }),
+  adminFoodSuspend: (id, reason) => request(`/api/admin/food/merchants/${id}/suspend`, { method: 'POST', body: { reason } }),
+  adminFoodReactivate: (id) => request(`/api/admin/food/merchants/${id}/reactivate`, { method: 'POST' }),
+  adminFoodCredit: (id, body) => request(`/api/admin/food/merchants/${id}/credit`, { method: 'POST', body }),
+  adminFoodMerchantMenu: (id) => request(`/api/admin/food/merchants/${id}/menu`),
+  adminFoodAddCategory: (id, body) => request(`/api/admin/food/merchants/${id}/menu/categories`, { method: 'POST', body }),
+  adminFoodUpdateCategory: (catId, body) => request(`/api/admin/food/categories/${catId}`, { method: 'PATCH', body }),
+  adminFoodDeleteCategory: (catId) => request(`/api/admin/food/categories/${catId}`, { method: 'DELETE' }),
+  adminFoodAddItem: (id, body) => request(`/api/admin/food/merchants/${id}/menu/items`, { method: 'POST', body }),
+  adminFoodModerateItem: (id, body) => request(`/api/admin/food/items/${id}`, { method: 'PATCH', body }),
+  adminFoodDeleteItem: (id) => request(`/api/admin/food/items/${id}`, { method: 'DELETE' }),
+  adminFoodOrders: (query = '') => request(`/api/admin/food/orders${query}`),
+  adminFoodAcceptOrder: (code) => request(`/api/admin/food/orders/${code}/accept`, { method: 'POST', silent: true }),
+  adminFoodRejectOrder: (code, reason) => request(`/api/admin/food/orders/${code}/reject`, { method: 'POST', body: { reason } }),
+  adminFoodOrderStatus: (code, status) => request(`/api/admin/food/orders/${code}/status`, { method: 'PATCH', body: { status } }),
+  adminFoodVerifyPayment: (code) => request(`/api/admin/food/orders/${code}/verify-payment`, { method: 'POST' }),
+  adminFoodRejectPayment: (code, reason) => request(`/api/admin/food/orders/${code}/reject-payment`, { method: 'POST', body: { reason } }),
+  adminFoodCancelOrder: (code, reason) => request(`/api/admin/food/orders/${code}/cancel`, { method: 'POST', body: { reason } }),
+  adminFoodRefund: (code) => request(`/api/admin/food/orders/${code}/refund`, { method: 'POST' }),
+  adminFoodOrderPhotos: (code) => request(`/api/admin/food/orders/${code}/photos`),
+  adminFoodAssignDriver: (code, driver_id) => request(`/api/admin/food/orders/${code}/assign-driver`, { method: 'POST', body: { driver_id } }),
+  // Merchant image upload (logo/menu photo) -> PUBLIC bucket signed URL.
+  adminFoodMerchantImageSignedUrl: (id, body) =>
+    request(`/api/admin/food/merchants/${id}/image/signed-url`, { method: 'POST', body }),
+  // Owner account provisioning (contract-signing step).
+  adminFoodSetMerchantOwner: (id, body) =>
+    request(`/api/admin/food/merchants/${id}/owner`, { method: 'POST', body }),
 };

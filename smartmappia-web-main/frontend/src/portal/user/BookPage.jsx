@@ -8,17 +8,19 @@ import { useAuth } from '../lib/AuthProvider';
 import {
   Upload,
   CheckCircle2,
-  Crosshair,
   ArrowLeft,
+  ArrowRight,
   CreditCard,
   Copy,
   FileImage,
+  Smartphone,
+  Banknote,
 } from 'lucide-react';
 import { api } from '../lib/api';
 import { uploadProofFile } from '../lib/supabaseClient';
-import { useGeolocation } from '../lib/geo';
 import { AIRPORTS, fareBreakdown, airportDropdownOptions } from '../lib/constants';
 import { PortalShell, Card, Field, inputClass, btnPrimary, btnGhost, Spinner } from '../components/ui';
+import LocationPicker from '../components/LocationPicker';
 import CustomDropdown from '../../components/CustomDropdown';
 import DateTimePicker from '../../components/DateTimePicker';
 import RideMap from '../components/RideMap';
@@ -27,7 +29,9 @@ import {
   FareSummary,
   LocationHint,
   MapPinLegend,
+  LegalConsentNote,
 } from '../../components/booking/BookingUI';
+import TapPayButton from '../../components/booking/TapPayButton';
 
 const FARE = fareBreakdown();
 const AIRPORT_OPTIONS = airportDropdownOptions();
@@ -47,6 +51,7 @@ export default function BookPage() {
   const [datetime, setDatetime] = useState('');
   const [name, setName] = useState('');
   const [whatsapp, setWhatsapp] = useState('');
+  const [payMethod, setPayMethod] = useState('stcpay_manual');
 
   useEffect(() => {
     const dir = searchParams.get('direction');
@@ -67,21 +72,10 @@ export default function BookPage() {
     if (profile?.whatsapp) setWhatsapp((w) => w || profile.whatsapp);
   }, [profile]);
 
-  const { coords: geo } = useGeolocation({ enabled: false });
-
   const [booking, setBooking] = useState(null);
   const [instructions, setInstructions] = useState(null);
   const [file, setFile] = useState(null);
   const [copied, setCopied] = useState(null);
-
-  function useMyLocation() {
-    if (!('geolocation' in navigator)) return setError('Geolocation not available.');
-    navigator.geolocation.getCurrentPosition(
-      (p) => setHomeCoords({ lat: p.coords.latitude, lng: p.coords.longitude }),
-      (e) => setError(e.message),
-      { enableHighAccuracy: true }
-    );
-  }
 
   function copyText(key, text) {
     navigator.clipboard?.writeText(text);
@@ -89,7 +83,7 @@ export default function BookPage() {
     setTimeout(() => setCopied(null), 2000);
   }
 
-  const homePoint = homeCoords || geo || null;
+  const homePoint = homeCoords || null;
   const mapMarkers = [
     homePoint && { lat: homePoint.lat, lng: homePoint.lng, type: 'home', label: 'Your location', key: 'home' },
     { lat: airport.lat, lng: airport.lng, type: 'airport', label: airport.name, key: 'airport' },
@@ -106,7 +100,10 @@ export default function BookPage() {
     if (!name || !whatsapp || !datetime) {
       return setError('Please fill in your name, WhatsApp number, and pickup time.');
     }
-    const home = { address: homeAddress || 'My location', lat: homePoint?.lat ?? null, lng: homePoint?.lng ?? null };
+    if (!homePoint?.lat || !homePoint?.lng) {
+      return setError('Please select your address from the suggestions or use current location.');
+    }
+    const home = { address: homeAddress, lat: homePoint.lat, lng: homePoint.lng };
     const air = { address: airport.name, lat: airport.lat, lng: airport.lng };
     const toAirport = direction === 'house_to_airport';
     const pickup = toAirport ? home : air;
@@ -126,8 +123,15 @@ export default function BookPage() {
         pickup_datetime: new Date(datetime).toISOString(),
         passenger_name: name,
         passenger_whatsapp: whatsapp,
+        payment_method: payMethod,
       });
       setBooking(created);
+      // Cash needs no online payment — the booking is already confirmed and
+      // a driver is being found. Skip STC instructions and confirm.
+      if (payMethod === 'cash') {
+        setStep('cash');
+        return;
+      }
       const inst = await api.paymentInstructions(created.bookingCode);
       setInstructions(inst);
       setStep('pay');
@@ -170,6 +174,47 @@ export default function BookPage() {
       subtitle={step === 'form' ? `SAR ${FARE.total.toFixed(2)} · Step ${currentStep} of 2` : `Booking ${booking?.bookingCode}`}
       onBack={step === 'pay' ? () => setStep('form') : () => navigate('/')}
     >
+      {step === 'cash' && booking && (
+        <div className="max-w-xl mx-auto">
+          <Card className="overflow-hidden">
+            <div className="px-6 py-6 bg-gradient-to-r from-green-50 to-white border-b border-brand-border text-center">
+              <div className="w-14 h-14 rounded-2xl bg-green-100 text-green-700 flex items-center justify-center mx-auto mb-3">
+                <CheckCircle2 className="w-7 h-7" />
+              </div>
+              <h2 className="font-black text-brand-black text-lg">Booking confirmed</h2>
+              <p className="text-sm text-brand-grey mt-1">
+                Booking code{' '}
+                <span className="font-mono font-bold text-brand-dark bg-brand-surface px-2 py-0.5 rounded-md">
+                  {booking.bookingCode}
+                </span>
+              </p>
+            </div>
+            <div className="p-6 space-y-5">
+              <div className="rounded-2xl border border-brand-border bg-brand-warm px-5 py-4 flex items-center justify-between gap-4">
+                <div className="flex items-center gap-3">
+                  <span className="w-10 h-10 rounded-xl bg-brand-orange text-white flex items-center justify-center shrink-0">
+                    <Banknote className="w-5 h-5" />
+                  </span>
+                  <span className="text-sm font-bold text-brand-dark">Pay your driver in cash at pickup</span>
+                </div>
+                <span className="text-2xl font-black text-brand-orange tabular-nums shrink-0">
+                  SAR {FARE.total.toFixed(2)}
+                </span>
+              </div>
+              <p className="text-sm text-brand-grey text-center">
+                We are finding you a driver now. Track your ride to see them arrive.
+              </p>
+              <button
+                onClick={() => navigate(`/track/${booking.bookingCode}`)}
+                className={btnPrimary + ' w-full py-4'}
+              >
+                Track my ride <ArrowRight className="w-4 h-4" />
+              </button>
+            </div>
+          </Card>
+        </div>
+      )}
+
       {error && (
         <div className="mb-4 p-3 rounded-xl bg-red-50 border border-red-200 text-red-700 text-sm font-medium">
           {error}
@@ -182,13 +227,14 @@ export default function BookPage() {
             <form onSubmit={submitBooking} className="space-y-5">
               <DirectionToggle value={direction} onChange={setDirection} variant="inline" />
 
-              <div className="grid gap-4 sm:grid-cols-2">
+              <div className="grid gap-4 md:grid-cols-2">
                 <Field label="Airport terminal">
                   <CustomDropdown
                     value={airport.id}
                     onChange={(id) => setAirport(AIRPORTS.find((a) => a.id === id) || AIRPORTS[0])}
                     options={AIRPORT_OPTIONS}
                     allowEmpty={false}
+                    drawerTitle="Airport terminal"
                   />
                 </Field>
                 <Field label="Pickup date & time">
@@ -196,37 +242,71 @@ export default function BookPage() {
                 </Field>
               </div>
 
-              <Field label={direction === 'house_to_airport' ? 'Your address (pickup)' : 'Your address (drop-off)'}>
-                <div className="flex gap-2.5">
-                  <input
-                    className={inputClass}
-                    placeholder="e.g. Al Olaya, Riyadh"
-                    value={homeAddress}
-                    onChange={(e) => setHomeAddress(e.target.value)}
-                  />
-                  <button
-                    type="button"
-                    onClick={useMyLocation}
-                    className={btnGhost + ' shrink-0 px-4'}
-                    title="Use my GPS location"
-                  >
-                    <Crosshair className="w-4 h-4" />
-                  </button>
-                </div>
-                {homePoint && <LocationHint active lat={homePoint.lat} lng={homePoint.lng} />}
-                <p className="text-xs text-brand-grey mt-1.5">Tap the crosshair to pin your exact location</p>
-              </Field>
+              <LocationPicker
+                label={direction === 'house_to_airport' ? 'Your address (pickup)' : 'Your address (drop-off)'}
+                placeholder="Search nearby places, streets, or districts"
+                address={homeAddress}
+                coords={homeCoords}
+                showMap={false}
+                onChange={({ address: nextAddress, coords: nextCoords }) => {
+                  setHomeAddress(nextAddress);
+                  setHomeCoords(nextCoords);
+                }}
+              />
+              {homePoint && <LocationHint active lat={homePoint.lat} lng={homePoint.lng} />}
 
               <div className="grid sm:grid-cols-2 gap-4">
                 <Field label="Your name">
-                  <input className={inputClass} value={name} onChange={(e) => setName(e.target.value)} placeholder="Full name" />
+                  <input className={`${inputClass} bg-brand-surface text-brand-grey cursor-not-allowed`} value={name} readOnly placeholder="Full name" />
                 </Field>
                 <Field label="WhatsApp">
-                  <input className={inputClass} value={whatsapp} onChange={(e) => setWhatsapp(e.target.value)} placeholder="+9665XXXXXXXX" />
+                  <input className={`${inputClass} bg-brand-surface text-brand-grey cursor-not-allowed`} value={whatsapp} readOnly placeholder="+9665XXXXXXXX" />
                 </Field>
               </div>
+              <p className="-mt-1 text-xs text-brand-grey">From your account — edit these in your Profile.</p>
 
-              <FareSummary fare={FARE} showButton buttonLabel="Continue to payment" busy={busy} compact />
+              <div>
+                <p className="text-xs font-bold text-brand-grey uppercase tracking-wide mb-2">How would you like to pay?</p>
+                <div className="space-y-2">
+                  {[
+                    { id: 'stcpay_manual', label: 'STC Pay', hint: 'Transfer + upload the screenshot', icon: Smartphone },
+                    { id: 'cash', label: 'Cash', hint: 'Pay your driver in cash at pickup', icon: Banknote },
+                  ].map(({ id, label, hint, icon: Icon }) => (
+                    <button
+                      key={id}
+                      type="button"
+                      onClick={() => setPayMethod(id)}
+                      className={`w-full flex items-center gap-3 p-3.5 rounded-xl border-2 text-left transition-colors cursor-pointer ${
+                        payMethod === id
+                          ? 'border-brand-orange bg-brand-warm'
+                          : 'border-brand-border hover:border-brand-orange/40'
+                      }`}
+                    >
+                      <div className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${
+                        payMethod === id ? 'bg-brand-orange text-white' : 'bg-brand-surface text-brand-grey'
+                      }`}>
+                        <Icon className="w-5 h-5" />
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <p className="font-bold text-brand-dark text-sm">{label}</p>
+                        <p className="text-xs text-brand-grey">{hint}</p>
+                      </div>
+                      <span className={`w-4 h-4 rounded-full border-2 shrink-0 ${
+                        payMethod === id ? 'border-brand-orange bg-brand-orange' : 'border-brand-border'
+                      }`} />
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <FareSummary
+                fare={FARE}
+                showButton
+                buttonLabel={payMethod === 'cash' ? 'Confirm booking' : 'Continue to payment'}
+                busy={busy}
+                compact
+              />
+              <LegalConsentNote />
             </form>
           </Card>
 
@@ -266,6 +346,14 @@ export default function BookPage() {
             </div>
 
             <div className="p-6 space-y-6">
+              <div>
+                <TapPayButton bookingCode={booking.bookingCode} />
+                <div className="relative my-5 text-center">
+                  <div className="absolute inset-0 flex items-center"><div className="w-full border-t border-brand-border" /></div>
+                  <span className="relative bg-white px-3 text-xs font-bold uppercase tracking-wider text-brand-grey">or pay manually</span>
+                </div>
+              </div>
+
               <div>
                 <div className="flex items-center gap-2 mb-4">
                   <span className="w-8 h-8 rounded-xl bg-brand-warm text-brand-orange flex items-center justify-center">

@@ -1,0 +1,221 @@
+// ---------------------------------------------------------------------
+// Centralized runtime configuration.
+//
+// All environment-driven knobs are parsed and defaulted in ONE place so
+// controllers never read process.env directly. Keeps behavior consistent
+// across local (server.js) and Vercel (api/index.js).
+// ---------------------------------------------------------------------
+
+function toBool(value, fallback = false) {
+  if (value === undefined || value === null || value === '') return fallback;
+  return String(value).toLowerCase() === 'true';
+}
+
+function toNumber(value, fallback) {
+  const n = Number(value);
+  return Number.isFinite(n) ? n : fallback;
+}
+
+const config = {
+  // When true, uploading a proof auto-verifies the booking. TESTING ONLY.
+  autoVerifyTestMode: toBool(process.env.AUTO_VERIFY_STCPAY_TEST_MODE, false),
+
+  // stcpay_manual | stcpay_manual_test_auto | moyasar | both
+  paymentMode: process.env.PAYMENT_MODE || 'stcpay_manual',
+
+  // STC Pay recipient details shown to the passenger (spec §6).
+  stcPay: {
+    number: process.env.SMART_MAPPIA_STCPAY_NUMBER || '',
+    recipientName: process.env.SMART_MAPPIA_STCPAY_NAME || 'Smart Mappia',
+  },
+
+  // Supabase Storage bucket holding payment proof images (PRIVATE bucket).
+  proofs: {
+    bucket: process.env.PAYMENT_PROOF_BUCKET || 'payment-proofs',
+    // How long signed upload/download URLs stay valid.
+    uploadUrlTtlSeconds: toNumber(process.env.PAYMENT_PROOF_UPLOAD_TTL, 900),
+    downloadUrlTtlSeconds: toNumber(process.env.PAYMENT_PROOF_DOWNLOAD_TTL, 3600),
+    maxBytes: toNumber(process.env.PAYMENT_PROOF_MAX_BYTES, 10 * 1024 * 1024), // 10 MB
+    allowedMimeTypes: ['image/jpeg', 'image/png', 'image/webp', 'application/pdf'],
+  },
+
+  // Supabase Storage bucket holding customer-facing merchant images: restaurant
+  // logos and menu-item photos (PUBLIC bucket — unlike proofs/docs these must be
+  // readable by anyone so <img src> works directly on the storefront). The
+  // browser uploads straight to Storage via a short-lived signed upload URL and
+  // we persist the resulting PUBLIC url into merchants.logo_url / menu_items.image_url.
+  merchantImages: {
+    bucket: process.env.MERCHANT_IMAGES_BUCKET || 'merchant-images',
+    uploadUrlTtlSeconds: toNumber(process.env.MERCHANT_IMAGES_UPLOAD_TTL, 900),
+    maxBytes: toNumber(process.env.MERCHANT_IMAGES_MAX_BYTES, 5 * 1024 * 1024), // 5 MB
+    allowedMimeTypes: ['image/jpeg', 'image/png', 'image/webp'],
+    // logo = restaurant logo/cover, item = a menu item's photo.
+    kinds: ['logo', 'item'],
+  },
+
+  // Supabase Storage bucket holding user profile pictures (PUBLIC bucket —
+  // the avatar URL is stored on profiles.avatar_url and rendered with a
+  // plain <img src> in the navbar/profile page). The bucket is created
+  // lazily by the backend if it doesn't exist yet.
+  avatars: {
+    bucket: process.env.AVATARS_BUCKET || 'avatars',
+    uploadUrlTtlSeconds: toNumber(process.env.AVATARS_UPLOAD_TTL, 900),
+    maxBytes: toNumber(process.env.AVATARS_MAX_BYTES, 5 * 1024 * 1024), // 5 MB
+    allowedMimeTypes: ['image/jpeg', 'image/png', 'image/webp'],
+  },
+
+  // Supabase Storage bucket holding driver verification documents (PRIVATE bucket).
+  driverDocs: {
+    bucket: process.env.DRIVER_DOCS_BUCKET || 'driver-docs',
+    uploadUrlTtlSeconds: toNumber(process.env.DRIVER_DOCS_UPLOAD_TTL, 900),
+    downloadUrlTtlSeconds: toNumber(process.env.DRIVER_DOCS_DOWNLOAD_TTL, 3600),
+    maxBytes: toNumber(process.env.DRIVER_DOCS_MAX_BYTES, 10 * 1024 * 1024), // 10 MB
+    allowedMimeTypes: ['image/jpeg', 'image/png', 'application/pdf'],
+    // Full doc vocabulary (must match the driver_doc_type enum in migration 0005).
+    allTypes: [
+      'national_id', 'license', 'vehicle_registration',
+      'insurance', 'tga_permit', 'profile_photo', 'vehicle_photo',
+    ],
+    // Docs that MUST be 'verified' before a driver is auto-approved.
+    // tga_permit is optional; adjust per TGA guidance.
+    requiredTypes: [
+      'national_id', 'license', 'vehicle_registration',
+      'insurance', 'profile_photo', 'vehicle_photo',
+    ],
+  },
+
+  // Auth: accounts whose email is listed here automatically become admins
+  // on sign-in/sync (comma-separated, case-insensitive).
+  adminEmails: (process.env.ADMIN_EMAILS || '')
+    .split(',')
+    .map((e) => e.trim().toLowerCase())
+    .filter(Boolean),
+
+  // Legacy shared-secret auth (kept for reference; routes now use Supabase JWT).
+  adminApiKey: process.env.ADMIN_API_KEY || '',
+  driverApiKey: process.env.DRIVER_API_KEY || '',
+
+  // Ledger / payout math (spec §12). Rate is a fraction, e.g. 0.20 = 20%.
+  ledger: {
+    commissionRate: toNumber(process.env.PLATFORM_COMMISSION_RATE, 0.2),
+    manualPaymentFee: toNumber(process.env.MANUAL_PAYMENT_FEE, 0),
+    // Driver cash settlement (pick & drop cash rides): the driver collects
+    // the fare and owes SmartMappia the commission. Past this running-owed
+    // cap they cannot accept new cash rides until an admin records a
+    // settlement (weekly cadence). Keep cashOwedLimit in sync with the
+    // profiles.cash_owed_limit column default in migration 0022.
+    cashOwedLimit: toNumber(process.env.DRIVER_CASH_OWED_LIMIT, 500),
+    cashOwedAlertPct: toNumber(process.env.DRIVER_CASH_ALERT_PCT, 0.8),
+  },
+
+  // KSA VAT. Charged ON TOP of the pre-tax amounts on both services and
+  // snapshotted onto every order/booking (migration 0025), so changing the
+  // rate here never rewrites the tax on money already taken. Rate is a
+  // fraction: 0.15 = 15%.
+  vat: {
+    rate: toNumber(process.env.VAT_RATE, 0.15),
+  },
+
+  // Food Delivery business rules (docs/food-delivery/FOOD_DELIVERY_PRD.md §7).
+  // These are HARD rules enforced server-side in lib/foodMoney.js and the
+  // merchant accept flow — never trust client-sent money.
+  food: {
+    minOrderSar: toNumber(process.env.FOOD_MIN_ORDER, 30),
+    deliveryFeeSar: toNumber(process.env.FOOD_DELIVERY_FEE, 10), // promo: first 3 months
+    radiusKm: toNumber(process.env.FOOD_RADIUS_KM, 15),
+    // Per-item platform margin by menu_items.item_type.
+    margins: {
+      meal_package: toNumber(process.env.FOOD_MARGIN_MEAL, 5),
+      drink_dessert_addon: toNumber(process.env.FOOD_MARGIN_DRINK, 3),
+    },
+    merchantCreditLimit: toNumber(process.env.MERCHANT_CREDIT_LIMIT, 300),
+    creditAlertPct: toNumber(process.env.CREDIT_ALERT_PCT, 0.8), // 80% => 240 SAR
+  },
+
+  // Ecommerce ("shop") business rules — docs/archive/ecommerce/ECOMMERCE_PLAN.md §2.
+  // Same shape and same HARD-rule discipline as food above: enforced server-side
+  // in lib/shopMoney.js and the store accept flow, never trusted from a client.
+  //
+  // The credit limit and the 80% alert are deliberately NOT duplicated here —
+  // there is ONE credit model on the platform and both verticals charge the
+  // same merchants.credit_limit / credit_used columns. Read them from
+  // config.food.merchantCreditLimit / config.food.creditAlertPct.
+  shop: {
+    // Master switch for the whole vertical, DEFAULTING TO OFF.
+    //
+    // The customer half (browse, cart, checkout, pay) is built; the store,
+    // admin and rider halves are not. With this on and those missing, a
+    // real customer can pay for an order that nobody can accept, pack or
+    // deliver — and because stock is reserved at checkout, that order also
+    // holds inventory with no manual release path. Turn it on only once
+    // the merchant portal, the admin queue and the rider claim endpoints
+    // exist. Ungated routes are how a half-built vertical takes real money.
+    enabled: toBool(process.env.SHOP_ENABLED, false),
+    minOrderSar: toNumber(process.env.SHOP_MIN_ORDER, 50),
+    deliveryFeeSar: toNumber(process.env.SHOP_DELIVERY_FEE, 15),
+    radiusKm: toNumber(process.env.SHOP_RADIUS_KM, 15),
+    // Fallback markup per unit when a product has no net_price. Food splits
+    // this by item_type; retail has no equivalent axis, so it is one number.
+    defaultMargin: toNumber(process.env.SHOP_DEFAULT_MARGIN, 5),
+    // Default "running low" line for new products. Keep in sync with the
+    // products.low_stock_threshold column default in migration 0026.
+    lowStockThreshold: toNumber(process.env.SHOP_LOW_STOCK, 5),
+    // Stock is reserved at CHECKOUT, before payment, so an unpaid order
+    // holds inventory. Without expiry that is a denial-of-inventory vector:
+    // place large unpaid orders and freeze a store's catalogue at zero.
+    // The sweeper cancels unpaid orders older than this and puts the stock
+    // back. Cash is NOT exempt while still pending — payment_method is a free
+    // client choice at checkout, so exempting it left no expiry at all. Must stay comfortably longer than the STC Pay manual
+    // verification turnaround or genuine customers lose their basket while
+    // an admin is still reviewing the proof.
+    orderExpiryMinutes: toNumber(process.env.SHOP_ORDER_EXPIRY_MINUTES, 30),
+    // A store may accept before an STC Pay proof is verified, which is
+    // legitimate. But an accepted-and-never-paid order is no longer 'pending',
+    // so the window above never reaches it and its stock stays reserved
+    // forever. Longer, so a genuine proof still has time to be reviewed.
+    acceptedExpiryMinutes: toNumber(process.env.SHOP_ACCEPTED_EXPIRY_MINUTES, 180),
+    staleSweepMs: toNumber(process.env.SHOP_STALE_SWEEP_MS, 60000),
+  },
+
+  // Grab-style dispatch (shared by Pick & Drop rides and food deliveries):
+  // the nearest online driver gets an exclusive offer for offerSeconds; on
+  // decline/timeout it cascades to the next. Drivers count as "online" when
+  // their last GPS ping is fresher than driverFreshMinutes.
+  dispatch: {
+    offerSeconds: toNumber(process.env.DISPATCH_OFFER_SECONDS, 30),
+    driverFreshMinutes: toNumber(process.env.DISPATCH_DRIVER_FRESH_MINUTES, 3),
+    sweepMs: toNumber(process.env.DISPATCH_SWEEP_MS, 5000),
+    // A rider who accepted a delivery but whose GPS goes silent for longer than
+    // this (before pickup) is treated as disconnected: the order is released and
+    // re-offered to the next-nearest driver by the watchdog.
+    abandonMinutes: toNumber(process.env.DISPATCH_ABANDON_MINUTES, 5),
+  },
+
+  // GPS-vicinity check before a driver can mark arrived/picked_up/delivered
+  // (backend/lib/geofence.js). airportRadiusMeters is larger because a Pick
+  // & Drop pickup point at an airport is a whole terminal building (King
+  // Khalid's terminals span several hundred meters of curb/apron frontage,
+  // and GPS multipath near large structures degrades accuracy further) —
+  // the default radius would false-reject a driver legitimately waiting
+  // there. enabled is a kill switch if field GPS accuracy causes issues.
+  geofence: {
+    enabled: toBool(process.env.GEOFENCE_ENABLED, true),
+    defaultRadiusMeters: toNumber(process.env.GEOFENCE_RADIUS_METERS, 300),
+    airportRadiusMeters: toNumber(process.env.GEOFENCE_AIRPORT_RADIUS_METERS, 800),
+    // How old a fallback driver_locations row may be before it's untrusted
+    // (the status-change request itself is expected to carry a fresh fix).
+    maxFixAgeMinutes: toNumber(process.env.GEOFENCE_MAX_FIX_AGE_MINUTES, 3),
+  },
+
+  // Tap Payments (deferred online path — PLACEHOLDER until go-live: keep
+  // these unset and every Tap endpoint answers "not configured" while the
+  // manual STC Pay path stays the live one).
+  tap: {
+    secretKey: process.env.TAP_SECRET_KEY || '',
+    publicKey: process.env.TAP_PUBLIC_KEY || '',
+    webhookSecret: process.env.TAP_WEBHOOK_SECRET || '',
+    merchantId: process.env.TAP_MERCHANT_ID || '',
+  },
+};
+
+module.exports = { config };

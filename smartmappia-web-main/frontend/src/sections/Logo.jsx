@@ -1,21 +1,18 @@
 import React from 'react';
 import { motion } from 'framer-motion';
-
-const partners = [
-  { id: 1, name: "Al Baik", logo: "logo1.jpg" },
-  { id: 2, name: "Herfy", logo: "logo2.jpg" },
-  { id: 3, name: "Kudu", logo: "logo3.png" },
-  { id: 4, name: "Maestro Pizza", logo: "logo4.jpg" },
-  { id: 5, name: "Shawarma House", logo: "logo5.png" },
-  { id: 6, name: "Pizza Hut", logo: "logo6.jpg" },
-  { id: 7, name: "Starbucks", logo: "logo7.png" },
-];
+// Chuchay and the rest of the curated brands now come from the same seed list
+// the restaurant grid uses (data/restaurants.js), so a partner is added in one
+// place instead of two.
+import { useMarketingPartners } from '../lib/useMarketingPartners';
 
 const PartnerCard = ({ partner }) => (
   <div className="group relative shrink-0 mx-5 sm:mx-7 md:mx-8 z-0 hover:z-20 transition-[transform,z-index] duration-300">
     <div className="w-36 h-36 sm:w-40 sm:h-40 md:w-44 md:h-44 lg:w-48 lg:h-48 flex items-center justify-center bg-white border border-brand-border rounded-3xl p-6 sm:p-7 transition-all duration-300 ease-out group-hover:scale-110 group-hover:shadow-xl group-hover:shadow-brand-orange/15 group-hover:border-brand-orange/30">
+      {/* Already a usable src: seed logos carry a leading slash ("/brands/x.png")
+          and admin-uploaded ones are absolute Supabase Storage URLs. Prefixing
+          "/" here would produce "//brands/..." and "/https://...". */}
       <img
-        src={`/${partner.logo}`}
+        src={partner.logo}
         alt={`${partner.name} logo`}
         className="max-h-full max-w-full object-contain"
       />
@@ -24,6 +21,10 @@ const PartnerCard = ({ partner }) => (
 );
 
 const LogoGrid = () => {
+  const partners = useMarketingPartners();
+  // Doubled on purpose: the partner-marquee keyframe in index.css translates
+  // 0 -> -50%, so exactly two copies make the loop seamless. Changing this to
+  // 3x without editing that keyframe will make the track visibly jump.
   const marqueeItems = [...partners, ...partners];
 
   return (
@@ -46,7 +47,10 @@ const LogoGrid = () => {
         <div className="absolute right-0 top-0 bottom-0 w-16 sm:w-24 bg-linear-to-l from-brand-muted to-transparent z-10 pointer-events-none" />
 
         <div className="overflow-hidden py-10 sm:py-12">
-          <div className="partner-marquee-track flex w-max items-center">
+          {/* Keyed on the count so that when admin-featured partners merge in,
+              the track remounts and restarts from offset 0 instead of holding a
+              -50% offset that no longer matches its new width. */}
+          <div key={partners.length} className="partner-marquee-track flex w-max items-center">
             {marqueeItems.map((partner, index) => (
               <PartnerCard key={`${partner.id}-${index}`} partner={partner} />
             ))}

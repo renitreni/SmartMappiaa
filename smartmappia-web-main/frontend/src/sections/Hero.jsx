@@ -57,7 +57,7 @@ const Hero = () => {
           </h1>
 
           <p className="text-brand-grey text-base md:text-lg leading-relaxed max-w-lg">
-            Order food, send packages, and book airport transfers — all in one
+            Order food, send packages, and book airport transfers, all in one
             app with real-time tracking and exclusive rewards.
           </p>
 
@@ -93,12 +93,6 @@ const Hero = () => {
               className="bg-brand-orange hover:bg-brand-orange/90 text-white font-bold text-sm px-7 py-3.5 rounded-xl transition-all duration-300 hover:scale-[1.02] cursor-pointer shadow-md shadow-brand-orange/20"
             >
               Explore Services
-            </a>
-            <a
-              href="#see-it-in-action"
-              className="text-brand-grey hover:text-brand-orange font-semibold text-sm px-4 py-3.5 rounded-xl border border-brand-border hover:border-brand-orange/30 hover:bg-brand-warm transition-all duration-300"
-            >
-              Watch demo →
             </a>
           </div>
 

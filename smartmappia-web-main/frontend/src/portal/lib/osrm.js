@@ -1,17 +1,53 @@
 // ---------------------------------------------------------------------
-// Road-route helper backed by the public OSRM demo server.
+// Road-route helper backed by the backend Google Routes proxy (/api/route).
 //
 // fetchRoute(from, to) returns the real driving route geometry + a
 // route-based distance/ETA. It is best-effort: on any failure (network,
-// CORS, timeout, no route) it resolves to `null` so callers fall back to a
-// straight line + their existing crow-flies ETA. No external dependency —
-// uses the browser `fetch`.
+// timeout, no route) it resolves to `null` so callers fall back to a straight
+// line + their existing crow-flies ETA. No external dependency — uses the
+// browser `fetch` and decodes Google's encoded polyline inline.
+//
+// (Filename kept as osrm.js to avoid churn; the routing provider is now Google.)
 // ---------------------------------------------------------------------
 
-const OSRM_BASE = 'https://router.project-osrm.org/route/v1/driving';
+const API_BASE = import.meta.env.VITE_API_BASE || 'http://localhost:4000';
+const ROUTE_URL = `${API_BASE}/api/route`;
 
 function valid(p) {
   return p && Number.isFinite(p.lat) && Number.isFinite(p.lng);
+}
+
+// Decode a Google/OSRM-style encoded polyline (precision 5) to {lat,lng}[].
+// Standard algorithm — no dependency needed.
+function decodePolyline(str) {
+  const coords = [];
+  let index = 0;
+  let lat = 0;
+  let lng = 0;
+  const len = str.length;
+  while (index < len) {
+    let result = 0;
+    let shift = 0;
+    let b;
+    do {
+      b = str.charCodeAt(index++) - 63;
+      result |= (b & 0x1f) << shift;
+      shift += 5;
+    } while (b >= 0x20);
+    lat += result & 1 ? ~(result >> 1) : result >> 1;
+
+    result = 0;
+    shift = 0;
+    do {
+      b = str.charCodeAt(index++) - 63;
+      result |= (b & 0x1f) << shift;
+      shift += 5;
+    } while (b >= 0x20);
+    lng += result & 1 ? ~(result >> 1) : result >> 1;
+
+    coords.push({ lat: lat / 1e5, lng: lng / 1e5 });
+  }
+  return coords;
 }
 
 /**
@@ -28,27 +64,22 @@ export async function fetchRoute(from, to, opts = {}) {
   const timer = setTimeout(() => controller.abort(), timeoutMs);
 
   try {
-    // OSRM expects lng,lat order.
-    const coordsPath = `${from.lng},${from.lat};${to.lng},${to.lat}`;
-    const url = `${OSRM_BASE}/${coordsPath}?overview=full&geometries=geojson`;
+    const url = `${ROUTE_URL}?from=${from.lat},${from.lng}&to=${to.lat},${to.lng}`;
     const res = await fetch(url, { signal: controller.signal });
     if (!res.ok) return null;
 
     const data = await res.json();
-    const route = data?.routes?.[0];
-    const ring = route?.geometry?.coordinates;
-    if (!Array.isArray(ring) || ring.length < 2) return null;
+    if (!data?.encodedPolyline) return null;
 
-    // GeoJSON is [lng, lat] — flip to our {lat, lng}.
-    const coords = ring
-      .filter((c) => Array.isArray(c) && c.length >= 2)
-      .map(([lng, lat]) => ({ lat, lng }));
+    const coords = decodePolyline(data.encodedPolyline).filter(
+      (c) => Number.isFinite(c.lat) && Number.isFinite(c.lng)
+    );
     if (coords.length < 2) return null;
 
     return {
       coords,
-      distanceKm: route.distance != null ? route.distance / 1000 : null,
-      durationMin: route.duration != null ? Math.max(1, Math.round(route.duration / 60)) : null,
+      distanceKm: data.distanceMeters != null ? data.distanceMeters / 1000 : null,
+      durationMin: data.duration != null ? Math.max(1, Math.round(data.duration / 60)) : null,
     };
   } catch {
     // Aborted / network / parse error -> let the caller fall back.
