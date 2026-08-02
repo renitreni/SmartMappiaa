@@ -14,7 +14,7 @@ import { Bike, Check, X, MapPin, Phone, MessageCircle, Store, Timer, Camera, Ban
 import { api } from '../lib/api';
 import { useBroadcast } from '../lib/useBroadcast';
 import { realtimeEnabled, uploadProofFile } from '../lib/supabaseClient';
-import { fmtSAR, whatsappLink } from '../lib/constants';
+import { fmtSAR, whatsappLink, googleMapsNavLink } from '../lib/constants';
 import { notifyAlert } from '../lib/notify';
 import { Card, Badge, Spinner, btnPrimary, btnGhost, fileInputClass } from '../components/ui';
 
@@ -105,9 +105,15 @@ function DeliveryCard({ delivery, busy, onStatus, onCancel }) {
   const nextStatus = enRoute ? 'delivered' : 'picked_up';
   // Navigate to the pickup point before pickup, then to the customer.
   const pickupNoun = delivery.kind === 'shop' ? 'store' : 'restaurant';
+  // These coordinates come straight from the database (orders.delivery_lat /
+  // merchants.lat) with no centroid guessing in the path, so they are already
+  // the exact spot the customer pinned. The address rides along as a fallback
+  // because merchants.lat is nullable — an unpinned store would otherwise
+  // leave the rider with no navigation at all.
   const navTarget = enRoute
-    ? { lat: delivery.dropoffLat, lng: delivery.dropoffLng }
-    : { lat: delivery.merchant?.lat, lng: delivery.merchant?.lng };
+    ? { lat: delivery.dropoffLat, lng: delivery.dropoffLng, address: delivery.dropoffAddress }
+    : { lat: delivery.merchant?.lat, lng: delivery.merchant?.lng, address: delivery.merchant?.address };
+  const navUrl = googleMapsNavLink(navTarget);
 
   return (
     <Card className="p-4 mb-3">
@@ -158,9 +164,9 @@ function DeliveryCard({ delivery, busy, onStatus, onCancel }) {
             <MessageCircle className="w-3.5 h-3.5" /> WhatsApp
           </a>
         )}
-        {navTarget.lat != null && navTarget.lng != null && (
+        {navUrl && (
           <a
-            href={`https://waze.com/ul?ll=${navTarget.lat},${navTarget.lng}&navigate=yes`}
+            href={navUrl}
             target="_blank"
             rel="noreferrer"
             className={btnGhost + ' !py-2 !px-3 !text-xs !text-white !bg-brand-dark hover:!bg-black !border-brand-dark'}

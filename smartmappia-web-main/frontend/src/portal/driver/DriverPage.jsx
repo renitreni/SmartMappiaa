@@ -52,7 +52,7 @@ import DriverVerification from './DriverVerification';
 
 import DriverDispatch from './DriverDispatch';
 
-import { whatsappLink } from '../lib/constants';
+import { whatsappLink, googleMapsNavLink } from '../lib/constants';
 import { notifyAlert } from '../lib/notify';
 
 import { PortalShell, Card, Badge, Spinner, btnPrimary } from '../components/ui';
@@ -123,6 +123,21 @@ const STATUS_LABELS = {
 
 
 
+// A coordinate pair only if BOTH sides are really present. Deliberately does
+// not fall back to resolveCoordsFromAddress: this feeds the navigation deep
+// link, where an invented centroid would send a driver to the wrong street.
+function exactPoint(lat, lng) {
+
+  const la = parseCoord(lat);
+
+  const ln = parseCoord(lng);
+
+  return la != null && ln != null ? { lat: la, lng: ln } : null;
+
+}
+
+
+
 function normRide(r) {
 
   if (!r) return null;
@@ -130,6 +145,16 @@ function normRide(r) {
   const pickupAddress = r.pickupAddress || r.pickup_address;
 
   const dropoffAddress = r.dropoffAddress || r.dropoff_address;
+
+  // The coordinates EXACTLY as the customer picked them — parsed, never
+  // guessed. Null when the booking genuinely has no pin.
+  const pickupExact = exactPoint(r.pickupLat ?? r.pickup_lat, r.pickupLng ?? r.pickup_lng);
+
+  const dropoffExact = exactPoint(r.dropoffLat ?? r.dropoff_lat, r.dropoffLng ?? r.dropoff_lng);
+
+  // ...and the map's version, which falls back to an airport / district /
+  // city centroid so an unpinned booking still renders something. Fine for a
+  // marker, NEVER for navigation — see googleMapsNavLink in lib/constants.js.
 
   const pickupCoords = resolveCoordsFromAddress(
 
@@ -152,6 +177,10 @@ function normRide(r) {
   );
 
   return {
+
+    pickupExact,
+
+    dropoffExact,
 
     bookingCode: r.bookingCode || r.booking_code,
 
@@ -377,11 +406,30 @@ function ServiceToggles({ services, onToggle, saving }) {
 
 function ActiveRidePanel({ ride, here, busyCode, onAdvance, onCancel }) {
 
-  const navTarget = ride.driverRideStatus === 'started'
+  const started = ride.driverRideStatus === 'started';
+
+  // Approximate target, for the on-screen distance + ETA readout only. The
+  // resolved coords are acceptable here: a roughly-right ETA beats none.
+
+  const navTarget = started
 
     ? { lat: ride.dropoffLat, lng: ride.dropoffLng }
 
     : { lat: ride.pickupLat, lng: ride.pickupLng };
+
+  // Turn-by-turn, on the other hand, must go to the coordinates the customer
+  // actually picked — never a district or city centroid. Falls back to their
+  // address text, and to nothing at all (button hidden) if we have neither.
+
+  const navUrl = googleMapsNavLink(
+
+    started
+
+      ? { ...ride.dropoffExact, address: ride.dropoffAddress }
+
+      : { ...ride.pickupExact, address: ride.pickupAddress }
+
+  );
 
   const distToTarget = here && navTarget.lat != null ? haversineKm(here, navTarget) : null;
 
@@ -581,11 +629,11 @@ function ActiveRidePanel({ ride, here, busyCode, onAdvance, onCancel }) {
 
           )}
 
-          {navTarget?.lat != null && (
+          {navUrl && (
 
             <a
 
-              href={`https://waze.com/ul?ll=${navTarget.lat},${navTarget.lng}&navigate=yes`}
+              href={navUrl}
 
               target="_blank"
 
@@ -599,7 +647,7 @@ function ActiveRidePanel({ ride, here, busyCode, onAdvance, onCancel }) {
 
               <Navigation className="w-4 h-4 shrink-0" />
 
-              Waze
+              Google Maps
 
             </a>
 
@@ -1174,14 +1222,20 @@ export default function DriverPage() {
   // Where this rider is heading right now. Falls through to the delivery leg
   // when there is no ride: a rider on a food/shop job used to get neither a
   // target nor camera follow, so their own map sat still while they drove.
+  //
+  // Built from the EXACT customer-picked coordinates, plus the address as a
+  // fallback for the navigation link. It deliberately does not use
+  // pickupLat/dropoffLat: those have been through resolveCoordsFromAddress
+  // and may be an airport / district / city centroid, which is acceptable for
+  // the map marker and wrong for turn-by-turn.
 
   const navTarget = activeRide
 
     ? activeRide.driverRideStatus === 'started'
 
-      ? { lat: activeRide.dropoffLat, lng: activeRide.dropoffLng }
+      ? { ...activeRide.dropoffExact, address: activeRide.dropoffAddress }
 
-      : { lat: activeRide.pickupLat, lng: activeRide.pickupLng }
+      : { ...activeRide.pickupExact, address: activeRide.pickupAddress }
 
     : deliveryTarget;
 
@@ -1378,7 +1432,7 @@ export default function DriverPage() {
 
                   <div className="bg-amber-50/95 backdrop-blur-sm border border-amber-200 text-amber-900 text-xs font-medium px-3 py-2 rounded-xl shadow-sm">
 
-                    Client pickup is in Riyadh ({clientDist.toFixed(0)} km away). Map shows your area — use Waze to navigate.
+                    Client pickup is in Riyadh ({clientDist.toFixed(0)} km away). Map shows your area — use Google Maps to navigate.
 
                   </div>
 

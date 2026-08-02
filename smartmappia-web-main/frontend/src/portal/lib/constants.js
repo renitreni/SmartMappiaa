@@ -129,6 +129,45 @@ export function whatsappLink(number, text) {
   return `https://wa.me/${digits}${q}`;
 }
 
+// Turn-by-turn navigation to a destination, in Google Maps. Returns null when
+// there is nothing safe to navigate to, so callers keep the `{link && <a>}`
+// pattern they already use for whatsappLink above.
+//
+// Google Maps, not Waze: Waze has little presence in Saudi Arabia, so the old
+// waze.com/ul link dropped drivers into an app most of them do not have.
+//
+// The destination must be WHERE THE CUSTOMER ACTUALLY POINTED. That is why
+// this takes an explicit {lat, lng} and never accepts a value that has been
+// through resolveCoordsFromAddress() — that helper falls back to an airport,
+// district, or whole-city centroid when a booking has no pin, which is fine
+// for drawing an approximate marker on a map and actively harmful for
+// navigation. Sending a driver confidently to the middle of Riyadh is worse
+// than admitting we do not know.
+//
+// So, in order: real coordinates, else the customer's own address text (let
+// Google geocode what they typed — still their location, not one we invented),
+// else null and the button disappears.
+//
+// omitting `origin` starts navigation from the device's live position, and
+// dir_action=navigate launches turn-by-turn rather than a route preview.
+// On Android the https link is handed to the Google Maps app by app-links,
+// which is the same mechanism the old Waze link relied on.
+export function googleMapsNavLink({ lat, lng, address } = {}) {
+  // Number.isFinite, NOT a truthiness check: lat/lng of 0 are valid
+  // coordinates and `!lat` would silently discard them.
+  const hasCoords = Number.isFinite(Number(lat)) && Number.isFinite(Number(lng))
+    && lat !== null && lng !== null && lat !== '' && lng !== '';
+  // Coordinates go in literally (digits, dot, minus, comma are all URL-safe,
+  // and Google's own examples use a bare comma — some Android intent filters
+  // are fussier about %2C than the web handler is). Free-text addresses do
+  // need encoding.
+  const destination = hasCoords
+    ? `${Number(lat)},${Number(lng)}`
+    : encodeURIComponent(address ? String(address).trim() : '');
+  if (!destination) return null;
+  return `https://www.google.com/maps/dir/?api=1&destination=${destination}&travelmode=driving&dir_action=navigate`;
+}
+
 // Statuses where the passenger may still cancel (mirrors the backend rule).
 export const CANCELLABLE = [
   'pending_payment',
