@@ -8,12 +8,19 @@ import { useLiveRestaurantRoute } from "../lib/useLiveRestaurantRoute";
 import { notifyMenuUnavailable } from "../portal/lib/notify";
 
 const SponsoredReel = () => {
-  if (!activeSponsoredReel) return null;
-
+  // The hook must run before any early return, or React sees a different
+  // number of hooks between renders. Harmless while activeSponsoredReel is a
+  // module constant (the branch never flips at runtime), but promotions are
+  // exactly the kind of value that becomes dynamic later — an admin toggle or
+  // a fetch would turn this into "Rendered fewer hooks than expected" and
+  // white-screen the landing page. useLiveRestaurantRoute already handles a
+  // missing name by resolving to { path: null, loading: false }.
   const promo = activeSponsoredReel;
   const { path: menuPath, loading: menuLoading } = useLiveRestaurantRoute(
-    promo.partnerName
+    promo?.partnerName
   );
+
+  if (!promo) return null;
 
   const ctaClassName =
     "inline-flex w-fit items-center justify-center bg-brand-orange hover:bg-brand-orange/90 text-white font-bold text-sm px-7 py-3.5 rounded-xl transition-all duration-300 hover:scale-[1.02] active:scale-95 shadow-md shadow-brand-orange/25 disabled:opacity-60 disabled:pointer-events-none";
