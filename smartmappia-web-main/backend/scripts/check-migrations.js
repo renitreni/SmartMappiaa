@@ -19,13 +19,23 @@
 // ---------------------------------------------------------------------
 require('dotenv').config();
 const { createClient } = require('@supabase/supabase-js');
+const WebSocket = require('ws');
 const { supabase } = require('../lib/supabase');
 
 // Anon-key client, used only by the grant checks. Optional on purpose.
+//
+// The `ws` transport is not optional: Node < 22 has no native WebSocket and
+// supabase-js constructs its Realtime client eagerly, so createClient THROWS
+// on Node 20 without it (production runs Node 20). lib/supabase.js passes the
+// same polyfill for the service-role client. This was invisible until the
+// first time SUPABASE_ANON_KEY was actually set — with no key this branch
+// returns null and never calls createClient at all, so the whole checker ran
+// fine while silently skipping every grant probe.
 const anonKey = process.env.SUPABASE_ANON_KEY || '';
 const anon = anonKey
   ? createClient(process.env.SUPABASE_URL, anonKey, {
       auth: { persistSession: false, autoRefreshToken: false },
+      realtime: { transport: WebSocket },
     })
   : null;
 

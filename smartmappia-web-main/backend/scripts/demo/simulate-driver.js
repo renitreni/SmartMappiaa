@@ -29,6 +29,7 @@
 // =====================================================================
 require('dotenv').config();
 const { createClient } = require('@supabase/supabase-js');
+const WebSocket = require('ws');
 const { supabase, DEMO_DRIVER, DRIVER_AT, PICKUP } = require('./_demo-lib');
 
 const API_BASE = process.env.SIM_API_BASE || `http://localhost:${process.env.PORT || 4000}`;
@@ -146,7 +147,13 @@ async function signIn(email, password) {
         'signs in as a real driver so it exercises the same auth path the app does.'
     );
   }
-  const client = createClient(url, anon);
+  // `ws` transport: Node < 22 has no native WebSocket and supabase-js builds
+  // its Realtime client eagerly, so this throws on Node 20 (production) without
+  // it. Matches lib/supabase.js.
+  const client = createClient(url, anon, {
+    auth: { persistSession: false, autoRefreshToken: false },
+    realtime: { transport: WebSocket },
+  });
   const { data, error } = await client.auth.signInWithPassword({ email, password });
   if (error) throw new Error(`Could not sign in as ${email}: ${error.message}`);
   return data.session.access_token;

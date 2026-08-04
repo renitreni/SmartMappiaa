@@ -24,12 +24,18 @@
 // ---------------------------------------------------------------------
 require('dotenv').config();
 const { createClient } = require('@supabase/supabase-js');
+const WebSocket = require('ws');
 const { supabase } = require('../lib/supabase');
 
+// The `ws` transport is required, not cosmetic: Node < 22 has no native
+// WebSocket and supabase-js builds its Realtime client eagerly, so this call
+// throws on Node 20 (production) without it. Same polyfill lib/supabase.js
+// passes for the service-role client.
 const anonKey = process.env.SUPABASE_ANON_KEY || '';
 const anon = anonKey
   ? createClient(process.env.SUPABASE_URL, anonKey, {
       auth: { persistSession: false, autoRefreshToken: false },
+      realtime: { transport: WebSocket },
     })
   : null;
 
