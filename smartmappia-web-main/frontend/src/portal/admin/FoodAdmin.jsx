@@ -1,13 +1,16 @@
 // ---------------------------------------------------------------------
 // Admin portal — Food Delivery tab.
 //
-// There are NO restaurant owner accounts: restaurants contact SmartMappia
-// and admins run everything from here —
+// Restaurants contact SmartMappia and admins run everything from here —
 //   * restaurant CRUD (create / edit / list-unlist / delete)
 //   * menu import + editing (categories, items, prices, photos)
 //   * order operations: accept (300 SAR credit-gated) / reject / advance,
 //     STC payment verify/reject, rider assignment, cancel + refund
 //   * credit monitoring with reconcile (replenish)
+//   * owner account provisioning: the admin creates the account AND chooses
+//     its password (handed over at contract signing), and re-issues that
+//     password if the owner loses it. There is no self-service merchant
+//     signup and no reset email.
 // ---------------------------------------------------------------------
 import { useCallback, useEffect, useState } from 'react';
 import {
@@ -46,8 +49,14 @@ import {
   MENU_IMAGE_FORMATS_HINT,
 } from '../lib/uploadFiles';
 import { fmtSAR, foodStatusMeta, foodPaymentMeta } from '../lib/constants';
+import { notifySuccess } from '../lib/notify';
 import { Card, Badge, Field, Spinner, btnPrimary, btnGhost, inputClass } from '../components/ui';
 import LocationPicker from '../components/LocationPicker';
+import PasswordInput from '../components/PasswordInput';
+
+// Owner passwords are chosen by the admin and handed over in person — keep this
+// in step with MIN_PASSWORD_LENGTH in backend/lib/validate.js.
+const MIN_OWNER_PASSWORD = 8;
 
 // --- Reusable image upload (restaurant logo / menu photo) -------------------
 // Uploads straight to the PUBLIC merchant-images bucket via a backend-issued
@@ -663,7 +672,8 @@ function MerchantsSection({ onError }) {
   const [editing, setEditing] = useState(null); // null | 'new' | merchant
   const [menuFor, setMenuFor] = useState(null); // merchant whose menu is open
   const [ownerFor, setOwnerFor] = useState(null); // merchant whose owner form is open
-  const [ownerForm, setOwnerForm] = useState({ email: '', full_name: '', phone: '' });
+  const [ownerForm, setOwnerForm] = useState({ email: '', password: '', full_name: '', phone: '' });
+  const [ownerPassword, setOwnerPassword] = useState(''); // re-issue field for a linked owner
 
   const load = useCallback(async () => {
     try {
@@ -805,7 +815,8 @@ function MerchantsSection({ onError }) {
                     disabled={busyId === m.id}
                     onClick={() => {
                       setOwnerFor(ownerFor === m.id ? null : m.id);
-                      setOwnerForm({ email: '', full_name: '', phone: '' });
+                      setOwnerForm({ email: '', password: '', full_name: '', phone: '' });
+                      setOwnerPassword('');
                     }}
                     className={btnGhost + ' !py-1.5 !px-2.5 !text-xs'}
                     title={m.ownerEmail ? `Owner: ${m.ownerEmail}` : 'No owner account yet'}
@@ -871,13 +882,23 @@ function MerchantsSection({ onError }) {
                           e.preventDefault();
                           const email = ownerForm.email.trim();
                           if (!email) return onError('Owner email is required.');
+                          if (ownerForm.password.length < MIN_OWNER_PASSWORD) {
+                            return onError(`Password must be at least ${MIN_OWNER_PASSWORD} characters.`);
+                          }
                           run(m.id, async () => {
-                            await api.adminFoodSetMerchantOwner(m.id, {
+                            const res = await api.adminFoodSetMerchantOwner(m.id, {
                               email,
+                              password: ownerForm.password,
                               full_name: ownerForm.full_name.trim() || undefined,
                               phone: ownerForm.phone.trim() || undefined,
                             });
                             setOwnerFor(null);
+                            setOwnerForm({ email: '', password: '', full_name: '', phone: '' });
+                            notifySuccess(
+                              res.reusedExistingAccount
+                                ? 'Existing account linked as the restaurant owner, with the password you set.'
+                                : 'Owner account created. Give the owner their email and password.'
+                            );
                           });
                         }}
                         className="space-y-2"
@@ -889,6 +910,14 @@ function MerchantsSection({ onError }) {
                           onChange={(e) => setOwnerForm((f) => ({ ...f, email: e.target.value }))}
                           className={inputClass + ' !py-2'}
                           placeholder="Owner email"
+                        />
+                        <PasswordInput
+                          required
+                          value={ownerForm.password}
+                          onChange={(e) => setOwnerForm((f) => ({ ...f, password: e.target.value }))}
+                          autoComplete="new-password"
+                          placeholder={`Owner password (min ${MIN_OWNER_PASSWORD} characters)`}
+                          className="!py-2 !text-sm"
                         />
                         <div className="grid grid-cols-2 gap-2">
                           <input
@@ -913,7 +942,48 @@ function MerchantsSection({ onError }) {
                           </button>
                         </div>
                         <p className="text-[11px] text-brand-grey">
-                          Creates a confirmed account with the merchant role and links it to this restaurant.
+                          Creates a confirmed account with the merchant role and links it to this
+                          restaurant. Give the owner this password in person — there is no reset email.
+                        </p>
+                      </form>
+                    )}
+
+                    {/* Recovery: an owner who lost their password gets a new one from an
+                        admin. Same reason — the platform sends no mail. */}
+                    {m.ownerId && (
+                      <form
+                        onSubmit={(e) => {
+                          e.preventDefault();
+                          if (ownerPassword.length < MIN_OWNER_PASSWORD) {
+                            return onError(`Password must be at least ${MIN_OWNER_PASSWORD} characters.`);
+                          }
+                          run(m.id, async () => {
+                            await api.adminFoodSetOwnerPassword(m.id, { password: ownerPassword });
+                            setOwnerPassword('');
+                            setOwnerFor(null);
+                            notifySuccess('Owner password updated. Give the new one to the owner.');
+                          });
+                        }}
+                        className="space-y-2"
+                      >
+                        <PasswordInput
+                          required
+                          value={ownerPassword}
+                          onChange={(e) => setOwnerPassword(e.target.value)}
+                          autoComplete="new-password"
+                          placeholder={`New password (min ${MIN_OWNER_PASSWORD} characters)`}
+                          className="!py-2 !text-sm"
+                        />
+                        <div className="flex gap-2">
+                          <button type="submit" disabled={busyId === m.id} className={btnPrimary + ' !py-2 !px-3.5 !text-xs'}>
+                            Set new password
+                          </button>
+                          <button type="button" onClick={() => setOwnerFor(null)} className={btnGhost + ' !py-2 !px-3.5 !text-xs'}>
+                            Close
+                          </button>
+                        </div>
+                        <p className="text-[11px] text-brand-grey">
+                          Replaces the owner's password immediately. Their old one stops working.
                         </p>
                       </form>
                     )}

@@ -121,15 +121,26 @@ router.post(
   food.createMerchantImageUploadUrl
 );
 // Owner account provisioning (contract-signing step): create/reuse + link the
-// owner's account and grant it the merchant role.
+// owner's account, set the password the admin chose, and grant it the merchant
+// role. The password is permanent and admin-issued — the platform sends no
+// mail, so there is no self-service reset for merchants.
 router.post(
   '/food/merchants/:id/owner',
   validateBody({
     email: { type: 'string', required: true, maxLength: 200 },
+    password: { type: 'string', required: true, maxLength: 128 },
     full_name: { type: 'string', maxLength: 120, nullable: true },
     phone: { type: 'string', maxLength: 40, nullable: true },
   }),
   food.setMerchantOwner
+);
+// Recovery: re-issue the owner's password (admin-driven, no reset email).
+router.post(
+  '/food/merchants/:id/owner/password',
+  validateBody({
+    password: { type: 'string', required: true, maxLength: 128 },
+  }),
+  food.setMerchantOwnerPassword
 );
 // Menu import + moderation (any restaurant)
 router.get('/food/merchants/:id/menu', food.getMerchantMenu);
@@ -277,10 +288,18 @@ router.post(
   '/shop/stores/:id/owner',
   validateBody({
     email: { type: 'string', required: true, maxLength: 200 },
+    password: { type: 'string', required: true, maxLength: 128 },
     full_name: { type: 'string', maxLength: 160, nullable: true },
     phone: { type: 'string', maxLength: 40, nullable: true },
   }),
   shop.setStoreOwner
+);
+router.post(
+  '/shop/stores/:id/owner/password',
+  validateBody({
+    password: { type: 'string', required: true, maxLength: 128 },
+  }),
+  shop.setStoreOwnerPassword
 );
 
 // --- Catalogue (net_price lives here) ---

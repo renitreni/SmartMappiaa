@@ -24,9 +24,14 @@ import {
 import { api } from '../lib/api';
 import { useBroadcast } from '../lib/useBroadcast';
 import { fmtSAR, shopStatusMeta, shopPaymentMeta, TONE_CLASSES } from '../lib/constants';
-import { notifySuccess, confirmAction } from '../lib/notify';
+import { notifySuccess, notifyError, confirmAction } from '../lib/notify';
 import { toCsv, downloadCsv } from '../lib/csv';
 import { Card, Field, Spinner, inputClass, btnPrimary, btnGhost } from '../components/ui';
+import PasswordInput from '../components/PasswordInput';
+
+// Owner passwords are chosen by the admin and handed over in person — keep this
+// in step with MIN_PASSWORD_LENGTH in backend/lib/validate.js.
+const MIN_OWNER_PASSWORD = 8;
 
 const SECTIONS = [
   { id: 'stores', label: 'Stores', icon: Store },
@@ -76,6 +81,9 @@ function StoresSection({ stores, onChanged, onOpenCatalogue }) {
   const [form, setForm] = useState({ name: '', cuisine_type: '', description: '', logo_url: '', address: '' });
   const [ownerFor, setOwnerFor] = useState(null);
   const [ownerEmail, setOwnerEmail] = useState('');
+  const [ownerPassword, setOwnerPassword] = useState('');
+  const [pwFor, setPwFor] = useState(null); // store whose owner password is being re-issued
+  const [newPassword, setNewPassword] = useState('');
   const [busy, setBusy] = useState(false);
 
   async function save(e) {
@@ -105,21 +113,49 @@ function StoresSection({ stores, onChanged, onOpenCatalogue }) {
     }
   }
 
+  // The admin chooses the owner's password and hands it over at contract
+  // signing — the platform sends no mail, so there is no reset link to fall
+  // back on. resetOwnerPassword below is the recovery path.
   async function linkOwner(e) {
     e.preventDefault();
+    if (ownerPassword.length < MIN_OWNER_PASSWORD) {
+      notifyError(`Password must be at least ${MIN_OWNER_PASSWORD} characters.`);
+      return;
+    }
     setBusy(true);
     try {
-      const res = await api.adminShopSetOwner(ownerFor, { email: ownerEmail.trim() });
-      if (res.temporaryPassword) {
-        notifySuccess(
-          `Owner account created. Temporary password: ${res.temporaryPassword} — copy it now, it is shown once.`
-        );
-      } else {
-        notifySuccess('Existing account linked as the store owner.');
-      }
+      const res = await api.adminShopSetOwner(ownerFor, {
+        email: ownerEmail.trim(),
+        password: ownerPassword,
+      });
+      notifySuccess(
+        res.reusedExistingAccount
+          ? 'Existing account linked as the store owner, with the password you set.'
+          : 'Owner account created. Give the owner their email and password.'
+      );
       setOwnerFor(null);
       setOwnerEmail('');
+      setOwnerPassword('');
       onChanged();
+    } catch {
+      /* surfaced */
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function resetOwnerPassword(e) {
+    e.preventDefault();
+    if (newPassword.length < MIN_OWNER_PASSWORD) {
+      notifyError(`Password must be at least ${MIN_OWNER_PASSWORD} characters.`);
+      return;
+    }
+    setBusy(true);
+    try {
+      await api.adminShopSetOwnerPassword(pwFor, { password: newPassword });
+      notifySuccess('Owner password updated. Give the new one to the owner.');
+      setPwFor(null);
+      setNewPassword('');
     } catch {
       /* surfaced */
     } finally {
@@ -227,9 +263,20 @@ function StoresSection({ stores, onChanged, onOpenCatalogue }) {
                   >
                     <Pencil className="w-4 h-4" /> Edit
                   </button>
-                  {!s.ownerEmail && (
-                    <button onClick={() => setOwnerFor(s.id)} className={btnGhost + ' !py-1.5 !px-3 text-sm'}>
+                  {!s.ownerEmail ? (
+                    <button
+                      onClick={() => { setOwnerFor(s.id); setOwnerEmail(''); setOwnerPassword(''); }}
+                      className={btnGhost + ' !py-1.5 !px-3 text-sm'}
+                    >
                       <UserPlus className="w-4 h-4" /> Assign owner
+                    </button>
+                  ) : (
+                    <button
+                      onClick={() => { setPwFor(pwFor === s.id ? null : s.id); setNewPassword(''); }}
+                      className={btnGhost + ' !py-1.5 !px-3 text-sm'}
+                      title={`Owner: ${s.ownerEmail}`}
+                    >
+                      <UserPlus className="w-4 h-4" /> Owner password
                     </button>
                   )}
                   {s.status === 'suspended' ? (
@@ -269,17 +316,49 @@ function StoresSection({ stores, onChanged, onOpenCatalogue }) {
                 </div>
 
                 {ownerFor === s.id && (
-                  <form onSubmit={linkOwner} className="mt-3 pt-3 border-t border-brand-border flex gap-2">
+                  <form onSubmit={linkOwner} className="mt-3 pt-3 border-t border-brand-border space-y-2">
                     <input
                       type="email"
                       value={ownerEmail}
                       onChange={(e) => setOwnerEmail(e.target.value)}
                       placeholder="owner@example.com"
                       required
-                      className={inputClass + ' flex-1'}
+                      className={inputClass + ' w-full'}
                     />
-                    <button disabled={busy} className={btnPrimary}>Link</button>
-                    <button type="button" onClick={() => setOwnerFor(null)} className={btnGhost}>Cancel</button>
+                    <PasswordInput
+                      required
+                      value={ownerPassword}
+                      onChange={(e) => setOwnerPassword(e.target.value)}
+                      autoComplete="new-password"
+                      placeholder={`Owner password (min ${MIN_OWNER_PASSWORD} characters)`}
+                    />
+                    <div className="flex gap-2">
+                      <button disabled={busy} className={btnPrimary}>Link</button>
+                      <button type="button" onClick={() => setOwnerFor(null)} className={btnGhost}>Cancel</button>
+                    </div>
+                    <p className="text-xs text-brand-grey">
+                      Give the owner this password in person — there is no reset email.
+                    </p>
+                  </form>
+                )}
+
+                {pwFor === s.id && (
+                  <form onSubmit={resetOwnerPassword} className="mt-3 pt-3 border-t border-brand-border space-y-2">
+                    <p className="text-xs font-bold text-brand-dark">Owner account: {s.ownerEmail}</p>
+                    <PasswordInput
+                      required
+                      value={newPassword}
+                      onChange={(e) => setNewPassword(e.target.value)}
+                      autoComplete="new-password"
+                      placeholder={`New password (min ${MIN_OWNER_PASSWORD} characters)`}
+                    />
+                    <div className="flex gap-2">
+                      <button disabled={busy} className={btnPrimary}>Set new password</button>
+                      <button type="button" onClick={() => setPwFor(null)} className={btnGhost}>Cancel</button>
+                    </div>
+                    <p className="text-xs text-brand-grey">
+                      Replaces the owner's password immediately. Their old one stops working.
+                    </p>
                   </form>
                 )}
               </Card>

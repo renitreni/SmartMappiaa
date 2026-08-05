@@ -19,6 +19,7 @@ const {
 } = require('../lib/profileSchema');
 const { buildAvatarPath, createAvatarUploadUrl, avatarPublicUrl } = require('../lib/storage');
 const { opsError } = require('../lib/opsError');
+const { MIN_PASSWORD_LENGTH, MAX_PASSWORD_LENGTH } = require('../lib/validate');
 
 // The camelCase profile JSON every auth endpoint returns to the UI.
 function profileJson(profile, merchant = null) {
@@ -42,12 +43,10 @@ function profileJson(profile, merchant = null) {
 // approval — not via public self-registration (see adminFoodController.setMerchantOwner).
 const SELF_ROLES = ['passenger', 'driver'];
 
-// Basic email shape + password bounds enforced at the public signup boundary.
-// (Supabase Auth hashes the password; the upper bound just stops a pathologically
-// long input from being handed to the hasher.)
+// Basic email shape enforced at the public signup boundary. The password
+// bounds live in lib/validate.js — the admin merchant-owner endpoints apply
+// the same ones.
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-const MIN_PASSWORD_LENGTH = 8;
-const MAX_PASSWORD_LENGTH = 128;
 
 function merchantPayload(body, ownerId) {
   const name = String(body.business_name || body.merchant_name || '').trim();

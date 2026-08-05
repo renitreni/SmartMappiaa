@@ -14,7 +14,6 @@
 // Food Delivery, and without the filter the Shop tab would list, suspend or
 // credit restaurants.
 // ---------------------------------------------------------------------
-const crypto = require('crypto');
 const { supabase } = require('../../lib/supabase');
 const { config } = require('../../lib/config');
 const { round2 } = require('../../lib/foodMoney');
@@ -37,6 +36,8 @@ const {
   merchantImagePublicUrl,
   createProofDownloadUrl,
 } = require('../../lib/storage');
+const { passwordError } = require('../../lib/validate');
+const { resolveOwnerProfile } = require('../../lib/merchantOwner');
 
 const STORE_SELECT =
   'id, name, vertical, cuisine_type, description, logo_url, address, lat, lng, is_active, status, ' +
@@ -328,11 +329,16 @@ async function createStoreImageUploadUrl(req, res) {
   }
 }
 
-// Provision the owner account. Mirrors the food flow exactly.
+// Provision the owner account. Mirrors the food flow exactly, including the
+// admin-chosen permanent password (see setMerchantOwner for the rationale).
 async function setStoreOwner(req, res) {
   try {
     const email = String(req.body.email || '').trim().toLowerCase();
     if (!email) return res.status(400).json({ error: 'email is required' });
+
+    const password = String(req.body.password || '');
+    const pwError = passwordError(password);
+    if (pwError) return res.status(400).json({ error: pwError });
 
     const store = await loadStore(req.params.id);
     if (!store) return res.status(404).json({ error: 'Store not found' });
@@ -342,11 +348,16 @@ async function setStoreOwner(req, res) {
       });
     }
 
+    // Never point this flow at a staff account — see lib/merchantOwner.js.
+    const { error: guardErr, status: guardStatus, profile: existingProfile } =
+      await resolveOwnerProfile(email);
+    if (guardErr) return res.status(guardStatus).json({ error: guardErr });
+
     let ownerId = null;
-    const tempPassword = crypto.randomBytes(12).toString('base64url');
+    let reusedExistingAccount = false;
     const { data: created, error: createErr } = await supabase.auth.admin.createUser({
       email,
-      password: tempPassword,
+      password,
       email_confirm: true,
       user_metadata: { full_name: req.body.full_name || null, mobile_number: req.body.phone || null },
     });
@@ -357,14 +368,21 @@ async function setStoreOwner(req, res) {
         console.error('setStoreOwner createUser error:', createErr);
         return res.status(500).json({ error: 'Could not create the owner account' });
       }
-      const { data: existingProfile } = await supabase
-        .from('profiles').select('id').eq('email', email).maybeSingle();
       if (!existingProfile) {
         return res.status(409).json({
           error: 'An account with this email exists but could not be linked. Please check the address.',
         });
       }
       ownerId = existingProfile.id;
+      reusedExistingAccount = true;
+      const { error: pwErr } = await supabase.auth.admin.updateUserById(ownerId, {
+        password,
+        email_confirm: true,
+      });
+      if (pwErr) {
+        console.error('setStoreOwner updateUserById error:', pwErr);
+        return res.status(500).json({ error: 'Could not set the owner password' });
+      }
     } else {
       ownerId = created.user.id;
     }
@@ -380,24 +398,66 @@ async function setStoreOwner(req, res) {
     });
     await supabase.from('merchants').update({ owner_id: ownerId }).eq('id', store.id);
 
+    // Audit meta carries WHO was linked, never the password.
     logAudit({
       actorId: req.adminId,
       action: 'admin_shop_owner_linked',
       resourceType: 'merchant',
       resourceId: store.id,
-      meta: { email },
+      meta: { owner_id: ownerId, email, reused_existing_account: reusedExistingAccount },
     });
 
     return res.status(201).json({
       ownerId,
       email,
-      // Returned ONCE, never stored. The admin passes it to the owner and the
-      // owner changes it on first sign-in.
-      temporaryPassword: createErr ? null : tempPassword,
-      reusedExistingAccount: !!createErr,
+      storeId: store.id,
+      reusedExistingAccount,
     });
   } catch (err) {
     console.error('admin setStoreOwner error:', err);
+    return res.status(500).json({ error: 'Unexpected server error' });
+  }
+}
+
+// POST /api/admin/shop/stores/:id/owner/password
+//   body: { password }
+//
+// Recovery path for a store owner who lost their password. Twin of
+// setMerchantOwnerPassword in the food controller.
+async function setStoreOwnerPassword(req, res) {
+  try {
+    const password = String((req.body || {}).password || '');
+    const pwError = passwordError(password);
+    if (pwError) return res.status(400).json({ error: pwError });
+
+    const store = await loadStore(req.params.id);
+    if (!store) return res.status(404).json({ error: 'Store not found' });
+    if (!store.owner_id) {
+      return res.status(409).json({
+        error: 'This store has no owner account yet. Assign an owner first.',
+      });
+    }
+
+    const { error: pwErr } = await supabase.auth.admin.updateUserById(store.owner_id, {
+      password,
+      email_confirm: true,
+    });
+    if (pwErr) {
+      console.error('setStoreOwnerPassword error:', pwErr);
+      return res.status(500).json({ error: 'Could not update the owner password' });
+    }
+
+    logAudit({
+      actorId: req.adminId,
+      action: 'admin_shop_owner_password_set',
+      resourceType: 'merchant',
+      resourceId: store.id,
+      meta: { owner_id: store.owner_id },
+    });
+
+    return res.json({ ok: true });
+  } catch (err) {
+    console.error('admin setStoreOwnerPassword error:', err);
     return res.status(500).json({ error: 'Unexpected server error' });
   }
 }
@@ -968,6 +1028,7 @@ module.exports = {
   replenishCredit,
   createStoreImageUploadUrl,
   setStoreOwner,
+  setStoreOwnerPassword,
   getStoreCatalogue,
   addCategory,
   updateCategory,
