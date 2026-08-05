@@ -302,6 +302,8 @@ export const api = {
   adminShopStoreImageSignedUrl: (id, body) =>
     request(`/api/admin/shop/stores/${id}/image/signed-url`, { method: 'POST', body }),
   adminShopSetOwner: (id, body) => request(`/api/admin/shop/stores/${id}/owner`, { method: 'POST', body }),
+  adminShopSetOwnerPassword: (id, body) =>
+    request(`/api/admin/shop/stores/${id}/owner/password`, { method: 'POST', body }),
   adminShopCatalogue: (id) => request(`/api/admin/shop/stores/${id}/catalogue`),
   adminShopAddCategory: (id, body) =>
     request(`/api/admin/shop/stores/${id}/categories`, { method: 'POST', body }),
@@ -378,7 +380,10 @@ export const api = {
   // Merchant image upload (logo/menu photo) -> PUBLIC bucket signed URL.
   adminFoodMerchantImageSignedUrl: (id, body) =>
     request(`/api/admin/food/merchants/${id}/image/signed-url`, { method: 'POST', body }),
-  // Owner account provisioning (contract-signing step).
+  // Owner account provisioning (contract-signing step). The admin chooses the
+  // password; the second call re-issues it if the owner loses it.
   adminFoodSetMerchantOwner: (id, body) =>
     request(`/api/admin/food/merchants/${id}/owner`, { method: 'POST', body }),
+  adminFoodSetOwnerPassword: (id, body) =>
+    request(`/api/admin/food/merchants/${id}/owner/password`, { method: 'POST', body }),
 };

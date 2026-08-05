@@ -34,6 +34,8 @@ const {
 } = require('../../lib/storage');
 const { validateImageFile, validateMenuImageFile } = require('../../lib/uploadValidation');
 const { normalizeSizeOptions } = require('../../lib/foodSizes');
+const { passwordError } = require('../../lib/validate');
+const { resolveOwnerProfile } = require('../../lib/merchantOwner');
 
 // Credit summary for a restaurant (used / limit / warning / suspended).
 function creditView(merchant) {
@@ -1094,16 +1096,26 @@ async function createMerchantImageUploadUrlHandler(req, res) {
 
 // --- Owner account provisioning (contract-signing step) ---------------------
 // POST /api/admin/food/merchants/:id/owner
-//   body: { email, full_name?, phone? }
+//   body: { email, password, full_name?, phone? }
 //
 // Restaurants are onboarded by admins: after the contract is signed the admin
-// creates (or reuses) the owner's auth account, grants it the `merchant` role,
-// and links it to the restaurant. There is no self-service merchant signup.
+// creates (or reuses) the owner's auth account, sets its password, grants it
+// the `merchant` role, and links it to the restaurant. There is no
+// self-service merchant signup.
+//
+// The password is CHOSEN BY THE ADMIN and permanent — the admin hands it over
+// in person at contract signing. There is no generated temp value and no
+// password-reset email (the platform sends no mail at all; every account is
+// created with email_confirm). Recovery is setMerchantOwnerPassword below.
 async function setMerchantOwner(req, res) {
   try {
     const b = req.body || {};
     const email = String(b.email || '').trim().toLowerCase();
     if (!email) return res.status(400).json({ error: 'email is required' });
+
+    const password = String(b.password || '');
+    const pwError = passwordError(password);
+    if (pwError) return res.status(400).json({ error: pwError });
 
     const merchant = await loadMerchant(req.params.id);
     if (!merchant) return res.status(404).json({ error: 'Merchant not found' });
@@ -1113,13 +1125,19 @@ async function setMerchantOwner(req, res) {
       });
     }
 
+    // Never point this flow at a staff account — see lib/merchantOwner.js.
+    const { error: guardErr, status: guardStatus, profile: existingProfile } =
+      await resolveOwnerProfile(email);
+    if (guardErr) return res.status(guardStatus).json({ error: guardErr });
+
     // 1. Create the auth user with a confirmed email (no confirmation mail). If
-    //    one already exists, reuse it (the person may already be a customer).
+    //    one already exists, reuse it (the person may already be a customer)
+    //    and apply the admin's password to it.
     let ownerId = null;
-    const tempPassword = require('crypto').randomBytes(12).toString('base64url');
+    let reusedExistingAccount = false;
     const { data: created, error: createErr } = await supabase.auth.admin.createUser({
       email,
-      password: tempPassword,
+      password,
       email_confirm: true,
       user_metadata: { full_name: b.full_name || null, mobile_number: b.phone || null },
     });
@@ -1130,18 +1148,23 @@ async function setMerchantOwner(req, res) {
         console.error('setMerchantOwner createUser error:', createErr);
         return res.status(500).json({ error: 'Could not create the owner account' });
       }
-      // Look up the existing account by email via the profiles table.
-      const { data: existingProfile } = await supabase
-        .from('profiles')
-        .select('id')
-        .eq('email', email)
-        .maybeSingle();
       if (!existingProfile) {
         return res.status(409).json({
           error: 'An account with this email exists but could not be linked. Please check the address.',
         });
       }
       ownerId = existingProfile.id;
+      reusedExistingAccount = true;
+      // The admin typed a password; it must work regardless of which branch we
+      // took, otherwise the owner is handed credentials that do not sign in.
+      const { error: pwErr } = await supabase.auth.admin.updateUserById(ownerId, {
+        password,
+        email_confirm: true,
+      });
+      if (pwErr) {
+        console.error('setMerchantOwner updateUserById error:', pwErr);
+        return res.status(500).json({ error: 'Could not set the owner password' });
+      }
     } else {
       ownerId = created.user.id;
     }
@@ -1174,17 +1197,66 @@ async function setMerchantOwner(req, res) {
       return res.status(500).json({ error: 'Could not link the owner to the restaurant' });
     }
 
+    // Audit meta carries WHO was linked, never the password.
     logAudit({
       actorId: req.adminId,
       action: 'admin_merchant_owner_linked',
       resourceType: 'merchant',
       resourceId: merchant.id,
-      meta: { owner_id: ownerId, email },
+      meta: { owner_id: ownerId, email, reused_existing_account: reusedExistingAccount },
     });
 
-    return res.status(201).json({ ownerId, email, merchantId: merchant.id });
+    return res.status(201).json({
+      ownerId,
+      email,
+      merchantId: merchant.id,
+      reusedExistingAccount,
+    });
   } catch (err) {
     console.error('setMerchantOwner error:', err);
+    return res.status(500).json({ error: 'Unexpected server error' });
+  }
+}
+
+// POST /api/admin/food/merchants/:id/owner/password
+//   body: { password }
+//
+// Recovery path for a restaurant owner who lost their password. Admin-driven
+// by design: there is no forgot-password email on this platform.
+async function setMerchantOwnerPassword(req, res) {
+  try {
+    const password = String((req.body || {}).password || '');
+    const pwError = passwordError(password);
+    if (pwError) return res.status(400).json({ error: pwError });
+
+    const merchant = await loadMerchant(req.params.id);
+    if (!merchant) return res.status(404).json({ error: 'Merchant not found' });
+    if (!merchant.owner_id) {
+      return res.status(409).json({
+        error: 'This restaurant has no owner account yet. Assign an owner first.',
+      });
+    }
+
+    const { error: pwErr } = await supabase.auth.admin.updateUserById(merchant.owner_id, {
+      password,
+      email_confirm: true,
+    });
+    if (pwErr) {
+      console.error('setMerchantOwnerPassword error:', pwErr);
+      return res.status(500).json({ error: 'Could not update the owner password' });
+    }
+
+    logAudit({
+      actorId: req.adminId,
+      action: 'admin_merchant_owner_password_set',
+      resourceType: 'merchant',
+      resourceId: merchant.id,
+      meta: { owner_id: merchant.owner_id },
+    });
+
+    return res.json({ ok: true });
+  } catch (err) {
+    console.error('setMerchantOwnerPassword error:', err);
     return res.status(500).json({ error: 'Unexpected server error' });
   }
 }
@@ -1397,4 +1469,5 @@ module.exports = {
   assignDriver,
   createMerchantImageUploadUrl: createMerchantImageUploadUrlHandler,
   setMerchantOwner,
+  setMerchantOwnerPassword,
 };

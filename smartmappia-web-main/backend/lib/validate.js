@@ -140,6 +140,27 @@ function checkField(name, value, rule, errors) {
   }
 }
 
+// Password bounds, enforced everywhere we set a password on an auth account:
+// public signup (authController) and admin-provisioned merchant owners
+// (adminFoodController / adminShopController). Supabase Auth hashes the value;
+// the upper bound just stops a pathologically long input reaching the hasher.
+const MIN_PASSWORD_LENGTH = 8;
+const MAX_PASSWORD_LENGTH = 128;
+
+// Returns an error message when the password is unusable, or null when it is
+// fine. The message NEVER quotes the password back.
+function passwordError(value) {
+  const password = typeof value === 'string' ? value : '';
+  if (!password) return 'password is required';
+  if (password.length < MIN_PASSWORD_LENGTH) {
+    return `Password must be at least ${MIN_PASSWORD_LENGTH} characters`;
+  }
+  if (password.length > MAX_PASSWORD_LENGTH) {
+    return `Password must be at most ${MAX_PASSWORD_LENGTH} characters`;
+  }
+  return null;
+}
+
 function validateBody(schema) {
   return (req, res, next) => {
     const body = req.body || {};
@@ -164,4 +185,4 @@ function validateBody(schema) {
   };
 }
 
-module.exports = { validateBody };
+module.exports = { validateBody, passwordError, MIN_PASSWORD_LENGTH, MAX_PASSWORD_LENGTH };
