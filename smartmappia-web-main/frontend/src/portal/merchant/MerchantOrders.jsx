@@ -15,7 +15,9 @@ import { useBroadcast } from '../lib/useBroadcast';
 import { realtimeEnabled } from '../lib/supabaseClient';
 import { fmtSAR, foodStatusMeta, foodPaymentMeta } from '../lib/constants';
 import { downloadFoodInvoice } from '../lib/invoice';
+import { announceNewOrder } from '../lib/orderAlert';
 import { Card, Badge, Spinner, btnPrimary, btnGhost } from '../components/ui';
+import SoundToggle from '../components/SoundToggle';
 
 // downloadFoodInvoice() expects the snake_case shape used elsewhere in this
 // codebase for orders/bookings; the merchant list API returns camelCase —
@@ -60,7 +62,15 @@ export default function MerchantOrders({ merchant }) {
   useEffect(() => { load(); }, [load]);
   useBroadcast(
     `merchant-${merchant?.id}`,
-    { new_order: () => load(), order_update: () => load(), payment_update: () => load() },
+    {
+      // Sound FIRST, then refresh: the chime is the point of this handler on
+      // a busy counter, and it should not wait on a network round trip.
+      // announceNewOrder dedupes on the code, so a reconnect that replays the
+      // event cannot chime twice for the same order.
+      new_order: (payload) => { announceNewOrder(payload?.orderCode); load(); },
+      order_update: () => load(),
+      payment_update: () => load(),
+    },
     realtimeEnabled && !!merchant?.id
   );
 
@@ -93,7 +103,7 @@ export default function MerchantOrders({ merchant }) {
         </div>
       )}
 
-      <div className="flex gap-2 flex-wrap">
+      <div className="flex gap-2 flex-wrap items-center">
         {[
           { id: 'action', label: 'Needs action' },
           { id: 'live', label: 'Live' },
@@ -106,6 +116,7 @@ export default function MerchantOrders({ merchant }) {
             {f.label}
           </button>
         ))}
+        <span className="ml-auto"><SoundToggle /></span>
       </div>
 
       {orders === null && <div className="flex justify-center py-12"><Spinner className="!w-7 !h-7" /></div>}

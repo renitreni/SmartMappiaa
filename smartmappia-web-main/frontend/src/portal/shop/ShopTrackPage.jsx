@@ -7,7 +7,7 @@
 // ---------------------------------------------------------------------
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { Phone, MessageCircle, ShoppingBag, MapPin } from 'lucide-react';
+import { Phone, MessageCircle, ShoppingBag, MapPin, Clock } from 'lucide-react';
 import { api } from '../lib/api';
 import { bearingDeg } from '../lib/geo';
 import { useBroadcast } from '../lib/useBroadcast';
@@ -16,6 +16,7 @@ import {
   shopStatusMeta,
   shopPaymentMeta,
   SHOP_TRACK_STEPS,
+  trackStepIndex,
   SHOP_PAYMENT_METHODS,
   TONE_CLASSES,
 } from '../lib/constants';
@@ -28,8 +29,8 @@ import PaymentPanel from '../food/PaymentPanel';
 const POLL_MS = 8000;
 const TERMINAL = ['delivered', 'cancelled', 'rejected'];
 
-function StatusStepper({ status }) {
-  const activeIndex = SHOP_TRACK_STEPS.findIndex((s) => s.id === status);
+function StatusStepper({ status, deliveryStatus }) {
+  const activeIndex = trackStepIndex(SHOP_TRACK_STEPS, status, deliveryStatus);
   return (
     <ol className="space-y-3">
       {SHOP_TRACK_STEPS.map((step, i) => {
@@ -189,7 +190,14 @@ export default function ShopTrackPage() {
   const storePoint = store?.lat != null ? { lat: store.lat, lng: store.lng } : null;
   // Route the leg the rider is actually on: to the store before pickup, to the
   // customer after it. Before a rider is assigned, show store -> customer.
-  const pickedUp = order.status === 'out_for_delivery';
+  // The delivery row is the finer signal — 'assigned' means a rider has the
+  // job but has not collected yet, while the order still reads 'ready'.
+  const deliveryStatus = data?.delivery?.status ?? data?.rider?.status ?? null;
+  const pickedUp = order.status === 'out_for_delivery' || deliveryStatus === 'picked_up';
+  // Once the rider physically has the order, their live ETA is the honest
+  // number; before that the server's floored band covers the packing stage.
+  const liveRiderEta = riderLive?.etaMinutes ?? rider?.etaMinutes ?? null;
+  const etaLabel = pickedUp && liveRiderEta != null ? `${liveRiderEta} min` : (data?.eta?.label ?? null);
   const routeFrom = riderLive ? { lat: riderLive.lat, lng: riderLive.lng } : storePoint;
   const routeTo = riderLive && !pickedUp ? storePoint : dropoff;
 
@@ -219,6 +227,25 @@ export default function ShopTrackPage() {
         </div>
       )}
 
+      {/* ETA hero — the real Google driving time, floored at 45 minutes to
+          cover the packing stage a routing API cannot see. Once the rider
+          has the order their own live ETA is the honest number. */}
+      {etaLabel && (
+        <Card className="p-5 mb-4 bg-gradient-to-br from-brand-orange/10 to-white">
+          <div className="flex items-center justify-between gap-3">
+            <div className="min-w-0">
+              <p className="text-3xl font-black text-brand-black leading-none tabular-nums">{etaLabel}</p>
+              <p className="text-sm font-bold text-brand-dark mt-2">
+                {pickedUp ? 'Your rider is heading to you' : 'Estimated arrival'}
+              </p>
+            </div>
+            <div className="w-14 h-14 rounded-full bg-white shadow-sm flex items-center justify-center shrink-0">
+              <Clock className="w-7 h-7 text-brand-orange" />
+            </div>
+          </div>
+        </Card>
+      )}
+
       {awaitingOnlinePayment && (
         <div className="mb-4">
           <PaymentPanel code={order.order_code} vertical="shop" onPaid={load} />
@@ -239,7 +266,7 @@ export default function ShopTrackPage() {
       )}
 
       <Card className="p-4 mb-4">
-        <StatusStepper status={order.status} />
+        <StatusStepper status={order.status} deliveryStatus={deliveryStatus} />
       </Card>
 
       {rider && (
@@ -312,10 +339,32 @@ export default function ShopTrackPage() {
             <span className="text-brand-grey">Subtotal</span>
             <span className="font-bold">{fmtSAR(order.subtotal)}</span>
           </div>
-          <div className="flex justify-between">
-            <span className="text-brand-grey">Delivery</span>
-            <span className="font-bold">{fmtSAR(order.delivery_fee)}</span>
-          </div>
+          {/* delivery_fee INCLUDES the surcharge, so the base line is the
+              difference — the two must add up to what was charged. */}
+          {Number(order.delivery_surcharge) > 0 ? (
+            <>
+              <div className="flex justify-between">
+                <span className="text-brand-grey">Delivery</span>
+                <span className="font-bold">
+                  {fmtSAR(Number(order.delivery_fee) - Number(order.delivery_surcharge))}
+                </span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-brand-grey">
+                  Distance surcharge
+                  {order.distance_km != null && (
+                    <span className="text-brand-grey/70"> ({order.distance_km} km)</span>
+                  )}
+                </span>
+                <span className="font-bold">{fmtSAR(order.delivery_surcharge)}</span>
+              </div>
+            </>
+          ) : (
+            <div className="flex justify-between">
+              <span className="text-brand-grey">Delivery</span>
+              <span className="font-bold">{fmtSAR(order.delivery_fee)}</span>
+            </div>
+          )}
           <div className="flex justify-between">
             <span className="text-brand-grey">VAT ({Math.round((order.vat_rate || 0) * 100)}%)</span>
             <span className="font-bold">{fmtSAR(order.vat_amount)}</span>

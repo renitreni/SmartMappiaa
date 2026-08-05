@@ -7,8 +7,8 @@
 //   * subtotal = sum(unit_price x quantity), must be >= 50 SAR
 //   * per-unit platform markup = list price - net price; with no net
 //     price set, the flat config.shop.defaultMargin applies
-//   * delivery fee: flat 15 SAR within 15 km; outside the radius
-//     checkout is rejected
+//   * delivery fee: flat 15 SAR within 15 km, plus 0.25 SAR per km
+//     beyond it; past 50 km checkout is rejected
 //   * VAT: 15% charged ON TOP of (subtotal + delivery_fee)
 //   * total = subtotal + delivery_fee + vat (the markup is charged to the
 //     STORE's credit on accept, not to the customer)
@@ -25,6 +25,7 @@
 const { config } = require('./config');
 const { vatFor } = require('./vat');
 const { round2, creditAfterCharge } = require('./foodMoney');
+const { surchargeFor, exceedsMaxRadius } = require('./deliveryPricing');
 
 // Markup the platform keeps on ONE unit.
 //   * with a net price set: markup = list price - net price (varies per
@@ -119,20 +120,36 @@ function priceShopOrder({ items, distanceKm }) {
     };
   }
 
-  if (distanceKm != null && distanceKm > config.shop.radiusKm) {
+  // The cut-off is the MAX radius, not the free one — see foodMoney.
+  if (exceedsMaxRadius(distanceKm)) {
     return {
       ok: false,
       failureReason: 'outside_radius',
       distanceKm: round2(distanceKm),
-      radiusKm: config.shop.radiusKm,
+      maxRadiusKm: config.delivery.maxRadiusKm,
+      radiusKm: config.delivery.maxRadiusKm,
     };
   }
 
-  const deliveryFee = round2(config.shop.deliveryFeeSar);
+  const baseDeliveryFee = round2(config.shop.deliveryFeeSar);
+  const { surcharge: deliverySurcharge } = surchargeFor(distanceKm);
+  const deliveryFee = round2(baseDeliveryFee + deliverySurcharge);
+
   const { vatRate, vatAmount } = vatFor(subtotal + deliveryFee);
   const total = round2(subtotal + deliveryFee + vatAmount);
 
-  return { ok: true, subtotal, marginTotal, deliveryFee, vatRate, vatAmount, total, lines };
+  return {
+    ok: true,
+    subtotal,
+    marginTotal,
+    baseDeliveryFee,
+    deliverySurcharge,
+    deliveryFee,
+    vatRate,
+    vatAmount,
+    total,
+    lines,
+  };
 }
 
 module.exports = {

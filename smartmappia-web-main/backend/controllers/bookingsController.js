@@ -9,6 +9,7 @@
 // ---------------------------------------------------------------------
 const { supabase } = require('../lib/supabase');
 const { quoteFare } = require('../lib/fare');
+const { haversineKm } = require('../lib/geo');
 const { addTrackingEvent } = require('../lib/tracking');
 const { pushBookingStatus, announceRequestTaken } = require('../lib/realtime');
 const { logNotification, notifyAdmins } = require('../lib/notifications');
@@ -57,10 +58,21 @@ async function createBooking(req, res) {
 
     // --- fare snapshot (computed once, never recalculated) ---
     // `amount` is the EX-VAT fare and stays the driver-commission base
-    // (lib/ledger.js); VAT rides alongside it and totalAmount is what the
-    // passenger actually pays. See migration 0025.
-    const { amount, currency, vatAmount, vatRate, totalAmount } = quoteFare({
+    // (lib/ledger.js); VAT and the distance surcharge ride alongside it and
+    // totalAmount is what the passenger actually pays. See migrations 0025
+    // and 0034.
+    //
+    // Distance is straight-line pickup -> dropoff. Both ends are nullable,
+    // and haversineKm returns null if either is missing — which quoteFare
+    // reads as "no surcharge" rather than guessing. Rides have no distance
+    // cap: a long airport transfer is legitimate.
+    const distanceKm = haversineKm(
+      { lat: b.pickup_lat, lng: b.pickup_lng },
+      { lat: b.dropoff_lat, lng: b.dropoff_lng }
+    );
+    const { amount, currency, vatAmount, vatRate, totalAmount, distanceSurcharge } = quoteFare({
       routeType: b.route_type,
+      distanceKm,
     });
 
     // --- insert the booking (tied to the signed-in passenger) ---
@@ -85,6 +97,8 @@ async function createBooking(req, res) {
         passenger_whatsapp: b.passenger_whatsapp,
         passenger_email: b.passenger_email ?? null,
         fare_amount: amount,
+        distance_km: distanceKm != null ? Math.round(distanceKm * 100) / 100 : null,
+        distance_surcharge: distanceSurcharge,
         vat_amount: vatAmount,
         vat_rate: vatRate,
         total_amount: totalAmount,

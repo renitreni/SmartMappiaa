@@ -15,6 +15,7 @@ import { api } from '../lib/api';
 import { fmtSAR, shopStatusMeta, shopPaymentMeta, TONE_CLASSES, SHOP_PAYMENT_METHODS } from '../lib/constants';
 import { notifySuccess } from '../lib/notify';
 import { Card, Spinner, inputClass, btnPrimary, btnGhost } from '../components/ui';
+import SoundToggle from '../components/SoundToggle';
 
 const FILTERS = [
   { id: 'action', label: 'Needs action' },
@@ -264,6 +265,7 @@ export default function ShopMerchantOrders({ onChanged }) {
             </button>
           ))}
         </div>
+        <SoundToggle />
         <button onClick={load} className={btnGhost + ' !py-1.5 !px-3 text-sm'}>
           <RefreshCw className="w-4 h-4" />
         </button>

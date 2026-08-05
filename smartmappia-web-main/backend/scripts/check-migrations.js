@@ -558,6 +558,36 @@ const CHECKS = [
     sqlFile: '0033_driver_location_heading.sql',
   },
   {
+    id: '0034',
+    name: 'distance surcharge past the free radius (orders + shop_orders + bookings)',
+    // Two halves again. The columns are the schema; the grants are the trap.
+    //
+    // orders and shop_orders lost their table-wide SELECT in 0019/0029 and
+    // carry a fixed column list, so a column added later is NOT readable by
+    // anon/authenticated unless it is granted back explicitly — exactly the
+    // debt 0029 Part B had to repay for three earlier columns. The surcharge
+    // is a customer receipt line, so it MUST be visible; margin must not be,
+    // and is re-checked here to prove the grant widened nothing else.
+    run: async () => {
+      const e1 = (await supabase.from('orders').select('delivery_surcharge').limit(0)).error;
+      if (e1) return e1.message;
+      const e2 = (await supabase.from('shop_orders').select('delivery_surcharge').limit(0)).error;
+      if (e2) return e2.message;
+      const e3 = (
+        await supabase.from('bookings').select('distance_km, distance_surcharge').limit(0)
+      ).error;
+      if (e3) return e3.message;
+      return (
+        (await assertVisible('orders', 'delivery_surcharge')) ||
+        (await assertVisible('shop_orders', 'delivery_surcharge')) ||
+        (await assertHidden('orders', 'platform_margin_total')) ||
+        (await assertHidden('shop_orders', 'platform_margin_total')) ||
+        null
+      );
+    },
+    sqlFile: '0034_distance_surcharge.sql',
+  },
+  {
     id: '0030-priv',
     name: 'write grants revoked from the public client roles (CRITICAL)',
     // The privilege half of 0030. Needs the anon key for the same reason

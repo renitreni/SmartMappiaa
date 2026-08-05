@@ -7,7 +7,7 @@
 // booking code; internal UUIDs are never returned (spec §15).
 // ---------------------------------------------------------------------
 const { supabase } = require('../lib/supabase');
-const { haversineKm, etaMinutes } = require('../lib/geo');
+const { travelEtaMinutes } = require('../lib/eta');
 const { latestDriverFix } = require('../lib/tracking');
 
 // Ride states where showing a live driver position makes sense.
@@ -68,8 +68,14 @@ async function getTracking(req, res) {
         const fix = await latestDriverFix(booking.assigned_driver_id);
         if (fix) {
           driverLocation = fix;
-          const distanceKm = haversineKm(fix, { lat: booking.pickup_lat, lng: booking.pickup_lng });
-          liveEtaMinutes = etaMinutes(distanceKm);
+          // Real driving time from Google, NOT floored: a ride has no kitchen
+          // or packing stage in front of it, so the road leg is the whole
+          // wait. Flooring it the way deliveries are would advertise 45
+          // minutes for a 20-minute airport run.
+          liveEtaMinutes = await travelEtaMinutes(fix, {
+            lat: booking.pickup_lat,
+            lng: booking.pickup_lng,
+          });
         }
       }
     }
