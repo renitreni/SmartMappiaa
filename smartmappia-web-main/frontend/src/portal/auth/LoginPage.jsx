@@ -9,7 +9,14 @@ import { LogIn, Mail, ArrowLeft, MapPin, Package, Utensils } from 'lucide-react'
 import { useAuth } from '../lib/AuthProvider';
 import { roleHome } from '../lib/constants';
 import { Field, btnPrimary, Spinner } from '../components/ui';
+
+//ADDED
+import { Capacitor } from '@capacitor/core';
+import MobileLoginScreen from './mobile/screens/LoginScreen';
 import PasswordInput from '../components/PasswordInput';
+
+//ADDED
+import { getAuthErrorMessage } from './mobile/authErrorMessages';
 
 const features = [
   { icon: Utensils, text: 'Order food from 500+ restaurants' },
@@ -26,11 +33,15 @@ export default function LoginPage() {
   const navigate = useNavigate();
   const [params] = useSearchParams();
   const next = params.get('next') || '/';
-
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState(null);
   const [busy, setBusy] = useState(false);
+
+  // ADDED — mobile-only error state, kept separate from the web `error` banner above
+  const [showPassword, setShowPassword] = useState(false);
+  const [mobileFieldErrors, setMobileFieldErrors] = useState({});
+  const [mobileBannerError, setMobileBannerError] = useState(null);
 
   // Already signed in? Don't show the form — send them to their home/dashboard.
   // (Also handles the post-login redirect once the profile/role loads.)
@@ -46,19 +57,47 @@ export default function LoginPage() {
     }
   }, [session, profileLoading, profileError]);
 
-  async function submit(e) {
-    e.preventDefault();
-    setError(null);
-    setBusy(true);
-    try {
-      await signIn(email.trim(), password);
-      // The effect above redirects once the role is known.
-    } catch (err) {
+  //UPDATED
+async function submit(e) {
+  e.preventDefault();
+  setError(null);
+  setMobileFieldErrors({});
+  setMobileBannerError(null);
+  setBusy(true);
+  try {
+    await signIn(email.trim(), password);
+    // The effect above redirects once the role is known.
+  } catch (err) {
+    if (Capacitor.isNativePlatform()) {
+      const { field, text } = getAuthErrorMessage(err);
+      if (field === 'banner') {
+        setMobileBannerError(text);
+      } else {
+        setMobileFieldErrors({ [field]: text });
+      }
+    } else {
       setError(err.message);
-      setBusy(false);
     }
+    setBusy(false);
   }
+}
 
+// ADDED
+if (Capacitor.isNativePlatform()) {
+  return (
+    <MobileLoginScreen
+        email={email} setEmail={setEmail}
+        password={password} setPassword={setPassword}
+        showPassword={showPassword} setShowPassword={setShowPassword}
+        fieldErrors={mobileFieldErrors}
+        bannerError={mobileBannerError}
+        busy={busy}
+        onSubmit={submit}
+        onGoToSignUp={() => navigate(`/signup?next=${encodeURIComponent(next)}`)}
+    />
+  );
+}
+  
   return (
     <div className="min-h-screen flex bg-brand-light">
       {/* Brand panel — desktop */}

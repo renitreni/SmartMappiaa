@@ -33,10 +33,33 @@ import TransactionsPage from './portal/user/TransactionsPage.jsx'
 import ProfilePage from './portal/user/ProfilePage.jsx'
 import { registerServiceWorker } from './portal/lib/pushNotifications.js'
 
+//ADDED
+import { useEffect, useState } from 'react'
+import { Navigate } from 'react-router-dom'  // add Navigate
+import { Capacitor } from '@capacitor/core'
+import { useAuth } from './portal/lib/AuthProvider.jsx'
+import { roleHome } from './portal/lib/constants.js'
+import MobileSplashScreen from './portal/auth/mobile/screens/SplashScreen.jsx'
+
 if (import.meta.env.PROD) {
   registerServiceWorker().catch(() => {
     // PWA support is best-effort; the web app remains fully usable without it.
   })
+}
+
+//ADDED
+function RootRedirect() {
+  const { session, role } = useAuth()
+  const [showSplash, setShowSplash] = useState(true)
+
+  useEffect(() => {
+    const timer = setTimeout(() => setShowSplash(false), 3000)
+    return () => clearTimeout(timer)
+  }, [])
+
+  if (showSplash) return <MobileSplashScreen />
+  if (session && role) return <Navigate to={roleHome(role, '/')} replace />
+  return <Navigate to="/login" replace />
 }
 
 createRoot(document.getElementById('root')).render(
@@ -45,7 +68,9 @@ createRoot(document.getElementById('root')).render(
       <AuthProvider>
         <ViewModeProvider>
           <Routes>
-            <Route path="/" element={<App />} />
+            {/* EDITED */}
+            {/* <Route path="/" element={<App />} /> */}
+            <Route path="/" element={Capacitor.isNativePlatform() ? <RootRedirect /> : <App />} />
             <Route path="/login" element={<LoginPage />} />
             <Route path="/signup" element={<SignupPage />} />
 
