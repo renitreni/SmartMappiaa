@@ -6,6 +6,9 @@
 import { useState, useRef, useEffect } from 'react';
 import { useNavigate, useSearchParams, Link } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
+
+//ADDED
+import { daysInMonth, buildDateOfBirth, buildFullPhone, isValidLocalPhone } from './authHelpers';
 import {
   UserPlus,
   User,
@@ -27,6 +30,11 @@ import { Field, btnPrimary, btnGhost, Spinner } from '../components/ui';
 import PasswordFields from '../components/PasswordFields';
 import { isPasswordValid, getPasswordValidationError } from '../lib/passwordValidation';
 import { COMPANY } from '../../config/company';
+
+//ADDED
+import { Capacitor } from '@capacitor/core';
+import MobileSignUpScreen from './mobile/screens/SignUpScreen';
+import MobileConfirmationSentScreen from './mobile/screens/ConfirmationSentScreen';
 
 const STEPS = ['Account type', 'Personal info', 'Create login'];
 
@@ -88,26 +96,27 @@ const selectTriggerClass =
   'w-full bg-white border rounded-xl text-sm transition-all cursor-pointer ' +
   'focus:outline-none focus:border-brand-orange focus:ring-2 focus:ring-brand-orange/15';
 
-function daysInMonth(month, year) {
-  if (!month || !year) return 31;
-  return new Date(Number(year), Number(month), 0).getDate();
-}
+//UPDATED
+// function daysInMonth(month, year) {
+//   if (!month || !year) return 31;
+//   return new Date(Number(year), Number(month), 0).getDate();
+// }
 
-function buildDateOfBirth(day, month, year) {
-  if (!day || !month || !year) return '';
-  return `${year}-${month}-${String(day).padStart(2, '0')}`;
-}
+// function buildDateOfBirth(day, month, year) {
+//   if (!day || !month || !year) return '';
+//   return `${year}-${month}-${String(day).padStart(2, '0')}`;
+// }
 
-function buildFullPhone(region, local) {
-  const digits = local.replace(/\D/g, '').replace(/^0+/, '');
-  if (!digits) return '';
-  return `${region}${digits}`;
-}
+// function buildFullPhone(region, local) {
+//   const digits = local.replace(/\D/g, '').replace(/^0+/, '');
+//   if (!digits) return '';
+//   return `${region}${digits}`;
+// }
 
-function isValidLocalPhone(local) {
-  const digits = local.replace(/\D/g, '');
-  return digits.length >= 8 && digits.length <= 15;
-}
+// function isValidLocalPhone(local) {
+//   const digits = local.replace(/\D/g, '');
+//   return digits.length >= 8 && digits.length <= 15;
+// }
 
 function CustomDropdown({
   value,
@@ -596,7 +605,43 @@ export default function SignupPage() {
       setBusy(false);
     }
   }
+  
+  if (Capacitor.isNativePlatform()) {
+    if (confirmSent) {
+      return (
+        <MobileConfirmationSentScreen
+          email={email}
+          onGoToLogin={() => navigate(`/login?next=${encodeURIComponent(next)}`)}
+        />
+      );
+    }
 
+    return (
+      <MobileSignUpScreen
+        step={step}
+        values={{
+          role, firstName, lastName, mobileRegion, mobileLocal,
+          whatsappSameAsMobile, whatsappRegion, whatsappLocal,
+          birthDay, birthMonth, birthYear, gender,
+          email, password, confirmPassword,
+          nationalId, vehicleType, vehiclePlate,
+          acceptedTerms, partnerPanel,
+        }}
+        handlers={{
+          setRole, setFirstName, setLastName, setMobileRegion, setMobileLocal,
+          setWhatsappSameAsMobile, setWhatsappRegion, setWhatsappLocal,
+          setBirthDay, setBirthMonth, setBirthYear, setGender,
+          setEmail, setPassword, setConfirmPassword,
+          setNationalId, setVehicleType, setVehiclePlate,
+          setAcceptedTerms, setPartnerPanel,
+          goNext, goBack, submit,
+        }}
+        meta={{ error, busy, showStepErrors, step2Complete, step3Complete }}
+        onGoToLogin={() => navigate(`/login?next=${encodeURIComponent(next)}`)}
+      />
+    );
+  }
+  
   if (confirmSent) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-brand-light px-5">
@@ -621,7 +666,7 @@ export default function SignupPage() {
       </div>
     );
   }
-
+  
   return (
     <div className="min-h-screen flex bg-brand-light">
       {/* Brand panel — desktop */}
