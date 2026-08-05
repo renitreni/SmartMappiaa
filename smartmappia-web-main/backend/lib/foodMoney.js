@@ -7,8 +7,8 @@
 //   * subtotal = Σ(unit_price × quantity), must be >= 30 SAR
 //   * per-item platform margin: 5 SAR (meal_package),
 //     3 SAR (drink_dessert_addon)
-//   * delivery fee: flat 10 SAR within 15 km (3-month promo);
-//     outside the radius checkout is rejected for now
+//   * delivery fee: flat 10 SAR within 15 km (3-month promo), plus
+//     0.25 SAR per km beyond it; past 50 km checkout is rejected
 //   * VAT: 15% charged ON TOP of (subtotal + delivery_fee) — both the food
 //     and the delivery service are taxable supplies in KSA
 //   * total = subtotal + delivery_fee + vat (the margin is charged to the
@@ -20,6 +20,7 @@
 // ---------------------------------------------------------------------
 const { config } = require('./config');
 const { vatFor } = require('./vat');
+const { surchargeFor, exceedsMaxRadius } = require('./deliveryPricing');
 
 function round2(n) {
   return Math.round((Number(n) + Number.EPSILON) * 100) / 100;
@@ -55,9 +56,11 @@ function markupPerUnit({ unitPrice, netPrice, itemType }) {
 //
 //   items: [{ menuItemId, name, unitPrice, quantity, itemType }]
 //   distanceKm: haversine merchant -> delivery point, or null when either
-//               side has no coordinates (fee stays at the flat promo rate).
+//               side has no coordinates (fee stays at the flat promo rate,
+//               with no surcharge — a null distance is never guessed at).
 //
-// Returns { ok: true, subtotal, marginTotal, deliveryFee, total, lines }
+// Returns { ok: true, subtotal, marginTotal, baseDeliveryFee,
+//           deliverySurcharge, deliveryFee, vatRate, vatAmount, total, lines }
 // or      { ok: false, failureReason: 'min_order' | 'outside_radius', ... }.
 function priceOrder({ items, distanceKm }) {
   const lines = items.map((item) => {
@@ -94,20 +97,40 @@ function priceOrder({ items, distanceKm }) {
     };
   }
 
-  if (distanceKm != null && distanceKm > config.food.radiusKm) {
+  // The cut-off is the MAX radius, not the free one: past config.food.radiusKm
+  // we still deliver, we just charge for the extra kilometres.
+  if (exceedsMaxRadius(distanceKm)) {
     return {
       ok: false,
       failureReason: 'outside_radius',
       distanceKm: round2(distanceKm),
-      radiusKm: config.food.radiusKm,
+      maxRadiusKm: config.delivery.maxRadiusKm,
+      // Kept for callers still reading the old field name.
+      radiusKm: config.delivery.maxRadiusKm,
     };
   }
 
-  const deliveryFee = round2(config.food.deliveryFeeSar);
+  const baseDeliveryFee = round2(config.food.deliveryFeeSar);
+  const { surcharge: deliverySurcharge } = surchargeFor(distanceKm);
+  const deliveryFee = round2(baseDeliveryFee + deliverySurcharge);
+
+  // VAT covers the surcharge automatically: it is inside deliveryFee, and
+  // the extra kilometres are part of the same taxable delivery service.
   const { vatRate, vatAmount } = vatFor(subtotal + deliveryFee);
   const total = round2(subtotal + deliveryFee + vatAmount);
 
-  return { ok: true, subtotal, marginTotal, deliveryFee, vatRate, vatAmount, total, lines };
+  return {
+    ok: true,
+    subtotal,
+    marginTotal,
+    baseDeliveryFee,
+    deliverySurcharge,
+    deliveryFee,
+    vatRate,
+    vatAmount,
+    total,
+    lines,
+  };
 }
 
 // Credit state after (hypothetically) charging `marginTotal` to a merchant.

@@ -222,12 +222,22 @@ export function foodPaymentMeta(status) {
 
 // The fulfillment ladder shown on the tracking stepper. `desc` is the
 // notification-style line shown under the currently active step.
+// The customer-visible ladder.
+//
+// 'rider_to_restaurant' is NOT an order status — the order sits at 'ready'
+// throughout it. It is derived from the delivery row (status 'assigned',
+// i.e. a rider has the job but has not collected the food yet), because
+// "waiting for a rider" and "a named rider is four minutes from the
+// restaurant" feel completely different to someone watching the page, and
+// the data to tell them apart was already there unused.
+// See trackStepIndex() below for how the two sources are merged.
 export const FOOD_TRACK_STEPS = [
   { id: 'pending', label: 'Order placed', desc: 'Waiting for the restaurant to confirm your order.' },
   { id: 'accepted', label: 'Confirmed', desc: 'The restaurant confirmed your order.' },
   { id: 'preparing', label: 'Preparing', desc: 'The restaurant is preparing your order.' },
   { id: 'ready', label: 'Ready', desc: 'Your order is ready and waiting for the rider.' },
-  { id: 'out_for_delivery', label: 'Out for delivery', desc: 'Your rider picked up the order and is on the way to you.' },
+  { id: 'rider_to_restaurant', label: 'Rider on the way to the restaurant', desc: 'Your rider is heading to the restaurant to collect your order.' },
+  { id: 'out_for_delivery', label: 'Picked up — heading to you', desc: 'Your rider has your order and is on the way.' },
   { id: 'delivered', label: 'Delivered', desc: 'Enjoy your meal.' },
 ];
 
@@ -265,14 +275,33 @@ export function shopStatusMeta(status) {
 export const shopPaymentMeta = foodPaymentMeta;
 
 // The fulfillment ladder shown on the tracking stepper.
+// Same shape and same derived rider step as FOOD_TRACK_STEPS above.
 export const SHOP_TRACK_STEPS = [
   { id: 'pending', label: 'Order placed', desc: 'Waiting for the store to confirm your order.' },
   { id: 'accepted', label: 'Confirmed', desc: 'The store confirmed your order.' },
   { id: 'packing', label: 'Packing', desc: 'The store is packing your items.' },
   { id: 'ready', label: 'Ready', desc: 'Your order is packed and waiting for the rider.' },
-  { id: 'out_for_delivery', label: 'Out for delivery', desc: 'Your rider picked up the order and is on the way to you.' },
+  { id: 'rider_to_restaurant', label: 'Rider on the way to the store', desc: 'Your rider is heading to the store to collect your order.' },
+  { id: 'out_for_delivery', label: 'Picked up — heading to you', desc: 'Your rider has your order and is on the way.' },
   { id: 'delivered', label: 'Delivered', desc: 'Thanks for shopping with Smart Mappia.' },
 ];
+
+// Where the stepper's highlight sits, merging the order status with the
+// delivery row.
+//
+// The order status alone cannot express "a rider is collecting it": food
+// and shop both stay at 'ready' from the moment they are packed until the
+// rider physically picks up, however long that takes. deliveryStatus
+// 'assigned' is exactly that window, so it promotes the ladder one rung.
+//
+// Returns -1 for an unknown status, which the steppers already render as
+// "nothing highlighted" rather than crashing.
+export function trackStepIndex(steps, orderStatus, deliveryStatus) {
+  if (orderStatus === 'ready' && deliveryStatus === 'assigned') {
+    return steps.findIndex((s) => s.id === 'rider_to_restaurant');
+  }
+  return steps.findIndex((s) => s.id === orderStatus);
+}
 
 export const SHOP_PAYMENT_METHODS = {
   stcpay: 'STC Pay',

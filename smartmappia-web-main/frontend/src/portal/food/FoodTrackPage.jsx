@@ -35,6 +35,7 @@ import {
   foodPaymentMeta,
   FOOD_TRACK_STEPS,
   FOOD_PAYMENT_METHODS,
+  trackStepIndex,
 } from '../lib/constants';
 import { bearingDeg } from '../lib/geo';
 import { PortalShell, Card, Badge, Spinner, btnGhost } from '../components/ui';
@@ -51,9 +52,9 @@ import PaymentPanel from './PaymentPanel';
 
 const POLL_MS = 8000;
 
-function StatusStepper({ status }) {
+function StatusStepper({ status, deliveryStatus }) {
   const failed = status === 'cancelled' || status === 'rejected';
-  const activeIdx = FOOD_TRACK_STEPS.findIndex((s) => s.id === status);
+  const activeIdx = trackStepIndex(FOOD_TRACK_STEPS, status, deliveryStatus);
   return (
     <div className="space-y-0">
       {FOOD_TRACK_STEPS.map((step, i) => {
@@ -93,15 +94,20 @@ function StatusStepper({ status }) {
   );
 }
 
-// Coarse "what phase are we in" copy for the ETA hero. Kept here (not per-order)
-// so the upcoming ecommerce order-status page can supply its own phase map and
-// reuse <TrackHeader> unchanged.
+// Copy for the ETA hero. The TIME no longer lives here — it comes from the
+// server (`data.eta.label`), computed from Google Routes and floored at 45
+// minutes for the kitchen stage. These hardcoded ranges used to be the only
+// ETA the customer ever saw, on every order, regardless of distance.
+//
+// `eta` survives as a fallback label for the states where a routed time is
+// either meaningless (nothing is moving yet) or absent (terminal states).
 const FOOD_TRACK_PHASE = {
   pending: { eta: 'Confirming', note: 'Waiting for the restaurant to confirm your order' },
-  accepted: { eta: '25 – 45 mins', note: 'Preparing your order' },
-  preparing: { eta: '25 – 45 mins', note: 'Preparing your order' },
-  ready: { eta: '15 – 25 mins', note: "Ready — waiting for a rider to pick it up" },
-  out_for_delivery: { eta: 'On the way', note: 'Your rider is heading to you' },
+  accepted: { eta: null, note: 'Preparing your order' },
+  preparing: { eta: null, note: 'Preparing your order' },
+  ready: { eta: null, note: 'Ready — waiting for a rider to pick it up' },
+  rider_to_restaurant: { eta: null, note: 'Your rider is heading to the restaurant' },
+  out_for_delivery: { eta: null, note: 'Your rider is heading to you' },
   delivered: { eta: 'Delivered', note: 'Enjoy your meal!' },
 };
 
@@ -283,13 +289,35 @@ export default function FoodTrackPage() {
   const statusMeta = order ? foodStatusMeta(order.status) : null;
   const payMeta = order ? foodPaymentMeta(order.payment_status) : null;
 
-  // ETA hero + progress driven off the fulfillment ladder; the live rider ETA
-  // takes over once the order is on the way.
-  const activeIdx = order ? FOOD_TRACK_STEPS.findIndex((s) => s.id === order.status) : -1;
+  // ETA hero + progress driven off the fulfillment ladder. The rider's own
+  // live ETA takes over once they actually have the food — before that it
+  // measures their leg to the RESTAURANT, which is not what the customer is
+  // waiting to hear.
+  const deliveryStatus = data?.rider?.status ?? null;
+  const stepId =
+    order && order.status === 'ready' && deliveryStatus === 'assigned'
+      ? 'rider_to_restaurant'
+      : order?.status;
+  const activeIdx = order ? trackStepIndex(FOOD_TRACK_STEPS, order.status, deliveryStatus) : -1;
   const progress = activeIdx >= 0 ? activeIdx / (FOOD_TRACK_STEPS.length - 1) : 0;
-  const phase = (order && FOOD_TRACK_PHASE[order.status]) || { eta: '', note: '' };
+  const phase = (order && FOOD_TRACK_PHASE[stepId]) || { eta: '', note: '' };
   const liveEta = riderLive?.etaMinutes ?? data?.rider?.etaMinutes ?? null;
-  const heroEta = order && order.status === 'out_for_delivery' && liveEta != null ? `${liveEta} min` : phase.eta;
+  // Which leg the map should draw: the restaurant until the food is picked
+  // up, the customer afterwards.
+  const pickedUp = deliveryStatus === 'picked_up' || order?.status === 'out_for_delivery';
+  const dropoffPoint =
+    order && order.delivery_lat != null
+      ? { lat: order.delivery_lat, lng: order.delivery_lng }
+      : null;
+  const restaurantPoint =
+    data?.merchant && data.merchant.lat != null
+      ? { lat: data.merchant.lat, lng: data.merchant.lng }
+      : null;
+  const routeTarget = pickedUp ? dropoffPoint : (restaurantPoint ?? dropoffPoint);
+  const heroEta =
+    order && order.status === 'out_for_delivery' && liveEta != null
+      ? `${liveEta} min`
+      : (data?.eta?.label ?? phase.eta ?? '');
   // Rider dropped mid-flight (cancel / disconnect): show a reassuring state.
   const findingRider =
     order && !failed && !data.rider &&
@@ -338,7 +366,7 @@ export default function FoodTrackPage() {
                   </div>
                 </div>
               ) : (
-                <StatusStepper status={order.status} />
+                <StatusStepper status={order.status} deliveryStatus={deliveryStatus} />
               )}
             </Card>
 
@@ -346,26 +374,19 @@ export default function FoodTrackPage() {
             {!failed && riderLive && order.status !== 'delivered' && (
               <RoutedRideMap
                 from={{ lat: riderLive.lat, lng: riderLive.lng }}
-                to={
-                  order.delivery_lat != null
-                    ? { lat: order.delivery_lat, lng: order.delivery_lng }
-                    : null
-                }
+                /* Before pickup the rider is driving to the RESTAURANT, so
+                   draw that leg — a line to the customer's door while they
+                   head the other way reads as the rider going backwards.
+                   Same rule ShopTrackPage already applies. */
+                to={routeTarget}
                 fallbackLine={
-                  order.delivery_lat != null
-                    ? [
-                        { lat: riderLive.lat, lng: riderLive.lng },
-                        { lat: order.delivery_lat, lng: order.delivery_lng },
-                      ]
+                  routeTarget
+                    ? [{ lat: riderLive.lat, lng: riderLive.lng }, routeTarget]
                     : null
                 }
                 height={260}
                 follow
-                followTarget={
-                  order.delivery_lat != null
-                    ? { lat: order.delivery_lat, lng: order.delivery_lng }
-                    : null
-                }
+                followTarget={routeTarget}
                 markers={[
                   { type: 'driver', lat: riderLive.lat, lng: riderLive.lng, key: 'rider', heading },
                   data.merchant && data.merchant.lat != null
@@ -508,7 +529,23 @@ export default function FoodTrackPage() {
               </div>
               <div className="mt-4 pt-3 border-t border-brand-border space-y-1.5 text-sm">
                 <div className="flex justify-between"><span className="text-brand-grey">Subtotal</span><span className="font-bold tabular-nums">{fmtSAR(order.subtotal)}</span></div>
-                <div className="flex justify-between"><span className="text-brand-grey">Delivery charge</span><span className="font-bold tabular-nums">{fmtSAR(order.delivery_fee)}</span></div>
+                {/* delivery_fee already INCLUDES the distance surcharge, so
+                    when there is one the base is shown as the difference —
+                    the two lines must add up to what was charged. */}
+                {Number(order.delivery_surcharge) > 0 ? (
+                  <>
+                    <div className="flex justify-between"><span className="text-brand-grey">Delivery charge</span><span className="font-bold tabular-nums">{fmtSAR(Number(order.delivery_fee) - Number(order.delivery_surcharge))}</span></div>
+                    <div className="flex justify-between">
+                      <span className="text-brand-grey">
+                        Distance surcharge
+                        {order.distance_km != null && <span className="text-brand-grey/70"> ({order.distance_km} km)</span>}
+                      </span>
+                      <span className="font-bold tabular-nums">{fmtSAR(order.delivery_surcharge)}</span>
+                    </div>
+                  </>
+                ) : (
+                  <div className="flex justify-between"><span className="text-brand-grey">Delivery charge</span><span className="font-bold tabular-nums">{fmtSAR(order.delivery_fee)}</span></div>
+                )}
                 {Number(order.vat_amount) > 0 && (
                   <div className="flex justify-between"><span className="text-brand-grey">{vatLabel(order.vat_rate)}</span><span className="font-bold tabular-nums">{fmtSAR(order.vat_amount)}</span></div>
                 )}

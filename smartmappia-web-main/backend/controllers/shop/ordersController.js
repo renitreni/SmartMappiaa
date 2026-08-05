@@ -26,7 +26,8 @@
 const crypto = require('crypto');
 const { supabase } = require('../../lib/supabase');
 const { config } = require('../../lib/config');
-const { haversineKm, etaMinutes } = require('../../lib/geo');
+const { haversineKm } = require('../../lib/geo');
+const { travelEtaMinutes, deliveryEtaBand } = require('../../lib/eta');
 const { latestDriverFix } = require('../../lib/tracking');
 const { priceShopOrder, resolveUnitPricing } = require('../../lib/shopMoney');
 const { placeShopOrder } = require('../../lib/stock');
@@ -43,10 +44,14 @@ const PAYABLE_STATUSES = ['awaiting', 'failed'];
 // selected on a customer path, so it cannot be leaked by a forgotten
 // destructure downstream.
 const ORDER_SELECT =
-  'id, order_code, customer_id, merchant_id, status, subtotal, delivery_fee, ' +
+  'id, order_code, customer_id, merchant_id, status, subtotal, delivery_fee, delivery_surcharge, ' +
   'vat_amount, vat_rate, total, distance_km, delivery_address, delivery_lat, delivery_lng, ' +
   'contact_phone, payment_status, payment_method, created_at, accepted_at, packed_at, ' +
   'ready_at, delivered_at, reject_reason';
+
+// Terminal states — nothing left to estimate, and no Routes call worth
+// spending on a dead page. Mirrors food's getOrder.
+const ETA_IRRELEVANT_STATUSES = ['delivered', 'cancelled', 'rejected'];
 
 // Statuses during which the customer may still edit their contact number.
 const CONTACT_EDITABLE_STATUSES = ['pending', 'accepted', 'packing', 'ready', 'out_for_delivery'];
@@ -195,7 +200,7 @@ async function checkout(req, res) {
       const message =
         priced.failureReason === 'min_order'
           ? `Minimum order is SAR ${Number(priced.minOrder).toFixed(2)}. Add SAR ${Number(priced.shortfall).toFixed(2)} more.`
-          : `This store delivers within ${priced.radiusKm} km. Your address is about ${priced.distanceKm} km away.`;
+          : `This store delivers up to ${priced.maxRadiusKm} km. Your address is about ${priced.distanceKm} km away.`;
       return res.status(422).json({ error: message, failure_reason: priced.failureReason, ...priced });
     }
 
@@ -206,7 +211,10 @@ async function checkout(req, res) {
         customer_id: req.userId,
         merchant_id: store.id,
         subtotal: priced.subtotal,
+        // delivery_fee is base + surcharge; the surcharge is stored beside it
+        // so a reprinted receipt can itemise the distance charge (0034).
         delivery_fee: priced.deliveryFee,
+        delivery_surcharge: priced.deliverySurcharge,
         platform_margin_total: priced.marginTotal,
         vat_amount: priced.vatAmount,
         vat_rate: priced.vatRate,
@@ -375,13 +383,30 @@ async function getOrder(req, res) {
           const lastFix = await latestDriverFix(delivery.driver_id);
           if (lastFix) {
             rider.location = lastFix;
-            rider.etaMinutes = etaMinutes(
-              haversineKm(lastFix, { lat: order.delivery_lat, lng: order.delivery_lng })
-            );
+            // Real driving time. Before pickup the rider is heading to the
+            // STORE, so route to the leg they are actually on — same rule as
+            // food's getOrder.
+            const legTarget =
+              delivery.status === 'picked_up'
+                ? { lat: order.delivery_lat, lng: order.delivery_lng }
+                : { lat: store?.lat, lng: store?.lng };
+            rider.etaMinutes = await travelEtaMinutes(lastFix, legTarget);
+            rider.leg = delivery.status === 'picked_up' ? 'to_customer' : 'to_store';
           }
         }
       }
     }
+
+    // Headline ETA for the tracking hero, floored for the packing stage.
+    const etaOrigin =
+      rider && rider.leg === 'to_customer' && rider.location
+        ? rider.location
+        : { lat: store?.lat, lng: store?.lng };
+    const eta = ETA_IRRELEVANT_STATUSES.includes(order.status)
+      ? { min: null, max: null, label: null }
+      : deliveryEtaBand(
+          await travelEtaMinutes(etaOrigin, { lat: order.delivery_lat, lng: order.delivery_lng })
+        );
 
     let driverRating = null;
     if (order.status === 'delivered') {
@@ -400,6 +425,7 @@ async function getOrder(req, res) {
       store: store || null,
       delivery: delivery ? { status: delivery.status } : null,
       rider,
+      eta,
       driverRating,
     });
   } catch (err) {

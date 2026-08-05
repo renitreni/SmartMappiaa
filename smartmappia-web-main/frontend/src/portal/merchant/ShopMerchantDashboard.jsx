@@ -23,6 +23,7 @@ import { api } from '../lib/api';
 import { useBroadcast } from '../lib/useBroadcast';
 import { fmtSAR, TONE_CLASSES } from '../lib/constants';
 import { notifyError, notifySuccess, confirmAction } from '../lib/notify';
+import { announceNewOrder } from '../lib/orderAlert';
 import { Card, Field, Spinner, inputClass, btnPrimary, btnGhost } from '../components/ui';
 import MerchantLayout from './MerchantLayout';
 import ShopMerchantOrders from './ShopMerchantOrders';
@@ -730,7 +731,13 @@ export default function ShopMerchantDashboard() {
   // backend publishes to merchant-<id> for both verticals.
   useBroadcast(
     store ? `merchant-${store.id}` : null,
-    { new_order: () => load(), order_update: () => load(), payment_update: () => load() },
+    {
+      // Sound FIRST, then refresh — see MerchantOrders for the reasoning.
+      // Deduped on the order code so a broadcast reconnect cannot re-chime.
+      new_order: (payload) => { announceNewOrder(payload?.orderCode); load(); },
+      order_update: () => load(),
+      payment_update: () => load(),
+    },
     !!store
   );
 

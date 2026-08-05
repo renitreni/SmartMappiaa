@@ -19,7 +19,8 @@
 const crypto = require('crypto');
 const { supabase } = require('../../lib/supabase');
 const { config } = require('../../lib/config');
-const { haversineKm, etaMinutes } = require('../../lib/geo');
+const { haversineKm } = require('../../lib/geo');
+const { travelEtaMinutes, deliveryEtaBand } = require('../../lib/eta');
 const { latestDriverFix } = require('../../lib/tracking');
 const { priceOrder } = require('../../lib/foodMoney');
 const { findSizeOption } = require('../../lib/foodSizes');
@@ -33,12 +34,17 @@ const { buildProofPath, createProofUploadUrl } = require('../../lib/storage');
 const PAYABLE_STATUSES = ['awaiting', 'failed'];
 
 const ORDER_SELECT =
-  'id, order_code, customer_id, merchant_id, status, subtotal, delivery_fee, ' +
+  'id, order_code, customer_id, merchant_id, status, subtotal, delivery_fee, delivery_surcharge, ' +
   'platform_margin_total, vat_amount, vat_rate, total, distance_km, delivery_address, delivery_lat, delivery_lng, ' +
   'contact_phone, payment_status, payment_method, created_at, accepted_at, ready_at, delivered_at, reject_reason';
 
 // Statuses during which the customer may still edit their contact number.
 const CONTACT_EDITABLE_STATUSES = ['pending', 'accepted', 'preparing', 'ready', 'out_for_delivery'];
+
+// Terminal states: the order is over, so there is nothing left to estimate.
+// Quoting an ETA on a delivered or cancelled order would be noise, and it
+// would also spend a Google Routes call on every poll of a dead page.
+const ETA_IRRELEVANT_STATUSES = ['delivered', 'cancelled', 'rejected'];
 
 // Small helper: load an order by code, or null.
 async function loadOrder(orderCode) {
@@ -161,8 +167,10 @@ async function checkout(req, res) {
       });
     }
 
-    // 4. Distance for the 15 km delivery-fee rule (merchant -> customer).
-    //    Null when the restaurant has no pin yet — the flat promo fee applies.
+    // 4. Distance for the delivery-fee rule (merchant -> customer): flat fee
+    //    inside the free radius, + per-km surcharge beyond it, refused past
+    //    the max. Null when the restaurant has no pin yet — the flat promo
+    //    fee applies with no surcharge.
     const distanceKm = haversineKm(
       { lat: merchant.lat, lng: merchant.lng },
       { lat: b.delivery_lat, lng: b.delivery_lng }
@@ -180,7 +188,7 @@ async function checkout(req, res) {
       const message =
         priced.failureReason === 'min_order'
           ? `Minimum order is SAR ${priced.minOrder.toFixed(2)}. Add SAR ${priced.shortfall.toFixed(2)} more to check out.`
-          : `This address is outside the ${priced.radiusKm} km delivery radius.`;
+          : `This address is ${priced.distanceKm} km away — beyond our ${priced.maxRadiusKm} km delivery limit.`;
       return res.status(422).json({ error: message, failure_reason: priced.failureReason, ...priced });
     }
 
@@ -191,7 +199,10 @@ async function checkout(req, res) {
         customer_id: req.userId,
         merchant_id: merchant.id,
         subtotal: priced.subtotal,
+        // delivery_fee is base + surcharge; the surcharge is stored beside it
+        // so a reprinted receipt can itemise the distance charge (0034).
         delivery_fee: priced.deliveryFee,
+        delivery_surcharge: priced.deliverySurcharge,
         platform_margin_total: priced.marginTotal,
         // VAT snapshot (migration 0025): the rate is stored alongside the
         // amount so a reprinted receipt shows what was actually charged.
@@ -418,11 +429,33 @@ async function getOrder(req, res) {
         const lastFix = await latestDriverFix(delivery.driver_id);
         if (lastFix) {
           rider.location = lastFix;
-          const dist = haversineKm(lastFix, { lat: order.delivery_lat, lng: order.delivery_lng });
-          rider.etaMinutes = etaMinutes(dist);
+          // Real driving time, not haversine-over-30km/h. Before pickup the
+          // rider is still heading to the RESTAURANT, so an ETA measured to
+          // the customer's door would be nonsense while they drive the other
+          // way — route to whichever leg they are actually on.
+          const legTarget =
+            delivery.status === 'picked_up'
+              ? { lat: order.delivery_lat, lng: order.delivery_lng }
+              : { lat: merchant?.lat, lng: merchant?.lng };
+          rider.etaMinutes = await travelEtaMinutes(lastFix, legTarget);
+          rider.leg = delivery.status === 'picked_up' ? 'to_customer' : 'to_restaurant';
         }
       }
     }
+
+    // Headline ETA for the tracking hero, floored for the kitchen stage.
+    // Once the rider has the food their live ETA is the honest number and
+    // takes over; before that we measure the restaurant -> customer leg,
+    // which is the part of the journey that has not started yet.
+    const etaOrigin =
+      rider && rider.leg === 'to_customer' && rider.location
+        ? rider.location
+        : { lat: merchant?.lat, lng: merchant?.lng };
+    const eta = ETA_IRRELEVANT_STATUSES.includes(order.status)
+      ? { min: null, max: null, label: null }
+      : deliveryEtaBand(
+          await travelEtaMinutes(etaOrigin, { lat: order.delivery_lat, lng: order.delivery_lng })
+        );
 
     // Has this customer already rated the rider? (drives the stars widget)
     let driverRating = null;
@@ -437,7 +470,7 @@ async function getOrder(req, res) {
 
     // platform_margin_total stays internal (net-price confidentiality).
     const { id, customer_id, platform_margin_total, ...publicOrder } = order;
-    return res.json({ order: publicOrder, items: items || [], merchant: merchant || null, rider, driverRating });
+    return res.json({ order: publicOrder, items: items || [], merchant: merchant || null, rider, eta, driverRating });
   } catch (err) {
     console.error('getOrder error:', err);
     return res.status(500).json({ error: 'Unexpected server error' });

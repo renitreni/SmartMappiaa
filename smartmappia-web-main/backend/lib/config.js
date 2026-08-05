@@ -116,12 +116,45 @@ const config = {
     rate: toNumber(process.env.VAT_RATE, 0.15),
   },
 
+  // Distance pricing + ETA, SHARED by all three services (food, shop and
+  // Pick & Drop rides). Vertical-neutral on purpose: one surcharge model on
+  // the platform, so the three cannot drift the way three copies would.
+  //
+  //   first freeRadiusKm  -> the vertical's own flat fee, unchanged
+  //   beyond it           -> + surchargePerKm per km
+  //   beyond maxRadiusKm  -> food/shop refuse the order; RIDES HAVE NO CAP
+  //                          (a long airport transfer is legitimate)
+  //
+  // The surcharge is PLATFORM revenue everywhere. On rides that means it is
+  // deliberately kept OUT of bookings.fare_amount, which lib/ledger.js uses
+  // as the driver's commission base — see lib/fare.js.
+  delivery: {
+    freeRadiusKm: toNumber(process.env.DELIVERY_FREE_RADIUS_KM, 15),
+    surchargePerKm: toNumber(process.env.DELIVERY_SURCHARGE_PER_KM, 0.25),
+    maxRadiusKm: toNumber(process.env.DELIVERY_MAX_RADIUS_KM, 50),
+    // Customer-facing ETA floor for DELIVERIES only. A kitchen or a packing
+    // bench sits between the order and the road, and Google only measures the
+    // road half — an unfloored 18-minute drive would promise 18 minutes for
+    // something that cannot arrive in under three quarters of an hour.
+    // Rides have no such stage and are never floored.
+    minEtaMinutes: toNumber(process.env.DELIVERY_MIN_ETA_MINUTES, 45),
+    // Width of the displayed band: 45 -> "45 - 50 mins".
+    etaBandMinutes: toNumber(process.env.DELIVERY_ETA_BAND_MINUTES, 5),
+    // How long a Google Routes ETA is reused before asking again. Every
+    // tracking page polls on an 8s timer, so without this each watching
+    // customer bills a Routes call every 8 seconds.
+    etaCacheMs: toNumber(process.env.DELIVERY_ETA_CACHE_MS, 60000),
+  },
+
   // Food Delivery business rules (docs/food-delivery/FOOD_DELIVERY_PRD.md §7).
   // These are HARD rules enforced server-side in lib/foodMoney.js and the
   // merchant accept flow — never trust client-sent money.
   food: {
     minOrderSar: toNumber(process.env.FOOD_MIN_ORDER, 30),
     deliveryFeeSar: toNumber(process.env.FOOD_DELIVERY_FEE, 10), // promo: first 3 months
+    // The FREE band, not the cut-off. Up to here the flat fee above is the
+    // whole delivery charge; past it config.delivery.surchargePerKm applies
+    // and config.delivery.maxRadiusKm is what actually refuses an order.
     radiusKm: toNumber(process.env.FOOD_RADIUS_KM, 15),
     // Per-item platform margin by menu_items.item_type.
     margins: {
@@ -153,6 +186,7 @@ const config = {
     enabled: toBool(process.env.SHOP_ENABLED, false),
     minOrderSar: toNumber(process.env.SHOP_MIN_ORDER, 50),
     deliveryFeeSar: toNumber(process.env.SHOP_DELIVERY_FEE, 15),
+    // The FREE band, not the cut-off — same as config.food.radiusKm above.
     radiusKm: toNumber(process.env.SHOP_RADIUS_KM, 15),
     // Fallback markup per unit when a product has no net_price. Food splits
     // this by item_type; retail has no equivalent axis, so it is one number.
