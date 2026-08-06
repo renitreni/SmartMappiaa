@@ -1,8 +1,7 @@
 // ---------------------------------------------------------------------
 // Driver service-type preferences (migration 0020). A driver picks which
 // verticals they work; dispatch and the pull feeds consult this list.
-// 'shop' = the Ecommerce vertical (placeholder — selectable, no dispatch
-// yet). Values reuse the 0007 order_type vocabulary.
+// 'shop' = the Ecommerce vertical. Values reuse the 0007 order_type vocabulary.
 // ---------------------------------------------------------------------
 const SERVICE_TYPES = ['pick_drop', 'food', 'shop'];
 

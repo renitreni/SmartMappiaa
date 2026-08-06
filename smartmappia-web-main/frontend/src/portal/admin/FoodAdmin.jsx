@@ -525,7 +525,6 @@ function MenuEditor({ merchant, onClose, onError }) {
 
       {menu && (
         <div className="space-y-5">
-          {/* Categories */}
           <div>
             <p className="text-xs font-bold text-brand-grey uppercase tracking-wider mb-2">Categories</p>
             <form
@@ -562,7 +561,6 @@ function MenuEditor({ merchant, onClose, onError }) {
             </div>
           </div>
 
-          {/* Items */}
           <div>
             <div className="flex items-center justify-between mb-2">
               <p className="text-xs font-bold text-brand-grey uppercase tracking-wider">Items ({items.length})</p>
@@ -1188,7 +1186,6 @@ function OrdersSection({ onError }) {
             )}
 
             <div className="mt-3 flex items-center gap-2 flex-wrap">
-              {/* Payment reconciliation */}
               {o.paymentStatus === 'awaiting' && (
                 <>
                   <button type="button" disabled={busy}
@@ -1236,7 +1233,6 @@ function OrdersSection({ onError }) {
                 </button>
               )}
 
-              {/* Rider */}
               {canAssignRider && assigning !== o.orderCode && (
                 <button type="button" onClick={() => { setAssigning(o.orderCode); setDriverId(''); }}
                   className={btnGhost + ' !py-2 !px-3.5 !text-xs'}>
@@ -1257,7 +1253,6 @@ function OrdersSection({ onError }) {
                 </button>
               )}
 
-              {/* Support */}
               {cancellable && (
                 <button type="button" disabled={busy}
                   onClick={() => {
@@ -1313,7 +1308,6 @@ function OrdersSection({ onError }) {
         );
       })}
 
-      {/* Full-size payment screenshot lightbox */}
       {proofView && (
         <div
           className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-6"

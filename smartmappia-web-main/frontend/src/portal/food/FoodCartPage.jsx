@@ -157,7 +157,6 @@ export default function FoodCartPage() {
 
         {cart && items.length > 0 && (
           <>
-            {/* Line items */}
             <Card className="divide-y divide-brand-border mb-4">
               {items.map((line) => (
                 <div key={line.id} className="p-4 flex items-center gap-3">
@@ -199,7 +198,6 @@ export default function FoodCartPage() {
               </div>
             )}
 
-            {/* Totals */}
             <Card className="p-5 space-y-2 text-sm">
               <div className="flex justify-between">
                 <span className="text-brand-grey">Subtotal</span>

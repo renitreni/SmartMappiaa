@@ -41,7 +41,6 @@ const INTERNAL_MARKERS = [
   /\bat .*\(.*:\d+:\d+\)/, // stack frame
 ];
 
-// True when `message` is safe to show to whoever is currently signed in.
 function isSafeForAudience(message) {
   if (!message) return false;
   if (diagnosticsRole === 'admin') return true; // admins QA the app; let them see it
@@ -67,7 +66,6 @@ export function notifyError(message) {
   });
 }
 
-// Optional helper for confirmations ("Booking cancelled", etc.).
 export function notifySuccess(title, text) {
   Swal.fire({
     icon: 'success',
@@ -78,7 +76,6 @@ export function notifySuccess(title, text) {
   });
 }
 
-/** SweetAlert2 confirm dialog — returns true when the user confirms. */
 export async function confirmAction({
   title = 'Are you sure?',
   text,
@@ -136,7 +133,6 @@ export function playChime() {
   }
 }
 
-// Auto-dismissing corner toast.
 export function notifyToast(title, opts = {}) {
   Swal.fire({
     toast: true,

@@ -74,7 +74,6 @@ const META = {
 
 const FALLBACK = { title: 'Notification', body: '', icon: Bell, tone: 'grey', href: () => '/notifications' };
 
-// Resolve display metadata for one notification row.
 export function notificationMeta(type, code = null) {
   const m = META[type] || FALLBACK;
   return {

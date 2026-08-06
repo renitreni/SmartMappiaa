@@ -60,7 +60,6 @@ const FooterLink = ({ href, children }) => (
 const Footer = () => {
   return (
     <footer className="relative w-full bg-brand-black text-white overflow-hidden">
-      {/* Logo-inspired gradient accent */}
       <div className="h-1 w-full bg-linear-to-r from-brand-orange via-orange-400 to-brand-red" />
 
       <div className="absolute inset-0 pointer-events-none" aria-hidden="true">
@@ -76,7 +75,6 @@ const Footer = () => {
         />
       </div>
 
-      {/* CTA strip */}
       <div className="relative z-10 border-b border-white/8">
         <div className="max-w-7xl mx-auto px-6 md:px-8 py-10 flex flex-col md:flex-row items-center justify-between gap-6">
           <div className="text-center md:text-left">
@@ -131,10 +129,8 @@ const Footer = () => {
         </div>
       </div>
 
-      {/* Main grid */}
       <div className="relative z-10 max-w-7xl mx-auto px-6 md:px-8 pt-14 pb-10">
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-10 lg:gap-12">
-          {/* Brand */}
           <div className="lg:col-span-2 flex flex-col gap-5">
             <a href="#home" className="flex items-center gap-3 group w-fit">
               <div className="relative">
@@ -176,7 +172,6 @@ const Footer = () => {
             </div>
           </div>
 
-          {/* Explore */}
           <div>
             <h4 className="text-xs font-bold uppercase tracking-widest mb-5 text-brand-orange">
               Explore
@@ -190,7 +185,6 @@ const Footer = () => {
             </ul>
           </div>
 
-          {/* Company */}
           <div>
             <h4 className="text-xs font-bold uppercase tracking-widest mb-5 text-brand-orange">
               Company
@@ -204,7 +198,6 @@ const Footer = () => {
             </ul>
           </div>
 
-          {/* Contact */}
           <div>
             <h4 className="text-xs font-bold uppercase tracking-widest mb-5 text-brand-orange">
               Contact
@@ -355,7 +348,6 @@ const Footer = () => {
         </div>
       </div>
 
-      {/* Bottom bar */}
       <div className="relative z-10 border-t border-white/8">
         <div className="max-w-7xl mx-auto px-6 md:px-8 py-5 flex flex-col md:flex-row items-center justify-between gap-3">
           <p className="text-xs text-white/35">

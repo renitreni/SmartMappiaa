@@ -1,4 +1,3 @@
-// mobile/screens/SignUpScreen.jsx
 import AuthMobileLayout from '../AuthMobileLayout';
 import AuthInput from '../AuthInput';
 import AuthButton from '../AuthButton';
@@ -62,7 +61,6 @@ export default function MobileSignUpScreen({ step, values, handlers, meta, onGoT
   const maxDay = daysInMonth(birthMonth, birthYear);
   const days = Array.from({ length: maxDay }, (_, i) => i + 1);
 
-// Replace the current partnerPanel branch with:
 if (partnerPanel) {
   const whatsappMsg = encodeURIComponent(
     'Hi Smart Mappia, I would like to partner my restaurant on your food delivery platform.'

@@ -1,4 +1,3 @@
-// mobile/screens/ConfirmationSentScreen.jsx
 import AuthMobileLayout from '../AuthMobileLayout';
 import AuthButton from '../AuthButton';
 import { MailFilledIcon } from '../icons';

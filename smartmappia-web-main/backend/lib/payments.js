@@ -20,7 +20,6 @@ async function verifyBookingPayment({ booking, mode, adminId = null, proofId = n
   const now = new Date().toISOString();
   const verifiedBySystem = mode === 'test_auto';
 
-  // 1. Record the payment as verified.
   const { error: payErr } = await supabase.from('payments').insert({
     booking_id: booking.id,
     provider: 'stcpay_manual',
@@ -36,7 +35,6 @@ async function verifyBookingPayment({ booking, mode, adminId = null, proofId = n
   });
   if (payErr) return { error: payErr };
 
-  // 2. Mark the proof (if one was supplied) verified.
   if (proofId) {
     const { error: proofErr } = await supabase
       .from('payment_proofs')
@@ -51,7 +49,6 @@ async function verifyBookingPayment({ booking, mode, adminId = null, proofId = n
     if (proofErr) return { error: proofErr };
   }
 
-  // 3. Confirm the booking.
   const { data: updated, error: bookErr } = await supabase
     .from('bookings')
     .update({
@@ -66,7 +63,6 @@ async function verifyBookingPayment({ booking, mode, adminId = null, proofId = n
     .single();
   if (bookErr) return { error: bookErr };
 
-  // 4. Timeline event.
   await addTrackingEvent(booking.id, {
     eventType: verifiedBySystem ? 'auto_verified' : 'payment_verified',
     title: 'Payment verified',
@@ -76,9 +72,9 @@ async function verifyBookingPayment({ booking, mode, adminId = null, proofId = n
     createdByUserId: adminId,
   });
 
-  // 5. Realtime: confirm to the passenger, then dispatch Grab-style — the
-  //    nearest online driver gets an exclusive 30s offer (lib/dispatch.js);
-  //    the old broadcast-to-all feed is the fallback when nobody is online.
+  // Realtime: confirm to the passenger, then dispatch Grab-style — the
+  // nearest online driver gets an exclusive 30s offer (lib/dispatch.js);
+  // the old broadcast-to-all feed is the fallback when nobody is online.
   pushBookingStatus(booking.booking_code, {
     paymentStatus: 'verified',
     bookingStatus: 'confirmed',
@@ -93,7 +89,6 @@ async function verifyBookingPayment({ booking, mode, adminId = null, proofId = n
 async function rejectBookingPayment({ booking, adminId = null, reason = null, proofId = null }) {
   const now = new Date().toISOString();
 
-  // 1. Mark the proof rejected (if supplied).
   if (proofId) {
     const { error: proofErr } = await supabase
       .from('payment_proofs')
@@ -107,7 +102,6 @@ async function rejectBookingPayment({ booking, adminId = null, reason = null, pr
     if (proofErr) return { error: proofErr };
   }
 
-  // 2. Send the booking back to awaiting a (new) proof.
   const { data: updated, error: bookErr } = await supabase
     .from('bookings')
     .update({
@@ -119,7 +113,6 @@ async function rejectBookingPayment({ booking, adminId = null, reason = null, pr
     .single();
   if (bookErr) return { error: bookErr };
 
-  // 3. Timeline event.
   await addTrackingEvent(booking.id, {
     eventType: 'payment_rejected',
     title: 'Payment rejected',
@@ -129,7 +122,7 @@ async function rejectBookingPayment({ booking, adminId = null, reason = null, pr
     createdByUserId: adminId,
   });
 
-  // 4. Realtime: tell the passenger to re-upload; refresh the admin board.
+  // Realtime: tell the passenger to re-upload; refresh the admin board.
   pushBookingStatus(booking.booking_code, {
     paymentStatus: 'rejected',
     bookingStatus: 'pending_payment',

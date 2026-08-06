@@ -29,7 +29,7 @@ async function findUserByEmail(targetEmail) {
 }
 
 async function run() {
-  // 1. Create the auth user (or reuse the existing one).
+  // Create the auth user (or reuse the existing one).
   let userId;
   const { data: created, error: createErr } = await supabase.auth.admin.createUser({
     email,
@@ -49,7 +49,6 @@ async function run() {
     console.log(`Created admin auth user. (${email})`);
   }
 
-  // 2. Upsert the admin profile.
   const { error: profileErr } = await supabase
     .from('profiles')
     .upsert(

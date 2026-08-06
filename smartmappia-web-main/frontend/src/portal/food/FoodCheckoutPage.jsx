@@ -149,7 +149,6 @@ export default function FoodCheckoutPage() {
               <div className="p-3 rounded-xl bg-red-50 border border-red-200 text-red-700 text-sm font-medium">{error}</div>
             )}
 
-            {/* Delivery address */}
             <Card className="p-5 space-y-3">
               <p className="font-black text-brand-black flex items-center gap-2">
                 <MapPin className="w-4 h-4 text-brand-orange" /> Delivery address
@@ -189,7 +188,6 @@ export default function FoodCheckoutPage() {
               </p>
             </Card>
 
-            {/* Payment method */}
             <Card className="p-5">
               <p className="font-black text-brand-black mb-3">How would you like to pay?</p>
               <div className="space-y-2">
@@ -224,7 +222,6 @@ export default function FoodCheckoutPage() {
               </div>
             </Card>
 
-            {/* Order summary */}
             <Card className="p-5">
               <p className="font-black text-brand-black mb-3">Order summary</p>
               <div className="space-y-1.5 text-sm">

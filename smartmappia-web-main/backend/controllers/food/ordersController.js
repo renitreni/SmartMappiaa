@@ -46,7 +46,6 @@ const CONTACT_EDITABLE_STATUSES = ['pending', 'accepted', 'preparing', 'ready', 
 // would also spend a Google Routes call on every poll of a dead page.
 const ETA_IRRELEVANT_STATUSES = ['delivered', 'cancelled', 'rejected'];
 
-// Small helper: load an order by code, or null.
 async function loadOrder(orderCode) {
   const { data, error } = await supabase
     .from('orders')
@@ -75,7 +74,6 @@ async function checkout(req, res) {
   try {
     const b = req.body; // validated by the route schema
 
-    // 1. The restaurant must exist and be open for business.
     const { data: merchant, error: mErr } = await supabase
       .from('merchants')
       .select('id, name, vertical, is_active, status, lat, lng, service_radius_km, owner_id')
@@ -107,7 +105,6 @@ async function checkout(req, res) {
       });
     }
 
-    // 2. Load the caller's cart for this restaurant.
     const { data: cart } = await supabase
       .from('carts')
       .select('id')
@@ -124,8 +121,8 @@ async function checkout(req, res) {
       return res.status(422).json({ error: 'Your cart is empty', failure_reason: 'empty_cart' });
     }
 
-    // 3. Re-read the LIVE menu rows — prices/margins come from here, not
-    //    from the cart snapshot and certainly not from the client.
+    // Re-read the LIVE menu rows — prices/margins come from here, not
+    // from the cart snapshot and certainly not from the client.
     const { data: menuRows, error: menuErr } = await supabase
       .from('menu_items')
       .select('id, name, price, net_price, item_type, is_available, merchant_id, size_options')
@@ -167,16 +164,16 @@ async function checkout(req, res) {
       });
     }
 
-    // 4. Distance for the delivery-fee rule (merchant -> customer): flat fee
-    //    inside the free radius, + per-km surcharge beyond it, refused past
-    //    the max. Null when the restaurant has no pin yet — the flat promo
-    //    fee applies with no surcharge.
+    // Distance for the delivery-fee rule (merchant -> customer): flat fee
+    // inside the free radius, + per-km surcharge beyond it, refused past
+    // the max. Null when the restaurant has no pin yet — the flat promo
+    // fee applies with no surcharge.
     const distanceKm = haversineKm(
       { lat: merchant.lat, lng: merchant.lng },
       { lat: b.delivery_lat, lng: b.delivery_lng }
     );
 
-    // 5. THE money math — single source of truth.
+    // THE money math — single source of truth.
     const priced = priceOrder({ items, distanceKm });
     if (!priced.ok) {
       logFoodEvent({
@@ -192,7 +189,7 @@ async function checkout(req, res) {
       return res.status(422).json({ error: message, failure_reason: priced.failureReason, ...priced });
     }
 
-    // 6. Create the order (order_code comes from gen_order_code()).
+    // Create the order (order_code comes from gen_order_code()).
     const { data: order, error: orderErr } = await supabase
       .from('orders')
       .insert({
@@ -242,7 +239,7 @@ async function checkout(req, res) {
       return res.status(500).json({ error: 'Could not create the order items' });
     }
 
-    // 7. Clear the cart (cascade removes its lines).
+    // Clear the cart (cascade removes its lines).
     if (cart) await supabase.from('carts').delete().eq('id', cart.id);
 
     logFoodEvent({

@@ -87,7 +87,7 @@ function pinInnerHtml(marker) {
     </div>`;
 }
 
-// Create the marker's DOM element. Returns { el, size, isDriver }.
+// Returns { el, size, isDriver } — size and isDriver drive the caller's placement/animation logic.
 export function buildPinEl(marker) {
   const { kind } = resolvePinStyle(marker);
   const isDriver = kind === 'driver';

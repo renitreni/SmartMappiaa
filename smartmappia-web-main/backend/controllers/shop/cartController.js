@@ -29,7 +29,7 @@ const CART_LINE_SELECT =
   'track_stock, stock_quantity, low_stock_threshold ), ' +
   'product_variants ( id, label, sku, price, net_price, stock_quantity, is_available )';
 
-// Load a cart's lines (joined to the live catalogue) and total them up.
+// Joins the LIVE catalogue, not a snapshot — prices can move between add-to-cart and checkout.
 async function buildCartSummary(cart) {
   const { data: lines, error } = await supabase
     .from('shop_cart_items')
@@ -213,7 +213,6 @@ async function addCartItem(req, res) {
       return res.status(409).json({ error: 'This product is out of stock' });
     }
 
-    // Find or create the customer's cart for this store.
     let cart = await loadOwnCart(req.userId, product.merchant_id);
     if (!cart) {
       const { data: created, error: cartErr } = await supabase
@@ -293,7 +292,7 @@ async function addCartItem(req, res) {
   }
 }
 
-// Load a cart line and verify it belongs to the caller. Returns null if not.
+// null if the line isn't the caller's — never let one customer touch another's cart.
 async function loadOwnCartLine(userId, lineId) {
   const { data, error } = await supabase
     .from('shop_cart_items')

@@ -21,8 +21,7 @@ function buildProofPath(bookingCode, originalName) {
   return `${safeCode}/${Date.now()}-${rand}${ext}`;
 }
 
-// Create a signed upload URL the client uses to PUT the file directly.
-// Returns { path, token, signedUrl } or throws on Supabase error.
+// The client PUTs the file directly to Supabase Storage with this.
 async function createProofUploadUrl(path) {
   const { data, error } = await supabase.storage
     .from(config.proofs.bucket)
@@ -32,7 +31,7 @@ async function createProofUploadUrl(path) {
   return { path, token: data.token, signedUrl: data.signedUrl };
 }
 
-// Create a signed download URL (admin review). Returns the URL string.
+// Signed download URL for admin review.
 async function createProofDownloadUrl(path) {
   const { data, error } = await supabase.storage
     .from(config.proofs.bucket)
@@ -111,7 +110,7 @@ async function createMerchantImageUploadUrl(path) {
   return { path, token: data.token, signedUrl: data.signedUrl };
 }
 
-// Stable public URL for an uploaded merchant image (bucket is public).
+// Bucket is public, so this is a stable URL, not a signed one.
 function merchantImagePublicUrl(path) {
   const { data } = supabase.storage.from(config.merchantImages.bucket).getPublicUrl(path);
   return data.publicUrl;

@@ -47,7 +47,7 @@ async function seedOne({ email, full_name }) {
   const lcEmail = email.toLowerCase();
   const password = strongPassword();
 
-  // 1. Create the auth user (or reuse the existing one + reset the password).
+  // Create the auth user (or reuse the existing one + reset the password).
   let userId;
   let note;
   const { data: created, error: createErr } = await supabase.auth.admin.createUser({
@@ -66,7 +66,6 @@ async function seedOne({ email, full_name }) {
     note = 'created';
   }
 
-  // 2. Upsert the admin profile.
   const { error: profileErr } = await supabase
     .from('profiles')
     .upsert(

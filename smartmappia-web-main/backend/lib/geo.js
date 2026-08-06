@@ -8,7 +8,7 @@ function toRad(deg) {
   return (deg * Math.PI) / 180;
 }
 
-// Great-circle distance in kilometres between two {lat,lng} points.
+// Great-circle distance in km.
 function haversineKm(a, b) {
   if (a == null || b == null) return null;
   if (a.lat == null || a.lng == null || b.lat == null || b.lng == null) return null;
@@ -22,7 +22,6 @@ function haversineKm(a, b) {
   return 2 * EARTH_RADIUS_KM * Math.asin(Math.min(1, Math.sqrt(h)));
 }
 
-// Rough ETA in minutes from a distance, assuming an average city speed.
 function etaMinutes(distanceKm, avgSpeedKmh = 30) {
   if (distanceKm == null) return null;
   const speed = avgSpeedKmh > 0 ? avgSpeedKmh : 30;

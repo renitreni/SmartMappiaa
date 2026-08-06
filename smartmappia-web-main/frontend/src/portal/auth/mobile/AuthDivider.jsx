@@ -1,4 +1,3 @@
-// components/auth/AuthDivider.jsx
 export default function AuthDivider({ label = 'OR' }) {
   return (
     <div className="auth-divider">

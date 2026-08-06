@@ -35,7 +35,6 @@ async function broadcast(topic, event, payload) {
   }
 }
 
-// Notify the passenger watching a single booking.
 function pushBookingStatus(code, payload) {
   return broadcast(`booking-${code}`, 'status', payload);
 }
@@ -56,7 +55,6 @@ function announceRequestTaken(code) {
   ]);
 }
 
-// Generic "something changed on this booking" ping for the admin dashboard.
 function pingAdmin(code) {
   return broadcast('admin-bookings', 'changed', { bookingCode: code });
 }
@@ -68,7 +66,6 @@ function pingAdmin(code) {
 // Payloads carry only safe public fields (order code, statuses) — never
 // internal UUIDs of other parties or money internals beyond the order's own.
 
-// Notify the customer watching one food order.
 function pushFoodOrderStatus(orderCode, payload) {
   return broadcast(`fd-order-${orderCode}`, 'status', payload);
 }
@@ -78,7 +75,6 @@ function pushMerchantFeed(merchantId, event, payload) {
   return broadcast(`merchant-${merchantId}`, event, payload);
 }
 
-// Generic "something changed" ping for the admin Food tab.
 function pingFoodAdmin(orderCode) {
   return broadcast('admin-food', 'changed', { orderCode });
 }
@@ -92,12 +88,10 @@ function pingFoodAdmin(orderCode) {
 // Same payload discipline as food: order code and statuses only, never
 // internal UUIDs of other parties and never margin data.
 
-// Notify the customer watching one shop order.
 function pushShopOrderStatus(orderCode, payload) {
   return broadcast(`shop-order-${orderCode}`, 'status', payload);
 }
 
-// Generic "something changed" ping for the admin Shop tab.
 function pingShopAdmin(orderCode) {
   return broadcast('admin-shop', 'changed', { orderCode });
 }

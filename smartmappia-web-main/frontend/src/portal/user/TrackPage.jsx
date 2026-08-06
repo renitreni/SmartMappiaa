@@ -235,7 +235,6 @@ export default function TrackPage() {
         </button>
       }
     >
-      {/* Status banner */}
       <div className="flex items-center justify-between gap-3 mb-4">
         <div className="flex items-center gap-3">
           {waiting && <Spinner />}
@@ -250,7 +249,6 @@ export default function TrackPage() {
       </div>
 
       <div className="grid lg:grid-cols-5 gap-4">
-        {/* Map */}
         <Card className="lg:col-span-3 p-2 relative overflow-hidden">
           <RideMap
             markers={markers}
@@ -292,9 +290,7 @@ export default function TrackPage() {
           )}
         </Card>
 
-        {/* Side panel */}
         <div className="lg:col-span-2 space-y-4">
-          {/* Driver card */}
           {data.driver ? (
             <Card className="p-4">
               <div className="flex items-center gap-3">
@@ -378,7 +374,6 @@ export default function TrackPage() {
             <RateDriver kind="ride" code={code} driverName={data.driver.name} />
           )}
 
-          {/* Trip details */}
           <Card className="p-4 space-y-3">
             <div className="flex gap-3">
               <MapPin className="w-5 h-5 text-brand-orange shrink-0 mt-0.5" />
@@ -420,7 +415,6 @@ export default function TrackPage() {
         </div>
       </div>
 
-      {/* Timeline */}
       <Card className="p-5 mt-4">
         <div className="flex items-center gap-2 font-black text-brand-black mb-4">
           <Navigation className="w-4 h-4 text-brand-orange" /> Trip timeline

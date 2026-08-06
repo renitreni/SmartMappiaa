@@ -1,4 +1,3 @@
-// portal/auth/mobile/authErrorMessages.js
 export function getAuthErrorMessage(error) {
   const message = error?.message || '';
   const lower = message.toLowerCase();

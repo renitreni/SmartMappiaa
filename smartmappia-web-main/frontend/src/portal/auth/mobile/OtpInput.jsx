@@ -1,12 +1,5 @@
 import { useRef } from 'react';
 
-/**
- * Controlled 4-digit code input.
- * Props:
- *  - value: string[] length 4 (e.g. ['', '', '', ''])
- *  - onChange: (nextValue: string[]) => void
- *  - length: number of boxes (default 4, matches the mockup)
- */
 export default function OtpInput({ value, onChange, length = 4 }) {
   const inputRefs = useRef([]);
 
