@@ -22,7 +22,6 @@ const {
 // Statuses from which a passenger is still allowed to (re)submit a proof.
 const PAYABLE_STATUSES = ['awaiting_proof', 'proof_uploaded', 'under_review', 'rejected'];
 
-// Small helper: load the booking columns these handlers need, or null.
 async function loadBooking(bookingCode) {
   const { data, error } = await supabase
     .from('bookings')
@@ -167,7 +166,6 @@ async function recordPaymentProof(req, res) {
       return res.status(400).json({ error: 'Validation failed', details: errors });
     }
 
-    // 1. Insert the proof record.
     const { data: proof, error: proofErr } = await supabase
       .from('payment_proofs')
       .insert({
@@ -186,7 +184,6 @@ async function recordPaymentProof(req, res) {
       return res.status(500).json({ error: 'Could not record payment proof' });
     }
 
-    // 2. Move the booking into "proof uploaded / under review".
     const { error: bookErr } = await supabase
       .from('bookings')
       .update({
@@ -211,7 +208,6 @@ async function recordPaymentProof(req, res) {
     });
     pingAdmin(booking.booking_code);
 
-    // 3. TEST MODE ONLY: auto-verify immediately.
     if (config.autoVerifyTestMode) {
       const { booking: verified, error: verifyErr } = await verifyBookingPayment({
         booking,
@@ -231,7 +227,6 @@ async function recordPaymentProof(req, res) {
       });
     }
 
-    // 4. Normal flow: awaiting admin review.
     return res.status(201).json({
       bookingCode: booking.booking_code,
       proofId: proof.id,

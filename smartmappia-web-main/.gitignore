@@ -20,6 +20,12 @@ build/
 # so keep those self-contained rather than linking into docs/.
 docs/
 
+# Same treatment as docs/: local/private reference only. Nothing at runtime
+# reads these (no migration runner — SQL is applied by hand via the Supabase
+# dashboard, see the engineering handbook), and they narrate the schema,
+# money model and security fixes in more detail than belongs on a public repo.
+backend/migrations/
+
 # QA scaffolding. These carry hardcoded test passwords and call
 # auth.admin.createUser / delete() directly, bypassing every control in the
 # real signup path. The handbook (Part 13 §13.8.2) says they must never be

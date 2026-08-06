@@ -235,7 +235,6 @@ export default function Dashboard({ onNavigate }) {
 
   return (
     <div className="space-y-6">
-      {/* Hero strip */}
       <Panel className="overflow-hidden">
         <div className="relative p-6 md:p-8">
           <div className="absolute inset-0 bg-gradient-to-r from-brand-black via-[#1a2235] to-[#111827]" />
@@ -280,7 +279,6 @@ export default function Dashboard({ onNavigate }) {
         </div>
       </Panel>
 
-      {/* Quick actions when needed */}
       {(t.needsReview > 0 || d.pending > 0) && (
         <div className="grid sm:grid-cols-2 gap-3">
           {t.needsReview > 0 && (
@@ -304,7 +302,6 @@ export default function Dashboard({ onNavigate }) {
         </div>
       )}
 
-      {/* Bento metrics */}
       <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
         <Panel className="xl:col-span-2 overflow-hidden">
           <MetricTile
@@ -377,7 +374,6 @@ export default function Dashboard({ onNavigate }) {
         </Panel>
       </div>
 
-      {/* Chart + side panel */}
       <div className="grid lg:grid-cols-5 gap-4">
         <Panel className="lg:col-span-3 p-6 md:p-7">
           <div className="flex items-start justify-between gap-4 mb-6">

@@ -1,4 +1,3 @@
-// components/auth/PhoneInput.jsx
 // Country code selector (flag + code + chevron) + phone number field, matching
 // the "Create Account" mockup. Kept separate from AuthInput since the left side
 // isn't just an icon — it's an interactive dropdown trigger.

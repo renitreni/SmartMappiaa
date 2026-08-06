@@ -148,7 +148,6 @@ export default function TransactionsPage() {
       }
     >
       <div className="max-w-2xl mx-auto space-y-4">
-        {/* 24/7 security assurance */}
         <Card className="p-4 flex items-start gap-3 bg-gradient-to-br from-green-50 to-white border-green-200">
           <div className="w-10 h-10 rounded-xl bg-green-100 text-green-700 flex items-center justify-center shrink-0">
             <ShieldCheck className="w-5 h-5" />
@@ -162,7 +161,6 @@ export default function TransactionsPage() {
           </div>
         </Card>
 
-        {/* Tabs */}
         <div className="flex gap-1 p-1 bg-brand-surface rounded-xl">
           {TABS.map((t) => (
             <button

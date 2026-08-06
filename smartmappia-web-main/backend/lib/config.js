@@ -146,7 +146,7 @@ const config = {
     etaCacheMs: toNumber(process.env.DELIVERY_ETA_CACHE_MS, 60000),
   },
 
-  // Food Delivery business rules (docs/food-delivery/FOOD_DELIVERY_PRD.md §7).
+  // Food Delivery business rules (docs/food-delivery/FOOD_DELIVERY.md).
   // These are HARD rules enforced server-side in lib/foodMoney.js and the
   // merchant accept flow — never trust client-sent money.
   food: {

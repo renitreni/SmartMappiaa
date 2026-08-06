@@ -193,7 +193,6 @@ export default function AdminLayout({ activeTab, onTabChange, onRefresh, childre
 
   return (
     <div className="min-h-screen flex bg-[#0c1018]">
-      {/* Desktop sidebar */}
       <aside className="hidden lg:flex w-[260px] shrink-0 flex-col border-r border-white/5">
         <div className="h-[72px] px-5 flex items-center gap-3">
           <Link to="/" className="flex items-center gap-3 min-w-0 group">
@@ -245,7 +244,6 @@ export default function AdminLayout({ activeTab, onTabChange, onRefresh, childre
         </div>
       </aside>
 
-      {/* Main workspace */}
       <div className="flex-1 flex flex-col min-w-0 admin-shell-bg">
         <header className="sticky top-0 z-30 bg-[#eef1f6]/80 backdrop-blur-xl border-b border-black/5">
           <div className="h-[72px] px-4 md:px-8 flex items-center justify-between gap-4">
@@ -281,7 +279,6 @@ export default function AdminLayout({ activeTab, onTabChange, onRefresh, childre
             </div>
           </div>
 
-          {/* Mobile tabs */}
           <div className="lg:hidden flex gap-2 px-4 pb-3 overflow-x-auto">
             {ADMIN_NAV.map(({ id, label, icon: Icon }) => (
               <button
@@ -306,7 +303,6 @@ export default function AdminLayout({ activeTab, onTabChange, onRefresh, childre
         </main>
       </div>
 
-      {/* Mobile drawer */}
       {mobileNav && (
         <div className="fixed inset-0 z-50 lg:hidden">
           <button

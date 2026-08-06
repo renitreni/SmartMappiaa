@@ -1,4 +1,3 @@
-// src/portal/mobile/SplashScreen.jsx
 export default function MobileSplashScreen() {
   return (
     <div className="splash-screen">

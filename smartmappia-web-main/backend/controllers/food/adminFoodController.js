@@ -1130,9 +1130,9 @@ async function setMerchantOwner(req, res) {
       await resolveOwnerProfile(email);
     if (guardErr) return res.status(guardStatus).json({ error: guardErr });
 
-    // 1. Create the auth user with a confirmed email (no confirmation mail). If
-    //    one already exists, reuse it (the person may already be a customer)
-    //    and apply the admin's password to it.
+    // Create the auth user with a confirmed email (no confirmation mail). If
+    // one already exists, reuse it (the person may already be a customer)
+    // and apply the admin's password to it.
     let ownerId = null;
     let reusedExistingAccount = false;
     const { data: created, error: createErr } = await supabase.auth.admin.createUser({
@@ -1169,7 +1169,6 @@ async function setMerchantOwner(req, res) {
       ownerId = created.user.id;
     }
 
-    // 2. Upsert the profile with the merchant role + contact details.
     const { error: profileErr } = await supabase
       .from('profiles')
       .upsert(
@@ -1187,7 +1186,6 @@ async function setMerchantOwner(req, res) {
       return res.status(500).json({ error: 'Could not set the merchant role' });
     }
 
-    // 3. Link the owner to the restaurant.
     const { error: linkErr } = await supabase
       .from('merchants')
       .update({ owner_id: ownerId })

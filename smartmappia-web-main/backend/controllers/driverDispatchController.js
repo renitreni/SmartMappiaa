@@ -115,7 +115,7 @@ async function listOffers(req, res) {
   }
 }
 
-// Claim the food delivery leg for a driver. Returns { ok } or { conflict }.
+// Returns { ok } or { conflict } — conflict means another driver already claimed it.
 async function claimFoodDelivery(order, driverId) {
   const { data: claimed, error } = await supabase
     .from('deliveries')

@@ -142,7 +142,6 @@ function TrackHeader({ eta, note, progress, live }) {
   );
 }
 
-// Order-details block (order number / from / delivery address / total).
 function OrderMetaCard({ code, from, address, total }) {
   return (
     <Card className="p-5 space-y-3">
@@ -472,7 +471,6 @@ export default function FoodTrackPage() {
               />
             )}
 
-            {/* Restaurant */}
             {data.merchant && (
               <Card className="p-5 flex items-center gap-3">
                 <div className="w-11 h-11 rounded-xl bg-gradient-to-br from-brand-orange/15 to-brand-red/10 flex items-center justify-center overflow-hidden shrink-0">
@@ -503,7 +501,6 @@ export default function FoodTrackPage() {
               }}
             />
 
-            {/* Order details block (order number / from / address / total). */}
             <OrderMetaCard
               code={code}
               from={data.merchant?.name}
@@ -511,7 +508,6 @@ export default function FoodTrackPage() {
               total={order.total}
             />
 
-            {/* Itemized receipt */}
             <Card className="p-5">
               <p className="font-black text-brand-black mb-3 flex items-center gap-2">
                 <ReceiptText className="w-4 h-4 text-brand-orange" /> Receipt

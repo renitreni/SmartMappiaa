@@ -5,10 +5,10 @@
 //                   rejects. Used on public discovery/analytics endpoints
 //                   so events can be tagged with a user when one exists.
 //
-// NOTE: there are no restaurant owner accounts in the current model —
-// admins run every restaurant through /api/admin/food/* — so there is no
-// requireMerchant here. If restaurants ever get portal accounts, that
-// middleware returns (see docs/food-delivery/FOOD_DELIVERY_STATUS.md).
+// NOTE: this file only has optionalAuth. requireMerchant lives in
+// middleware/auth.js and gates the merchant portal routes
+// (routes/merchant.js, routes/merchantShop.js) — it's not needed here
+// because admin-side food routes are locked down separately.
 // ---------------------------------------------------------------------
 const { supabase } = require('../lib/supabase');
 

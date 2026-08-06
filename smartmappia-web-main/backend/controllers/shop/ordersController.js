@@ -84,7 +84,6 @@ async function checkout(req, res) {
   try {
     const b = req.body; // validated by the route schema
 
-    // 1. The store must exist, be a SHOP, and be open for business.
     const { data: store, error: sErr } = await supabase
       .from('merchants')
       .select('id, name, vertical, is_active, status, lat, lng, owner_id')
@@ -110,7 +109,6 @@ async function checkout(req, res) {
       });
     }
 
-    // 2. Load the caller's cart for this store.
     const { data: cart } = await supabase
       .from('shop_carts')
       .select('id')
@@ -127,8 +125,8 @@ async function checkout(req, res) {
       return res.status(422).json({ error: 'Your cart is empty', failure_reason: 'empty_cart' });
     }
 
-    // 3. Re-read the LIVE catalogue rows — prices and markups come from
-    //    here, not from the cart snapshot and certainly not from the client.
+    // Re-read the LIVE catalogue rows — prices and markups come from
+    // here, not from the cart snapshot and certainly not from the client.
     const { data: productRows, error: pErr } = await supabase
       .from('products')
       .select(
@@ -183,7 +181,7 @@ async function checkout(req, res) {
       return res.status(422).json({ error: 'Your cart is empty', failure_reason: 'empty_cart' });
     }
 
-    // 4. Money. Server-side, from the rows just read.
+    // Money. Server-side, from the rows just read.
     const distanceKm =
       Number.isFinite(b.delivery_lat) && Number.isFinite(b.delivery_lng)
         ? haversineKm({ lat: store.lat, lng: store.lng }, { lat: b.delivery_lat, lng: b.delivery_lng })
@@ -204,8 +202,8 @@ async function checkout(req, res) {
       return res.status(422).json({ error: message, failure_reason: priced.failureReason, ...priced });
     }
 
-    // 5. Place it. ONE transaction: reserve stock, insert the order, insert
-    //    the line snapshots, empty the cart. Nothing partial can survive.
+    // Place it. ONE transaction: reserve stock, insert the order, insert
+    // the line snapshots, empty the cart. Nothing partial can survive.
     const placed = await placeShopOrder({
       order: {
         customer_id: req.userId,

@@ -1396,8 +1396,6 @@ export default function DriverPage() {
 
         <div className="flex flex-col lg:flex-row gap-4 lg:gap-5 lg:items-start">
 
-          {/* Map — hero column */}
-
           <div className="flex-1 min-w-0 space-y-3 lg:sticky lg:top-20">
 
             <div className="relative driver-map-frame rounded-3xl overflow-hidden border border-brand-border/50 bg-white">
@@ -1486,9 +1484,6 @@ export default function DriverPage() {
 
           </div>
 
-
-
-          {/* Side panel */}
 
           <div className="lg:w-[400px] shrink-0 space-y-4">
 

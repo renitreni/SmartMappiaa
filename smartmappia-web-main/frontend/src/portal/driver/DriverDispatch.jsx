@@ -413,7 +413,6 @@ export default function DriverDispatch({ online, foodEnabled = true, driverId, c
         />
       ))}
 
-      {/* Active food deliveries */}
       {deliveries.length > 0 && (
         <>
           <p className="font-black text-brand-black text-sm mb-2 flex items-center gap-1.5">

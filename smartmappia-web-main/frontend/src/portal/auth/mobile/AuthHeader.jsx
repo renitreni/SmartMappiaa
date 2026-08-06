@@ -16,8 +16,7 @@ export default function AuthHeader({ onBack, showBack = true }) {
         <span />
       )}
 
-      {/* Replace this with your real app logo/icon */}
-<img className="auth-header__logo" src="/mappia-new-logo.png" alt="Smart Mappia" />
+      <img className="auth-header__logo" src="/mappia-new-logo.png" alt="Smart Mappia" />
 
       <span />
     </div>

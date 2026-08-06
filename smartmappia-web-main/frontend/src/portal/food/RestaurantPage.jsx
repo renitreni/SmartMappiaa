@@ -387,7 +387,6 @@ export default function RestaurantPage() {
 
       {data && !error && (
         <div className="pb-28">
-          {/* Restaurant hero */}
           <motion.section
             initial={{ opacity: 0, y: 14 }}
             animate={{ opacity: 1, y: 0 }}

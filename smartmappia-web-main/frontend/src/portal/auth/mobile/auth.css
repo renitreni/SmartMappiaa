@@ -30,7 +30,6 @@
   );
   font-family: var(--auth-font);
 }
-/* auth.css — add near the top */
 .auth-mobile-layout,
 .auth-mobile-content {
   overflow-x: hidden;

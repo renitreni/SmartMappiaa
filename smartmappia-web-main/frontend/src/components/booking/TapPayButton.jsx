@@ -10,7 +10,7 @@
 //
 // Real flow (when enabled): backend creates a Tap Charge and returns the
 // hosted redirect URL; we send the user there. The Tap webhook is the
-// source of truth that confirms the booking (see docs/production/NOTES.md §2).
+// source of truth that confirms the booking.
 // On Capacitor, swap `window.location.href` for `Browser.open(redirectUrl)`.
 // ---------------------------------------------------------------------
 import { useState } from 'react';

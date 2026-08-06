@@ -7,7 +7,6 @@ import { useState, useRef, useEffect } from 'react';
 import { useNavigate, useSearchParams, Link } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 
-//ADDED
 import { daysInMonth, buildDateOfBirth, buildFullPhone, isValidLocalPhone } from './authHelpers';
 import {
   UserPlus,
@@ -31,7 +30,6 @@ import PasswordFields from '../components/PasswordFields';
 import { isPasswordValid, getPasswordValidationError } from '../lib/passwordValidation';
 import { COMPANY } from '../../config/company';
 
-//ADDED
 import { Capacitor } from '@capacitor/core';
 import MobileSignUpScreen from './mobile/screens/SignUpScreen';
 import MobileConfirmationSentScreen from './mobile/screens/ConfirmationSentScreen';
@@ -95,28 +93,6 @@ const sanitizeName = (v) => v.replace(/[^\p{L}\s'-]/gu, '');
 const selectTriggerClass =
   'w-full bg-white border rounded-xl text-sm transition-all cursor-pointer ' +
   'focus:outline-none focus:border-brand-orange focus:ring-2 focus:ring-brand-orange/15';
-
-//UPDATED
-// function daysInMonth(month, year) {
-//   if (!month || !year) return 31;
-//   return new Date(Number(year), Number(month), 0).getDate();
-// }
-
-// function buildDateOfBirth(day, month, year) {
-//   if (!day || !month || !year) return '';
-//   return `${year}-${month}-${String(day).padStart(2, '0')}`;
-// }
-
-// function buildFullPhone(region, local) {
-//   const digits = local.replace(/\D/g, '').replace(/^0+/, '');
-//   if (!digits) return '';
-//   return `${region}${digits}`;
-// }
-
-// function isValidLocalPhone(local) {
-//   const digits = local.replace(/\D/g, '');
-//   return digits.length >= 8 && digits.length <= 15;
-// }
 
 function CustomDropdown({
   value,
@@ -669,7 +645,6 @@ export default function SignupPage() {
   
   return (
     <div className="min-h-screen flex bg-brand-light">
-      {/* Brand panel — desktop */}
       <div className="hidden lg:flex lg:w-[44%] xl:w-[42%] relative overflow-hidden bg-brand-warm">
         <div className="absolute inset-0 pointer-events-none" aria-hidden="true">
           <div className="absolute -top-24 -left-24 w-[420px] h-[420px] rounded-full bg-brand-orange/15 blur-[100px]" />
@@ -742,7 +717,6 @@ export default function SignupPage() {
         </div>
       </div>
 
-      {/* Form panel */}
       <div className="flex-1 relative flex flex-col min-h-screen">
         <div className="relative z-10 flex items-center justify-between px-5 pt-5 sm:px-8">
           <button
