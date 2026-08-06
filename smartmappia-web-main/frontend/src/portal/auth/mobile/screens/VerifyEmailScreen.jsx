@@ -1,4 +1,13 @@
 // components/auth/screens/VerifyEmailScreen.jsx
+//
+// NOT WIRED UP YET, and blocked on the same thing as the reset screens: the
+// platform sends no email. See ForgotPasswordScreen.jsx.
+//
+// Note this one is blocked twice over. Signup does not just skip the
+// verification mail by omission — POST /api/auth/signup creates the user with
+// `email_confirm: true` on purpose, so there is no unverified state for an OTP
+// to resolve. Wiring this screen means changing the signup contract, not just
+// adding SMTP.
 import AuthMobileLayout from '../AuthMobileLayout';
 import AuthButton from '../AuthButton';
 import OtpInput from '../OtpInput';
