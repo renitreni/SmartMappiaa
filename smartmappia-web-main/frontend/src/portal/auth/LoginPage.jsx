@@ -10,12 +10,9 @@ import { useAuth } from '../lib/AuthProvider';
 import { roleHome } from '../lib/constants';
 import { Field, btnPrimary, Spinner } from '../components/ui';
 
-//ADDED
 import { Capacitor } from '@capacitor/core';
 import MobileLoginScreen from './mobile/screens/LoginScreen';
 import PasswordInput from '../components/PasswordInput';
-
-//ADDED
 import { getAuthErrorMessage } from './mobile/authErrorMessages';
 
 const features = [
@@ -38,7 +35,7 @@ export default function LoginPage() {
   const [error, setError] = useState(null);
   const [busy, setBusy] = useState(false);
 
-  // ADDED — mobile-only error state, kept separate from the web `error` banner above
+  // mobile-only error state, kept separate from the web `error` banner above
   const [showPassword, setShowPassword] = useState(false);
   const [mobileFieldErrors, setMobileFieldErrors] = useState({});
   const [mobileBannerError, setMobileBannerError] = useState(null);
@@ -57,8 +54,7 @@ export default function LoginPage() {
     }
   }, [session, profileLoading, profileError]);
 
-  //UPDATED
-async function submit(e) {
+  async function submit(e) {
   e.preventDefault();
   setError(null);
   setMobileFieldErrors({});
@@ -82,7 +78,6 @@ async function submit(e) {
   }
 }
 
-// ADDED
 if (Capacitor.isNativePlatform()) {
   return (
     <MobileLoginScreen
@@ -94,13 +89,13 @@ if (Capacitor.isNativePlatform()) {
         busy={busy}
         onSubmit={submit}
         onGoToSignUp={() => navigate(`/signup?next=${encodeURIComponent(next)}`)}
+        onForgotPassword={() => navigate('/forgot-password')}
     />
   );
 }
   
   return (
     <div className="min-h-screen flex bg-brand-light">
-      {/* Brand panel — desktop */}
       <div className="hidden lg:flex lg:w-[44%] xl:w-[42%] relative overflow-hidden bg-brand-warm">
         <div className="absolute inset-0 pointer-events-none" aria-hidden="true">
           <div className="absolute -top-24 -left-24 w-[420px] h-[420px] rounded-full bg-brand-orange/15 blur-[100px]" />
@@ -177,7 +172,6 @@ if (Capacitor.isNativePlatform()) {
         </div>
       </div>
 
-      {/* Form panel */}
       <div className="flex-1 relative flex flex-col min-h-screen">
         <div className="absolute inset-0 pointer-events-none lg:hidden" aria-hidden="true">
           <div className="absolute -top-20 -right-20 w-[280px] h-[280px] rounded-full bg-brand-orange/10 blur-[80px]" />
@@ -252,6 +246,15 @@ if (Capacitor.isNativePlatform()) {
                     required
                   />
                 </Field>
+
+                <div className="flex justify-end -mt-2">
+                  <Link
+                    to="/forgot-password"
+                    className="text-sm font-bold text-brand-orange hover:text-brand-red transition-colors"
+                  >
+                    Forgot password?
+                  </Link>
+                </div>
 
                 <button
                   type="submit"

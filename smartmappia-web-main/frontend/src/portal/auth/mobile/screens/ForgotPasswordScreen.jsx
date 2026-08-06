@@ -1,5 +1,3 @@
-// components/auth/screens/ForgotPasswordScreen.jsx
-//
 // NOT WIRED UP YET — and do not wire it up before reading this.
 //
 // This is a presentational shell: it collects an email and hands it to
