@@ -1,4 +1,18 @@
 // components/auth/screens/NewPasswordScreen.jsx
+//
+// NOT WIRED UP YET — the second half of the reset flow. See the blocker note
+// in ForgotPasswordScreen.jsx before wiring either of them.
+//
+// When it is wired, `onSubmit` must call supabase.auth.updateUser({ password })
+// while the RECOVERY session from the emailed link is active. Rendering this
+// screen without that session lets someone submit a new password that silently
+// applies to nobody (or, worse, to whoever happens to be signed in on the
+// device). Gate the route on the recovery session, not on the URL alone.
+//
+// The rule below (8+, letters and digits) is STRICTER than the rest of the app:
+// backend/lib/validate.js enforces 8 with no character-class requirement, and
+// ProfilePage.jsx enforces only 6. Pick one before shipping this, or the same
+// password will be accepted in one place and rejected in another.
 import { useState } from 'react';
 import AuthMobileLayout from '../AuthMobileLayout';
 import AuthInput from '../AuthInput';
