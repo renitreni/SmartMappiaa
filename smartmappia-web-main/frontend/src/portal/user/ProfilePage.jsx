@@ -12,6 +12,7 @@ import { api } from '../lib/api';
 import { useAuth } from '../lib/AuthProvider';
 import { supabase, uploadProofFile } from '../lib/supabaseClient';
 import { notifySuccess, notifyError } from '../lib/notify';
+import { getPasswordValidationError } from '../lib/passwordValidation';
 import { PortalShell, Card, Field, Spinner, inputClass, btnPrimary, btnGhost } from '../components/ui';
 
 function initialsOf(name, email) {
@@ -97,9 +98,17 @@ export default function ProfilePage() {
     const wantsEmail = email.trim() && email.trim().toLowerCase() !== (user?.email || '').toLowerCase();
     const wantsPassword = password.length > 0;
     if (!wantsEmail && !wantsPassword) return;
-    if (wantsPassword && password.length < 6) {
-      notifyError('Password must be at least 6 characters.');
-      return;
+    // Shared rule. This used to be a bare `< 6`, which was looser than both
+    // signup and the admin-issued merchant passwords (8, lib/validate.js) —
+    // and because this path calls supabase.auth.updateUser directly rather
+    // than our API, that 8-character floor was not enforced here at all. A
+    // merchant handed a compliant password could immediately downgrade it.
+    if (wantsPassword) {
+      const validationError = getPasswordValidationError(password);
+      if (validationError) {
+        notifyError(validationError);
+        return;
+      }
     }
     if (wantsPassword && password !== password2) {
       notifyError('Passwords do not match.');
@@ -132,7 +141,6 @@ export default function ProfilePage() {
   return (
     <PortalShell title="My profile" subtitle="Manage your account" onBack={() => navigate(-1)}>
       <div className="max-w-2xl mx-auto space-y-5 pb-10">
-        {/* Avatar + identity header */}
         <Card className="p-6 flex flex-col sm:flex-row items-center gap-5">
           <div className="relative shrink-0">
             <div className="w-24 h-24 rounded-full overflow-hidden bg-gradient-to-br from-brand-orange to-brand-red flex items-center justify-center ring-4 ring-brand-orange/15">
@@ -180,7 +188,6 @@ export default function ProfilePage() {
           </div>
         </Card>
 
-        {/* Personal info */}
         <Card className="p-6">
           <p className="font-black text-brand-black mb-4 flex items-center gap-2">
             <User className="w-4 h-4 text-brand-orange" /> Personal information
@@ -221,7 +228,6 @@ export default function ProfilePage() {
           </form>
         </Card>
 
-        {/* Account security (email + password) */}
         <Card className="p-6" id="settings">
           <p className="font-black text-brand-black mb-4 flex items-center gap-2">
             <KeyRound className="w-4 h-4 text-brand-orange" /> Account &amp; security

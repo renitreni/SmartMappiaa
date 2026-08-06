@@ -17,10 +17,34 @@ const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
 export const supabase =
   url && anonKey
     ? createClient(url, anonKey, {
-        // Persist the auth session to localStorage so a page refresh keeps the
-        // user signed in (this is also the client AuthProvider logs in with),
-        // and keep the access token fresh in the background.
-        auth: { persistSession: true, autoRefreshToken: true },
+        auth: {
+          // Persist the auth session to localStorage so a page refresh keeps the
+          // user signed in (this is also the client AuthProvider logs in with),
+          // and keep the access token fresh in the background.
+          persistSession: true,
+          autoRefreshToken: true,
+
+          // PKCE, not the library default of implicit.
+          //
+          // On the implicit flow a password-reset link lands as
+          //   https://smartmappia.com/#access_token=eyJhbGci...&refresh_token=...
+          // — a LIVE SESSION sitting in the address bar. The fragment never
+          // reaches a server (browsers do not transmit it, and it is stripped
+          // from Referer), so it stays out of our logs, but it is still visible
+          // over the shoulder, kept in browser history until it expires, and
+          // readable by any script on the page via window.location.hash.
+          //
+          // PKCE sends `?code=` instead. The code is single-use and worthless
+          // without a verifier held in this browser's localStorage, which never
+          // travels — so a screenshot of the URL gives an attacker nothing.
+          //
+          // TRADEOFF, and it is real: the reset must FINISH in the browser that
+          // STARTED it, because that is where the verifier lives. Request on a
+          // phone and open the mail on a laptop and the exchange fails.
+          // ResetPasswordPage reports that as an expired link with a "request a
+          // new one" path rather than a dead end.
+          flowType: 'pkce',
+        },
         realtime: { params: { eventsPerSecond: 10 } },
       })
     : null;

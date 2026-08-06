@@ -1,5 +1,3 @@
-// components/auth/screens/VerifyEmailScreen.jsx
-//
 // NOT WIRED UP YET, and blocked on the same thing as the reset screens: the
 // platform sends no email. See ForgotPasswordScreen.jsx.
 //

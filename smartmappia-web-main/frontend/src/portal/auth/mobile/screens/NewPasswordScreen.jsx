@@ -1,5 +1,3 @@
-// components/auth/screens/NewPasswordScreen.jsx
-//
 // NOT WIRED UP YET — the second half of the reset flow. See the blocker note
 // in ForgotPasswordScreen.jsx before wiring either of them.
 //
@@ -18,16 +16,21 @@ import AuthMobileLayout from '../AuthMobileLayout';
 import AuthInput from '../AuthInput';
 import AuthButton from '../AuthButton';
 import { LockIcon, LockOpenIcon, InfoIcon, ArrowRightIcon } from '../icons';
+import { getPasswordValidationError, MIN_PASSWORD_LENGTH } from '../../../lib/passwordValidation';
 
-export default function NewPasswordScreen({ onBack, onSubmit }) {
+export default function NewPasswordScreen({ onBack, onSubmit, serverError = null, busy = false }) {
   const [password, setPassword] = useState('');
   const [confirm, setConfirm] = useState('');
   const [error, setError] = useState('');
 
   const handleSubmit = (e) => {
     e.preventDefault();
-    if (password.length < 8 || !/[a-zA-Z]/.test(password) || !/\d/.test(password)) {
-      setError('Password must be at least 8 characters long and include a mix of letters and numbers.');
+    // Shared rule, not a local regex. This screen used to require a letter AND
+    // a digit, which is stricter than signup and than ProfilePage — the same
+    // password was accepted in one place and rejected in another.
+    const validationError = getPasswordValidationError(password);
+    if (validationError) {
+      setError(validationError);
       return;
     }
     if (password !== confirm) {
@@ -62,18 +65,17 @@ export default function NewPasswordScreen({ onBack, onSubmit }) {
           onChange={setConfirm}
         />
 
-        {/* Static helper text from the mockup; swap to `error` styling if you want
-            this box to also surface the validation message above instead of a
-            separate error state — right now they're kept distinct. */}
         <div className="auth-info-box">
           <InfoIcon />
           <span>
-            {error || 'Password must be at least 8 characters long and include a mix of letters and numbers.'}
+            {error ||
+              serverError ||
+              `Password must be at least ${MIN_PASSWORD_LENGTH} characters and include a number or special character.`}
           </span>
         </div>
 
-        <AuthButton type="submit" icon={<ArrowRightIcon />}>
-          Reset Password
+        <AuthButton type="submit" icon={<ArrowRightIcon />} disabled={busy}>
+          {busy ? 'Updating…' : 'Reset Password'}
         </AuthButton>
 
         <button type="button" className="auth-link-center auth-back-link" onClick={onBack}>

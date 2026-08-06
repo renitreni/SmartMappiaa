@@ -1,4 +1,3 @@
-// mobile/screens/LoginScreen.jsx
 import AuthMobileLayout from '../AuthMobileLayout';
 import AuthInput from '../AuthInput';
 import AuthButton from '../AuthButton';
@@ -7,7 +6,7 @@ import { LockIcon, EyeIcon, EyeOffIcon } from '../icons';
 export default function MobileLoginScreen({
   email, setEmail, password, setPassword,
   showPassword, setShowPassword,
-  fieldErrors = {}, bannerError, busy, onSubmit, onGoToSignUp,
+  fieldErrors = {}, bannerError, busy, onSubmit, onGoToSignUp, onForgotPassword,
 }) {
   return (
     <AuthMobileLayout showBack={false}>
@@ -35,6 +34,12 @@ export default function MobileLoginScreen({
             onClick: () => setShowPassword((v) => !v),
           }}
         />
+        {onForgotPassword && (
+          <button type="button" className="auth-link-center" onClick={onForgotPassword}>
+            Forgot password?
+          </button>
+        )}
+
         <AuthButton type="submit" icon={null} disabled={busy}>
           {busy ? 'Signing in…' : 'Sign In'}
         </AuthButton>

@@ -9,6 +9,8 @@ import RequireAuth from './portal/components/RequireAuth.jsx'
 import PushNotificationPrompt from './portal/components/PushNotificationPrompt.jsx'
 import LoginPage from './portal/auth/LoginPage.jsx'
 import SignupPage from './portal/auth/SignupPage.jsx'
+import ForgotPasswordPage from './portal/auth/ForgotPasswordPage.jsx'
+import ResetPasswordPage from './portal/auth/ResetPasswordPage.jsx'
 import HomePage from './portal/user/HomePage.jsx'
 import BookPage from './portal/user/BookPage.jsx'
 import PayPage from './portal/user/PayPage.jsx'
@@ -33,9 +35,8 @@ import TransactionsPage from './portal/user/TransactionsPage.jsx'
 import ProfilePage from './portal/user/ProfilePage.jsx'
 import { registerServiceWorker } from './portal/lib/pushNotifications.js'
 
-//ADDED
 import { useEffect, useState } from 'react'
-import { Navigate } from 'react-router-dom'  // add Navigate
+import { Navigate } from 'react-router-dom'
 import { Capacitor } from '@capacitor/core'
 import { useAuth } from './portal/lib/AuthProvider.jsx'
 import { roleHome } from './portal/lib/constants.js'
@@ -47,7 +48,6 @@ if (import.meta.env.PROD) {
   })
 }
 
-//ADDED
 function RootRedirect() {
   const { session, role } = useAuth()
   const [showSplash, setShowSplash] = useState(true)
@@ -68,11 +68,14 @@ createRoot(document.getElementById('root')).render(
       <AuthProvider>
         <ViewModeProvider>
           <Routes>
-            {/* EDITED */}
-            {/* <Route path="/" element={<App />} /> */}
             <Route path="/" element={Capacitor.isNativePlatform() ? <RootRedirect /> : <App />} />
             <Route path="/login" element={<LoginPage />} />
             <Route path="/signup" element={<SignupPage />} />
+            {/* Public on purpose: someone who cannot sign in is exactly who
+                needs these. /reset-password does its own gating on the
+                PASSWORD_RECOVERY event — a bare session is not enough. */}
+            <Route path="/forgot-password" element={<ForgotPasswordPage />} />
+            <Route path="/reset-password" element={<ResetPasswordPage />} />
 
             {/* Signed-in users land on the multi-service hub. */}
             <Route path="/home" element={<RequireAuth role="passenger" redirectWrongRole><HomePage /></RequireAuth>} />
