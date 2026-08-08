@@ -6,9 +6,6 @@ import {
   Info,
   Sparkles,
   Lightbulb,
-  UtensilsCrossed,
-  ShoppingBag,
-  Package,
   HelpCircle,
   LogOut,
   LayoutDashboard,
@@ -17,16 +14,17 @@ import {
 import { useAuth } from "../portal/lib/AuthProvider";
 import { roleHome } from "../portal/lib/constants";
 import { UserMenu } from "../portal/components/ui";
+import useScrollToHash from "../hooks/useScrollToHash";
 
+// Absolute paths (not bare "#anchor") since Navbar renders on more than one
+// route (/, /services) — a bare hash would try to jump within whatever page
+// it's currently on instead of back to the landing page section.
 const menuLinks = [
-  { name: "Home",         href: "#home",         Icon: Home },
-  { name: "About",        href: "#about",        Icon: Info },
-  { name: "Features",     href: "#features",     Icon: Sparkles },
-  { name: "How It Works", href: "#how-it-works", Icon: Lightbulb },
-  { name: "Restaurants",  href: "#restaurants",  Icon: UtensilsCrossed },
-  { name: "Shop",         href: "#shop",         Icon: ShoppingBag },
-  { name: "Pick & Drop",  href: "#pick-drop",    Icon: Package },
-  { name: "FAQ",          href: "#faq",          Icon: HelpCircle },
+  { name: "Home",         to: "/",              Icon: Home },
+  { name: "About",        to: "/#about",        Icon: Info },
+  { name: "Services",     to: "/services",      Icon: Sparkles },
+  { name: "How It Works", to: "/#how-it-works", Icon: Lightbulb },
+  { name: "FAQ",          to: "/#faq",          Icon: HelpCircle },
 ];
 
 function AuthActions({ mobile = false, onNavigate }) {
@@ -163,6 +161,11 @@ const Navbar = () => {
   const [scrolled, setScrolled] = useState(false);
   const [hoveredLink, setHoveredLink] = useState(null);
 
+  // Navbar is the one component every marketing page shares, so this is
+  // where cross-page anchor links (e.g. "About" from /services) get their
+  // scroll-into-view behavior.
+  useScrollToHash();
+
   useEffect(() => {
     const onScroll = () => setScrolled(window.scrollY > 10);
     window.addEventListener("scroll", onScroll);
@@ -190,7 +193,7 @@ const Navbar = () => {
                    px-6 md:px-20 flex items-center justify-between
                    fixed top-0 left-0 z-50"
       >
-        <a href="#home" className="flex items-center gap-2.5 shrink-0" aria-label="Smart Mappia home">
+        <Link to="/" className="flex items-center gap-2.5 shrink-0" aria-label="Smart Mappia home">
           <motion.div
             whileHover={{ scale: 1.1, rotate: -5 }}
             transition={{ type: "spring", stiffness: 320, damping: 14 }}
@@ -206,13 +209,13 @@ const Navbar = () => {
           <span className="text-lg font-black tracking-tight whitespace-nowrap text-brand-black">
             Smart <span className="text-brand-orange">Mappia</span>
           </span>
-        </a>
+        </Link>
 
         <ul className="hidden lg:flex items-center gap-0.5 text-sm font-semibold">
           {menuLinks.map((link, index) => (
             <li key={index}>
-              <a
-                href={link.href}
+              <Link
+                to={link.to}
                 onMouseEnter={() => setHoveredLink(index)}
                 onMouseLeave={() => setHoveredLink(null)}
                 className="relative flex items-center whitespace-nowrap px-3 py-2 rounded-full
@@ -227,7 +230,7 @@ const Navbar = () => {
                   />
                 )}
                 <span className="relative z-10">{link.name}</span>
-              </a>
+              </Link>
             </li>
           ))}
         </ul>
@@ -292,8 +295,8 @@ const Navbar = () => {
                 <ul className="flex flex-col gap-0.5">
                   {menuLinks.map((link, index) => (
                     <li key={index}>
-                      <a
-                        href={link.href}
+                      <Link
+                        to={link.to}
                         onClick={() => setIsOpen(false)}
                         className="flex items-center gap-3 px-4 py-3 rounded-2xl
                                    text-brand-grey hover:text-brand-orange
@@ -307,7 +310,7 @@ const Navbar = () => {
                                          transition-opacity duration-150">
                           →
                         </span>
-                      </a>
+                      </Link>
                     </li>
                   ))}
                 </ul>

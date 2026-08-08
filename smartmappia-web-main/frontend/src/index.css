@@ -12,6 +12,30 @@
   --color-brand-surface: #F3F4F6;
   --color-brand-border: #E5E7EB;
   --color-brand-warm: #FFF7F0;
+
+  /* Semantic tokens for shadcn/Watermelon UI components — mapped onto the
+     brand palette above so pulled-in components render on-brand, not with
+     shadcn's generic defaults. */
+  --radius: 0.75rem;
+  --color-background: var(--color-brand-light);
+  --color-foreground: var(--color-brand-dark);
+  --color-card: var(--color-brand-light);
+  --color-card-foreground: var(--color-brand-dark);
+  --color-popover: var(--color-brand-light);
+  --color-popover-foreground: var(--color-brand-dark);
+  --color-primary: var(--color-brand-orange);
+  --color-primary-foreground: var(--color-brand-light);
+  --color-secondary: var(--color-brand-surface);
+  --color-secondary-foreground: var(--color-brand-dark);
+  --color-muted: var(--color-brand-muted);
+  --color-muted-foreground: var(--color-brand-grey);
+  --color-accent: var(--color-brand-warm);
+  --color-accent-foreground: var(--color-brand-orange);
+  --color-destructive: var(--color-brand-red);
+  --color-destructive-foreground: var(--color-brand-light);
+  --color-border: var(--color-brand-border);
+  --color-input: var(--color-brand-border);
+  --color-ring: var(--color-brand-orange);
 }
 
 body {
