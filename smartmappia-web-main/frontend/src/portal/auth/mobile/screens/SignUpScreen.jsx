@@ -2,9 +2,10 @@ import AuthMobileLayout from '../AuthMobileLayout';
 import AuthInput from '../AuthInput';
 import AuthButton from '../AuthButton';
 import PhoneInput from '../PhoneInput';
-import { UserIcon, MailIcon, LockIcon } from '../icons';
+import { UserIcon, MailIcon, LockIcon, EyeIcon, EyeOffIcon } from '../icons';
 import { daysInMonth } from '../../authHelpers';
 import { COMPANY } from '../../../../config/company';
+import { useState } from 'react';
 
 const STEPS = ['Account type', 'Personal info', 'Create login'];
 const GENDERS = [
@@ -55,6 +56,10 @@ export default function MobileSignUpScreen({ step, values, handlers, meta, onGoT
   } = handlers;
 
   const { error, busy, showStepErrors, step2Complete, step3Complete } = meta;
+
+  // NEW
+const [showPassword, setShowPassword] = useState(false);
+const [showConfirmPassword, setShowConfirmPassword] = useState(false);
 
   const currentYear = new Date().getFullYear();
   const years = Array.from({ length: 83 }, (_, i) => currentYear - 18 - i);
@@ -221,8 +226,32 @@ if (partnerPanel) {
       {step === 3 && (
         <form onSubmit={submit}>
           <AuthInput id="email" label="Email address *" icon={<MailIcon />} type="email" value={email} onChange={setEmail} />
-          <AuthInput id="password" label="Password *" icon={<LockIcon />} type="password" value={password} onChange={setPassword} />
-          <AuthInput id="confirmPassword" label="Confirm password *" icon={<LockIcon />} type="password" value={confirmPassword} onChange={setConfirmPassword} />
+<AuthInput
+  id="password"
+  label="Password *"
+  icon={<LockIcon />}
+  type={showPassword ? 'text' : 'password'}
+  value={password}
+  onChange={setPassword}
+  rightAction={{
+    icon: showPassword ? <EyeOffIcon /> : <EyeIcon />,
+    label: showPassword ? 'Hide password' : 'Show password',
+    onClick: () => setShowPassword((v) => !v),
+  }}
+/>
+<AuthInput
+  id="confirmPassword"
+  label="Confirm password *"
+  icon={<LockIcon />}
+  type={showConfirmPassword ? 'text' : 'password'}
+  value={confirmPassword}
+  onChange={setConfirmPassword}
+  rightAction={{
+    icon: showConfirmPassword ? <EyeOffIcon /> : <EyeIcon />,
+    label: showConfirmPassword ? 'Hide password' : 'Show password',
+    onClick: () => setShowConfirmPassword((v) => !v),
+  }}
+/>
 
           {role === 'driver' && (
             <>
