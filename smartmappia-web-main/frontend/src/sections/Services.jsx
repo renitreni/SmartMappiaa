@@ -10,7 +10,7 @@ const servicesData = [
     title: "Food Delivery",
     desc: "Order from the best local restaurants and fast food chains with lightning-fast delivery to your doorstep.",
     tag: "Popular",
-    link: "#restaurants",
+    link: "/services/food",
     accent: "from-brand-orange to-brand-red",
   },
   {
@@ -19,7 +19,7 @@ const servicesData = [
     title: "E-Commerce Shop",
     desc: "Browse trending products, daily essentials, and tech gadgets. Seamless shopping experience guaranteed.",
     tag: "New",
-    link: "#shop",
+    link: "/services/shop",
     accent: "from-orange-400 to-brand-orange",
   },
   {
@@ -28,7 +28,7 @@ const servicesData = [
     title: "Pick & Drop",
     desc: "Hassle-free airport transfers. Book a reliable ride from your house straight to the airport, or from the airport back to your home.",
     tag: "Premium",
-    link: "#pick-drop",
+    link: "/services/pick-drop",
     accent: "from-brand-red to-orange-500",
   },
 ];
@@ -110,6 +110,22 @@ const Services = () => {
             </motion.a>
           ))}
         </div>
+
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          whileInView={{ opacity: 1, y: 0 }}
+          viewport={{ once: true }}
+          transition={{ duration: 0.5, delay: 0.3 }}
+          className="mt-12 text-center"
+        >
+          <a
+            href="/services"
+            className="inline-flex items-center gap-2 text-sm font-bold text-brand-orange hover:text-brand-red transition-colors"
+          >
+            See all services
+            <ArrowRight className="w-4 h-4" strokeWidth={2.5} />
+          </a>
+        </motion.div>
       </div>
 
       <LogoGrid />

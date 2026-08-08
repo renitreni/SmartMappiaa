@@ -33,6 +33,10 @@ import ShopTrackPage from './portal/shop/ShopTrackPage.jsx'
 import NotificationsPage from './portal/user/NotificationsPage.jsx'
 import TransactionsPage from './portal/user/TransactionsPage.jsx'
 import ProfilePage from './portal/user/ProfilePage.jsx'
+import ServicesPage from './pages/ServicesPage.jsx'
+import FoodServicePage from './pages/services/FoodServicePage.jsx'
+import ShopServicePage from './pages/services/ShopServicePage.jsx'
+import PickDropServicePage from './pages/services/PickDropServicePage.jsx'
 import { registerServiceWorker } from './portal/lib/pushNotifications.js'
 
 import { useEffect, useState } from 'react'
@@ -95,6 +99,13 @@ createRoot(document.getElementById('root')).render(
                 lazy-loads either the restaurant or the store dashboard. */}
             <Route path="/merchant" element={<RequireAuth role="merchant"><MerchantPortal /></RequireAuth>} />
             <Route path="/admin" element={<RequireAuth role="admin"><AdminPage /></RequireAuth>} />
+
+            {/* Services hub — public, icon cards linking to the 3 dedicated pages below,
+                which each carry the full preview content and link into /food, /shop, /book. */}
+            <Route path="/services" element={<ServicesPage />} />
+            <Route path="/services/food" element={<FoodServicePage />} />
+            <Route path="/services/shop" element={<ShopServicePage />} />
+            <Route path="/services/pick-drop" element={<PickDropServicePage />} />
 
             {/* Food Delivery — browsing is public; cart/checkout/orders need sign-in. */}
             <Route path="/food" element={<FoodHomePage />} />

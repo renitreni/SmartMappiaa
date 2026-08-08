@@ -1,3 +1,4 @@
+import { Link } from "react-router-dom";
 import { openLegalModal } from "../portal/lib/legal";
 import { COMPANY } from "../config/company";
 import { notifyUnderDevelopment } from "../portal/lib/notify";
@@ -8,20 +9,22 @@ const legalLinks = [
   { label: "Cookie Preferences", kind: null },
 ];
 
+// Absolute paths (not bare "#anchor") since Footer renders on more than one
+// route (/, /services) — see Navbar's menuLinks for the same reasoning.
 const exploreLinks = [
-  { label: "Features", href: "#features" },
-  { label: "How It Works", href: "#how-it-works" },
-  { label: "Restaurants", href: "#restaurants" },
-  { label: "Shop", href: "#shop" },
-  { label: "Pick & Drop", href: "#pick-drop" },
+  { label: "Our Services", href: "/services" },
+  { label: "Food Delivery", href: "/food" },
+  { label: "Shop", href: "/shop" },
+  { label: "Pick & Drop", href: "/book" },
+  { label: "How It Works", href: "/#how-it-works" },
 ];
 
 const companyLinks = [
-  { label: "About Us", href: "#about" },
+  { label: "About Us", href: "/#about" },
   { label: "Careers", href: "#" },
   { label: "Blog", href: "#" },
   { label: "Partners", href: "#" },
-  { label: "FAQ", href: "#faq" },
+  { label: "FAQ", href: "/#faq" },
 ];
 
 const socialLinks = [
@@ -48,13 +51,13 @@ const socialLinks = [
 ];
 
 const FooterLink = ({ href, children }) => (
-  <a
-    href={href}
+  <Link
+    to={href}
     className="text-sm text-white/55 hover:text-brand-orange transition-colors duration-200 inline-flex items-center gap-1 group"
   >
     <span className="w-0 group-hover:w-2 h-px bg-brand-orange transition-all duration-200" />
     {children}
-  </a>
+  </Link>
 );
 
 const Footer = () => {
@@ -132,7 +135,7 @@ const Footer = () => {
       <div className="relative z-10 max-w-7xl mx-auto px-6 md:px-8 pt-14 pb-10">
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-10 lg:gap-12">
           <div className="lg:col-span-2 flex flex-col gap-5">
-            <a href="#home" className="flex items-center gap-3 group w-fit">
+            <Link to="/" className="flex items-center gap-3 group w-fit">
               <div className="relative">
                 <div className="absolute inset-0 rounded-full bg-linear-to-br from-brand-orange to-brand-red blur-md opacity-40 group-hover:opacity-60 transition-opacity" />
                 <img
@@ -147,7 +150,7 @@ const Footer = () => {
                   Mappia
                 </span>
               </span>
-            </a>
+            </Link>
 
             <p className="text-sm leading-relaxed max-w-xs text-white/50">
               Order food, send packages, and book airport transfers, all in one app
