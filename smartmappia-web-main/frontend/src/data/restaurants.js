@@ -181,6 +181,22 @@ export const restaurants = [
     cover: false,
     tagline: "Isabela special dried seafoods",
   },
+  {
+    id: 11,
+    name: "Shamsieh Shöai Salami Meatshop",
+    cuisine: "Meatshop",
+    rating: "4.8",
+    reviews: "380",
+    time: "20-35 min",
+    timeShort: "25 min",
+    fee: "SAR 5 delivery",
+    tag: "New",
+    logo: "/brands/shamsieh-shoai-salami.png",
+    image: "/brands/shamsieh-shoai-salami.png",
+    bg: "#FFFFFF",
+    cover: false,
+    tagline: "Fresh meats & salami",
+  },
 ];
 
 export const flashingRestaurants = restaurants.slice(0, 4);
