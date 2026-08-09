@@ -67,6 +67,8 @@ router.post(
     delivery_address: { type: 'string', required: true, maxLength: 500 },
     delivery_lat: { type: 'number', required: true, min: -90, max: 90 },
     delivery_lng: { type: 'number', required: true, min: -180, max: 180 },
+    delivery_street: { type: 'string', maxLength: 200, nullable: true },
+    delivery_building: { type: 'string', maxLength: 100, nullable: true },
     contact_phone: { type: 'string', maxLength: 40, nullable: true },
     // Food is STC Pay only for now. Tap arrives via the gated
     // /orders/:code/tap-charge endpoint, never as a checkout method.

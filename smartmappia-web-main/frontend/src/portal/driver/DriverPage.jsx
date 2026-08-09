@@ -53,6 +53,7 @@ import DriverVerification from './DriverVerification';
 import DriverDispatch from './DriverDispatch';
 
 import { whatsappLink, googleMapsNavLink } from '../lib/constants';
+import { formatAddressDetail } from '../lib/address';
 import { notifyAlert } from '../lib/notify';
 
 import { PortalShell, Card, Badge, Spinner, btnPrimary } from '../components/ui';
@@ -190,11 +191,25 @@ function normRide(r) {
 
     pickupAddress,
 
+    // What the driver reads on screen: building/street first, then the
+    // geocoded address. Navigation still uses the coords, never this string.
+    pickupDisplay: formatAddressDetail({
+      street: r.pickupStreet || r.pickup_street,
+      building: r.pickupBuilding || r.pickup_building,
+      address: pickupAddress,
+    }),
+
     pickupLat: pickupCoords?.lat ?? null,
 
     pickupLng: pickupCoords?.lng ?? null,
 
     dropoffAddress,
+
+    dropoffDisplay: formatAddressDetail({
+      street: r.dropoffStreet || r.dropoff_street,
+      building: r.dropoffBuilding || r.dropoff_building,
+      address: dropoffAddress,
+    }),
 
     dropoffLat: dropoffCoords?.lat ?? null,
 
@@ -539,7 +554,7 @@ function ActiveRidePanel({ ride, here, busyCode, onAdvance, onCancel }) {
 
               <div className="text-[10px] font-bold text-brand-grey uppercase mb-0.5">Pickup · Client</div>
 
-              <div className="text-sm font-semibold text-brand-dark leading-snug">{ride.pickupAddress}</div>
+              <div className="text-sm font-semibold text-brand-dark leading-snug">{ride.pickupDisplay}</div>
 
             </div>
 
@@ -557,7 +572,7 @@ function ActiveRidePanel({ ride, here, busyCode, onAdvance, onCancel }) {
 
               <div className="text-[10px] font-bold text-brand-grey uppercase mb-0.5">Drop-off</div>
 
-              <div className="text-sm font-semibold text-brand-dark leading-snug">{ride.dropoffAddress}</div>
+              <div className="text-sm font-semibold text-brand-dark leading-snug">{ride.dropoffDisplay}</div>
 
             </div>
 
@@ -722,7 +737,7 @@ function RequestCard({ ride, dist, busyCode, onAccept }) {
 
           <MapPin className="w-4 h-4 text-blue-500 shrink-0 mt-0.5" />
 
-          <span className="line-clamp-2 leading-snug">{ride.pickupAddress}</span>
+          <span className="line-clamp-2 leading-snug">{ride.pickupDisplay}</span>
 
         </div>
 
@@ -730,7 +745,7 @@ function RequestCard({ ride, dist, busyCode, onAccept }) {
 
           <Flag className="w-4 h-4 text-brand-dark shrink-0 mt-0.5" />
 
-          <span className="line-clamp-1">{ride.dropoffAddress}</span>
+          <span className="line-clamp-1">{ride.dropoffDisplay}</span>
 
         </div>
 

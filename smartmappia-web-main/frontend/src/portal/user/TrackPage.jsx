@@ -11,6 +11,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { MessageCircle, X, MapPin, Flag, Navigation, Clock, RefreshCw, Car, Heart, Download, Banknote } from 'lucide-react';
 import { api } from '../lib/api';
+import { formatAddressDetail } from '../lib/address';
 import { downloadRideInvoice } from '../lib/invoice';
 import { useBroadcast } from '../lib/useBroadcast';
 import { realtimeEnabled } from '../lib/supabaseClient';
@@ -348,7 +349,11 @@ export default function TrackPage() {
                       booking_code: data.bookingCode || code,
                       trip_type: data.tripType,
                       pickup_address: data.pickupAddress,
+                      pickup_street: data.pickupStreet,
+                      pickup_building: data.pickupBuilding,
                       dropoff_address: data.dropoffAddress,
+                      dropoff_street: data.dropoffStreet,
+                      dropoff_building: data.dropoffBuilding,
                       pickup_datetime: data.pickupDatetime,
                       created_at: data.createdAt,
                       fare_amount: data.fareAmount,
@@ -379,14 +384,26 @@ export default function TrackPage() {
               <MapPin className="w-5 h-5 text-brand-orange shrink-0 mt-0.5" />
               <div className="min-w-0">
                 <div className="text-[10px] font-bold text-brand-grey uppercase">Pickup</div>
-                <div className="text-sm font-medium text-brand-dark">{data.pickupAddress}</div>
+                <div className="text-sm font-medium text-brand-dark">
+                  {formatAddressDetail({
+                    street: data.pickupStreet,
+                    building: data.pickupBuilding,
+                    address: data.pickupAddress,
+                  })}
+                </div>
               </div>
             </div>
             <div className="flex gap-3">
               <Flag className="w-5 h-5 text-brand-black shrink-0 mt-0.5" />
               <div className="min-w-0">
                 <div className="text-[10px] font-bold text-brand-grey uppercase">Drop-off</div>
-                <div className="text-sm font-medium text-brand-dark">{data.dropoffAddress}</div>
+                <div className="text-sm font-medium text-brand-dark">
+                  {formatAddressDetail({
+                    street: data.dropoffStreet,
+                    building: data.dropoffBuilding,
+                    address: data.dropoffAddress,
+                  })}
+                </div>
               </div>
             </div>
             <div className="flex justify-between pt-2 border-t border-brand-border text-sm">

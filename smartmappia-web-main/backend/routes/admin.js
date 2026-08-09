@@ -57,6 +57,8 @@ const ADMIN_MERCHANT_FIELDS = {
   description: { type: 'string', maxLength: 1000, nullable: true },
   logo_url: { type: 'string', maxLength: 500, nullable: true },
   address: { type: 'string', maxLength: 500, nullable: true },
+  street: { type: 'string', maxLength: 200, nullable: true },
+  building_number: { type: 'string', maxLength: 100, nullable: true },
   // Location is mandatory: absent keys are fine on a partial PATCH, but an
   // explicit null (clearing the pin) is rejected. Create requires both; a
   // merchant cannot be listed without a pin (see adminFoodController).
@@ -232,6 +234,8 @@ router.post(
     description: { type: 'string', maxLength: 2000, nullable: true },
     logo_url: { type: 'string', maxLength: 500, nullable: true },
     address: { type: 'string', maxLength: 500, nullable: true },
+    street: { type: 'string', maxLength: 200, nullable: true },
+    building_number: { type: 'string', maxLength: 100, nullable: true },
     lat: { type: 'number', min: -90, max: 90, nullable: true },
     lng: { type: 'number', min: -180, max: 180, nullable: true },
     is_active: { type: 'boolean' },
@@ -251,6 +255,8 @@ router.patch(
     description: { type: 'string', maxLength: 2000, nullable: true },
     logo_url: { type: 'string', maxLength: 500, nullable: true },
     address: { type: 'string', maxLength: 500, nullable: true },
+    street: { type: 'string', maxLength: 200, nullable: true },
+    building_number: { type: 'string', maxLength: 100, nullable: true },
     lat: { type: 'number', min: -90, max: 90, nullable: true },
     lng: { type: 'number', min: -180, max: 180, nullable: true },
     is_active: { type: 'boolean' },

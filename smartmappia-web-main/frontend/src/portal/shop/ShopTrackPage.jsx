@@ -9,6 +9,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { Phone, MessageCircle, ShoppingBag, MapPin, Clock } from 'lucide-react';
 import { api } from '../lib/api';
+import { formatAddressDetail } from '../lib/address';
 import { bearingDeg } from '../lib/geo';
 import { useBroadcast } from '../lib/useBroadcast';
 import {
@@ -297,7 +298,11 @@ export default function ShopTrackPage() {
         <p className="text-xs text-brand-grey mb-2">Delivering to</p>
         <p className="text-sm font-medium text-brand-dark flex gap-2">
           <MapPin className="w-4 h-4 shrink-0 mt-0.5 text-brand-grey" />
-          {order.delivery_address}
+          {formatAddressDetail({
+            street: order.delivery_street,
+            building: order.delivery_building,
+            address: order.delivery_address,
+          })}
         </p>
         <div className="mt-3">
           <EditableContact

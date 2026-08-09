@@ -40,7 +40,7 @@ const { passwordError } = require('../../lib/validate');
 const { resolveOwnerProfile } = require('../../lib/merchantOwner');
 
 const STORE_SELECT =
-  'id, name, vertical, cuisine_type, description, logo_url, address, lat, lng, is_active, status, ' +
+  'id, name, vertical, cuisine_type, description, logo_url, address, street, building_number, lat, lng, is_active, status, ' +
   'credit_limit, credit_used, is_featured, badge, owner_id, created_at';
 
 // Admin sees net_price. Nobody else does.
@@ -668,7 +668,7 @@ async function getInventory(req, res) {
 // --- Orders -----------------------------------------------------------
 const ADMIN_ORDER_SELECT =
   'id, order_code, status, subtotal, delivery_fee, platform_margin_total, vat_amount, vat_rate, ' +
-  'total, distance_km, delivery_address, contact_phone, payment_status, payment_method, ' +
+  'total, distance_km, delivery_address, delivery_street, delivery_building, contact_phone, payment_status, payment_method, ' +
   'gateway_transaction_id, reject_reason, stock_reserved_at, stock_released_at, created_at, ' +
   'accepted_at, packed_at, ready_at, delivered_at, ' +
   'merchants ( id, name ), ' +

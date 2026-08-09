@@ -617,6 +617,8 @@ function BusinessTab({ store, onSaved }) {
     description: store.description || '',
     logo_url: store.logoUrl || '',
     address: store.address || '',
+    street: store.street || '',
+    building_number: store.buildingNumber || '',
     lat: store.lat,
     lng: store.lng,
   });
@@ -630,7 +632,13 @@ function BusinessTab({ store, onSaved }) {
     }
     setBusy(true);
     try {
-      await api.merchantShopUpdateProfile(form);
+      // Blank optional text goes as null, never '' — every other write path
+      // does the same, and mixing the two makes later filters/exports wrong.
+      await api.merchantShopUpdateProfile({
+        ...form,
+        street: form.street.trim() || null,
+        building_number: form.building_number.trim() || null,
+      });
       notifySuccess('Store profile saved');
       onSaved();
     } catch {
@@ -677,10 +685,14 @@ function BusinessTab({ store, onSaved }) {
           placeholder="Search for your store address"
           address={form.address}
           coords={form.lat != null ? { lat: form.lat, lng: form.lng } : null}
-          onChange={({ address, coords }) =>
+          street={form.street}
+          buildingNumber={form.building_number}
+          onChange={({ address, coords, street, buildingNumber }) =>
             setForm((f) => ({
               ...f,
               address: address || '',
+              street: street || '',
+              building_number: buildingNumber || '',
               lat: coords ? coords.lat : null,
               lng: coords ? coords.lng : null,
             }))

@@ -23,6 +23,7 @@ import {
   Loader2,
 } from 'lucide-react';
 import { api } from '../lib/api';
+import { formatAddressDetail } from '../lib/address';
 import { useAuth } from '../lib/AuthProvider';
 import { useBroadcast } from '../lib/useBroadcast';
 import { realtimeEnabled } from '../lib/supabaseClient';
@@ -504,7 +505,11 @@ export default function FoodTrackPage() {
             <OrderMetaCard
               code={code}
               from={data.merchant?.name}
-              address={order.delivery_address}
+              address={formatAddressDetail({
+                street: order.delivery_street,
+                building: order.delivery_building,
+                address: order.delivery_address,
+              })}
               total={order.total}
             />
 
@@ -559,7 +564,12 @@ export default function FoodTrackPage() {
                 )}
               </div>
               <p className="text-xs text-brand-grey mt-3 flex items-center gap-1">
-                <MapPin className="w-3 h-3 shrink-0" /> {order.delivery_address}
+                <MapPin className="w-3 h-3 shrink-0" />{' '}
+                {formatAddressDetail({
+                  street: order.delivery_street,
+                  building: order.delivery_building,
+                  address: order.delivery_address,
+                })}
               </p>
             </Card>
           </>

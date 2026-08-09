@@ -36,6 +36,7 @@ const PAYABLE_STATUSES = ['awaiting', 'failed'];
 const ORDER_SELECT =
   'id, order_code, customer_id, merchant_id, status, subtotal, delivery_fee, delivery_surcharge, ' +
   'platform_margin_total, vat_amount, vat_rate, total, distance_km, delivery_address, delivery_lat, delivery_lng, ' +
+  'delivery_street, delivery_building, ' +
   'contact_phone, payment_status, payment_method, created_at, accepted_at, ready_at, delivered_at, reject_reason';
 
 // Statuses during which the customer may still edit their contact number.
@@ -210,6 +211,8 @@ async function checkout(req, res) {
         delivery_address: b.delivery_address,
         delivery_lat: b.delivery_lat ?? null,
         delivery_lng: b.delivery_lng ?? null,
+        delivery_street: b.delivery_street || null,
+        delivery_building: b.delivery_building || null,
         contact_phone: b.contact_phone || null,
         payment_method: b.payment_method || 'stcpay',
       })

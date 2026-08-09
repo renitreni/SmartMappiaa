@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { LocateFixed, MapPin, Search, Share2, X } from 'lucide-react';
+import { Check, LocateFixed, MapPin, Move, Search, Share2, X } from 'lucide-react';
 import { api } from '../lib/api';
 import { getCurrentPositionOnce, haversineKm } from '../lib/geo';
 import RideMap from './RideMap';
-import { btnGhost, btnPrimary, inputClass, Spinner } from './ui';
+import { btnGhost, btnPrimary, Field, inputClass, Spinner } from './ui';
 
 function mapsLink(coords) {
   if (!coords?.lat || !coords?.lng) return '';
@@ -15,6 +15,8 @@ export default function LocationPicker({
   placeholder = 'Search nearby locations',
   address,
   coords,
+  street,
+  buildingNumber,
   onChange,
   showMap = true,
   className = '',
@@ -26,6 +28,26 @@ export default function LocationPicker({
   const [locating, setLocating] = useState(false);
   const [copied, setCopied] = useState(false);
   const [error, setError] = useState(null);
+
+  // Street/building are fully controlled by the parent — no local mirror, so
+  // there is nothing to keep in sync and no stale copy to leak into onChange.
+  const streetInput = street || '';
+  const buildingInput = buildingNumber || '';
+
+  // Adjust-pin-on-map: a fixed pin sits at screen-center while the user pans
+  // the map underneath it (RideMap `interactive`); nothing is committed to
+  // onChange until "Confirm this location" — cancelling leaves address/coords
+  // exactly as they were.
+  const [adjusting, setAdjusting] = useState(false);
+  const [pendingCoords, setPendingCoords] = useState(null);
+  const [pendingAddress, setPendingAddress] = useState('');
+  const [pendingLoading, setPendingLoading] = useState(false);
+  const [pendingFailed, setPendingFailed] = useState(false);
+  // Frozen at open: the map reads its camera once at creation, so this must
+  // not follow `coords` afterwards or the map would recentre mid-adjust.
+  const [adjustSeed, setAdjustSeed] = useState(null);
+  const lastReverseRef = useRef(null);
+  const reverseSeqRef = useRef(0);
 
   useEffect(() => {
     setQuery(address || '');
@@ -134,7 +156,7 @@ export default function LocationPicker({
         return;
       }
       setQuery(finalAddress);
-      onChange?.({ address: finalAddress, coords: coordsOut });
+      onChange?.({ address: finalAddress, coords: coordsOut, street: streetInput, buildingNumber: buildingInput });
     } catch (err) {
       setError(err.message || 'Could not pin that place.');
     } finally {
@@ -159,7 +181,7 @@ export default function LocationPicker({
         /* GPS still works even if reverse geocoding fails. */
       }
       setQuery(nextAddress);
-      onChange?.({ address: nextAddress, coords: nextCoords });
+      onChange?.({ address: nextAddress, coords: nextCoords, street: streetInput, buildingNumber: buildingInput });
     } catch (err) {
       setError(err.message || 'Could not get your location. Please allow location access and try again.');
     } finally {
@@ -180,6 +202,94 @@ export default function LocationPicker({
     }
   }
 
+  function handleStreetChange(value) {
+    onChange?.({ address, coords, street: value, buildingNumber: buildingInput });
+  }
+
+  function handleBuildingChange(value) {
+    onChange?.({ address, coords, street: streetInput, buildingNumber: value });
+  }
+
+  // --- Adjust pin on map: fixed center pin, user pans the map underneath it.
+  function startAdjusting() {
+    const seed = coords?.lat && coords?.lng ? { lat: coords.lat, lng: coords.lng } : null;
+    setPendingCoords(seed);
+    setPendingAddress(address || '');
+    // The map is created at this center, so the opening `idle` reports it back
+    // — recording it here is what lets handleMapIdle skip that first lookup.
+    lastReverseRef.current = seed;
+    setAdjustSeed(seed);
+    setAdjusting(true);
+  }
+
+  function cancelAdjusting() {
+    setAdjusting(false);
+    setPendingCoords(null);
+    setPendingAddress('');
+    setPendingFailed(false);
+    lastReverseRef.current = null;
+  }
+
+  // When the lookup fails we still have exact coordinates, and coordinates are
+  // what the driver actually navigates by — so show those rather than a vague
+  // label. "Pinned location" alone would reach the rider as a delivery address
+  // that names nowhere.
+  function coordLabel({ lat, lng }) {
+    return `Dropped pin (${lat.toFixed(5)}, ${lng.toFixed(5)})`;
+  }
+
+  // Fires once per pan/zoom gesture (Maps JS `idle`), never mid-drag — see
+  // GoogleMap.jsx's comment on why `idle` and not `center_changed`.
+  async function handleMapIdle({ lat, lng }) {
+    setPendingCoords({ lat, lng });
+    // The map fires `idle` once on open too. That first center is the pin we
+    // just seeded, so re-geocoding it would spend a call to relabel it with
+    // what it already says.
+    const last = lastReverseRef.current;
+    if (last && (haversineKm(last, { lat, lng }) ?? 1) < 0.01) return;
+    lastReverseRef.current = { lat, lng };
+
+    // Pans can outrun their reverse lookups: without this only the newest
+    // request may write, or a slow first response would relabel a pin the
+    // user has already moved on from.
+    const seq = reverseSeqRef.current + 1;
+    reverseSeqRef.current = seq;
+    setPendingLoading(true);
+    try {
+      const data = await api.locationReverse(lat, lng);
+      if (reverseSeqRef.current !== seq) return;
+      const resolved = data.place?.address || data.place?.name || '';
+      setPendingAddress(resolved || coordLabel({ lat, lng }));
+      setPendingFailed(!resolved);
+    } catch {
+      // Geocoding is down, rate-limited, or the spot has no street address.
+      // The pin is still valid, so let them commit it — just never pretend we
+      // resolved a name we did not.
+      if (reverseSeqRef.current === seq) {
+        setPendingAddress(coordLabel({ lat, lng }));
+        setPendingFailed(true);
+      }
+    } finally {
+      if (reverseSeqRef.current === seq) setPendingLoading(false);
+    }
+  }
+
+  function confirmAdjusting() {
+    if (!pendingCoords) return;
+    const finalAddress = pendingAddress || coordLabel(pendingCoords);
+    setQuery(finalAddress);
+    onChange?.({
+      address: finalAddress,
+      coords: pendingCoords,
+      street: streetInput,
+      buildingNumber: buildingInput,
+    });
+    setAdjusting(false);
+    setPendingCoords(null);
+    setPendingAddress('');
+    setPendingFailed(false);
+  }
+
   return (
     <div className={`space-y-3 ${className}`}>
       <div>
@@ -195,7 +305,7 @@ export default function LocationPicker({
               setQuery(e.target.value);
               // A hand-typed string is not a geocoded point — drop any stale coords so
               // coordinates only ever come from picking a result or "Use current location".
-              onChange?.({ address: e.target.value, coords: null });
+              onChange?.({ address: e.target.value, coords: null, street: streetInput, buildingNumber: buildingInput });
             }}
             placeholder={placeholder}
           />
@@ -205,7 +315,7 @@ export default function LocationPicker({
               onClick={() => {
                 setQuery('');
                 setResults([]);
-                onChange?.({ address: '', coords: null });
+                onChange?.({ address: '', coords: null, street: streetInput, buildingNumber: buildingInput });
               }}
               className="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 rounded-lg text-brand-grey hover:bg-brand-surface"
               aria-label="Clear location"
@@ -214,6 +324,25 @@ export default function LocationPicker({
             </button>
           )}
         </div>
+      </div>
+
+      <div className="grid grid-cols-2 gap-2">
+        <Field label="Street (optional)">
+          <input
+            className={inputClass}
+            value={streetInput}
+            onChange={(e) => handleStreetChange(e.target.value)}
+            placeholder="e.g. King Fahd Rd"
+          />
+        </Field>
+        <Field label="Building / house no. (optional)">
+          <input
+            className={inputClass}
+            value={buildingInput}
+            onChange={(e) => handleBuildingChange(e.target.value)}
+            placeholder="e.g. 12"
+          />
+        </Field>
       </div>
 
       <div className="flex flex-col sm:flex-row gap-2">
@@ -248,7 +377,47 @@ export default function LocationPicker({
         </div>
       )}
 
-      {showMap && (
+      {showMap && adjusting && (
+        <div className="space-y-2">
+          <RideMap markers={[]} height={260} interactive onIdle={handleMapIdle} initialCenter={adjustSeed}>
+            <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+              <MapPin
+                className="w-9 h-9 text-brand-orange -translate-y-1/2 drop-shadow-md"
+                fill="currentColor"
+                strokeWidth={1.5}
+              />
+            </div>
+            <span className="absolute top-3 left-1/2 -translate-x-1/2 bg-white/95 backdrop-blur-sm border border-brand-border rounded-lg px-3 py-1.5 text-[11px] font-bold text-brand-dark shadow-sm pointer-events-none">
+              Drag the map to move the pin
+            </span>
+          </RideMap>
+          <p className="text-xs text-brand-grey min-h-[1em]">
+            {pendingLoading ? 'Locating...' : pendingAddress || 'Pan the map to drop the pin.'}
+          </p>
+          {pendingFailed && !pendingLoading && (
+            <p className="text-xs font-bold text-amber-700">
+              We could not look up a street name here. The pin itself is still exact — add the
+              street and building number above so your rider can find you.
+            </p>
+          )}
+          <div className="flex gap-2">
+            <button type="button" onClick={cancelAdjusting} className={btnGhost + ' flex-1'}>
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={confirmAdjusting}
+              disabled={!pendingCoords}
+              className={btnPrimary + ' flex-1'}
+            >
+              <Check className="w-4 h-4" />
+              Confirm this location
+            </button>
+          </div>
+        </div>
+      )}
+
+      {showMap && !adjusting && (
         <div className="space-y-2">
           <RideMap
             markers={markers}
@@ -257,7 +426,16 @@ export default function LocationPicker({
               coords && { glyph: 'H', color: '#FF7E21', label: 'Selected location' },
               nearby.length > 0 && { glyph: '•', color: '#2563EB', label: 'Nearby places' },
             ].filter(Boolean)}
-          />
+          >
+            <button
+              type="button"
+              onClick={startAdjusting}
+              className="absolute top-3 right-3 z-[400] inline-flex items-center gap-1.5 bg-white/95 backdrop-blur-sm border border-brand-border rounded-lg px-2.5 py-1.5 text-[11px] font-bold text-brand-dark shadow-sm hover:bg-brand-surface"
+            >
+              <Move className="w-3.5 h-3.5 text-brand-orange" />
+              Adjust pin
+            </button>
+          </RideMap>
           <p className="text-xs text-brand-grey">
             {nearby.length > 0
               ? `${nearby.length} nearby places found around this pin.`

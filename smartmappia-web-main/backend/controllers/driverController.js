@@ -60,8 +60,8 @@ async function listAvailableRides(req, res) {
     const { data, error } = await supabase
       .from('bookings')
       .select(
-        'booking_code, trip_type, airport_terminal, pickup_address, pickup_lat, pickup_lng, ' +
-          'dropoff_address, dropoff_lat, dropoff_lng, pickup_datetime, fare_amount, currency, ' +
+        'booking_code, trip_type, airport_terminal, pickup_address, pickup_street, pickup_building, pickup_lat, pickup_lng, ' +
+          'dropoff_address, dropoff_street, dropoff_building, dropoff_lat, dropoff_lng, pickup_datetime, fare_amount, currency, ' +
           'payment_method, created_at'
       )
       // Cash bookings are confirmed up front (no online payment to verify),
@@ -382,8 +382,8 @@ async function listMyRides(req, res) {
     let query = supabase
       .from('bookings')
       .select(
-        'booking_code, trip_type, airport_terminal, pickup_address, pickup_lat, pickup_lng, ' +
-          'dropoff_address, dropoff_lat, dropoff_lng, pickup_datetime, passenger_name, ' +
+        'booking_code, trip_type, airport_terminal, pickup_address, pickup_street, pickup_building, pickup_lat, pickup_lng, ' +
+          'dropoff_address, dropoff_street, dropoff_building, dropoff_lat, dropoff_lng, pickup_datetime, passenger_name, ' +
           'passenger_mobile, passenger_whatsapp, fare_amount, currency, booking_status, driver_ride_status, created_at'
       )
       .eq('assigned_driver_id', req.driverId)

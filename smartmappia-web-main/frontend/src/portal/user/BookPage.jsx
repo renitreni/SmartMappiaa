@@ -48,6 +48,8 @@ export default function BookPage() {
   const [airport, setAirport] = useState(AIRPORTS[0]);
   const [homeAddress, setHomeAddress] = useState('');
   const [homeCoords, setHomeCoords] = useState(null);
+  const [homeStreet, setHomeStreet] = useState('');
+  const [homeBuilding, setHomeBuilding] = useState('');
   const [datetime, setDatetime] = useState('');
   const [name, setName] = useState('');
   const [whatsapp, setWhatsapp] = useState('');
@@ -103,8 +105,16 @@ export default function BookPage() {
     if (!homePoint?.lat || !homePoint?.lng) {
       return setError('Please select your address from the suggestions or use current location.');
     }
-    const home = { address: homeAddress, lat: homePoint.lat, lng: homePoint.lng };
-    const air = { address: airport.name, lat: airport.lat, lng: airport.lng };
+    // Street/building describe the customer's own address, so they follow the
+    // home leg — pickup or dropoff depending on the trip direction.
+    const home = {
+      address: homeAddress,
+      lat: homePoint.lat,
+      lng: homePoint.lng,
+      street: homeStreet.trim() || null,
+      building: homeBuilding.trim() || null,
+    };
+    const air = { address: airport.name, lat: airport.lat, lng: airport.lng, street: null, building: null };
     const toAirport = direction === 'house_to_airport';
     const pickup = toAirport ? home : air;
     const dropoff = toAirport ? air : home;
@@ -117,9 +127,13 @@ export default function BookPage() {
         pickup_address: pickup.address,
         pickup_lat: pickup.lat,
         pickup_lng: pickup.lng,
+        pickup_street: pickup.street,
+        pickup_building: pickup.building,
         dropoff_address: dropoff.address,
         dropoff_lat: dropoff.lat,
         dropoff_lng: dropoff.lng,
+        dropoff_street: dropoff.street,
+        dropoff_building: dropoff.building,
         pickup_datetime: new Date(datetime).toISOString(),
         passenger_name: name,
         passenger_whatsapp: whatsapp,
@@ -247,10 +261,14 @@ export default function BookPage() {
                 placeholder="Search nearby places, streets, or districts"
                 address={homeAddress}
                 coords={homeCoords}
+                street={homeStreet}
+                buildingNumber={homeBuilding}
                 showMap={false}
-                onChange={({ address: nextAddress, coords: nextCoords }) => {
+                onChange={({ address: nextAddress, coords: nextCoords, street: nextStreet, buildingNumber: nextBuilding }) => {
                   setHomeAddress(nextAddress);
                   setHomeCoords(nextCoords);
+                  setHomeStreet(nextStreet || '');
+                  setHomeBuilding(nextBuilding || '');
                 }}
               />
               {homePoint && <LocationHint active lat={homePoint.lat} lng={homePoint.lng} />}

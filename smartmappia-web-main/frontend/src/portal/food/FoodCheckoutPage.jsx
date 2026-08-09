@@ -32,6 +32,8 @@ export default function FoodCheckoutPage() {
   const [loadErr, setLoadErr] = useState(null);
   const [address, setAddress] = useState('');
   const [coords, setCoords] = useState(null); // { lat, lng }
+  const [street, setStreet] = useState('');
+  const [buildingNumber, setBuildingNumber] = useState('');
   const [contactPhone, setContactPhone] = useState(profile?.mobile || '');
   const [method, setMethod] = useState('stcpay');
   const [error, setError] = useState(null);
@@ -64,6 +66,8 @@ export default function FoodCheckoutPage() {
           delivery_address: address.trim(),
           delivery_lat: coords.lat,
           delivery_lng: coords.lng,
+          delivery_street: street.trim() || null,
+          delivery_building: buildingNumber.trim() || null,
           contact_phone: contactPhone.trim(),
           payment_method: method,
         },
@@ -158,9 +162,13 @@ export default function FoodCheckoutPage() {
                 placeholder="Search nearby places, streets, or districts"
                 address={address}
                 coords={coords}
-                onChange={({ address: nextAddress, coords: nextCoords }) => {
+                street={street}
+                buildingNumber={buildingNumber}
+                onChange={({ address: nextAddress, coords: nextCoords, street: nextStreet, buildingNumber: nextBuilding }) => {
                   setAddress(nextAddress);
                   setCoords(nextCoords);
+                  setStreet(nextStreet || '');
+                  setBuildingNumber(nextBuilding || '');
                 }}
               />
               <p className="text-xs text-brand-grey">

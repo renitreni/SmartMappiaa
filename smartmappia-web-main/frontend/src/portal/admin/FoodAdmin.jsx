@@ -165,7 +165,8 @@ function Stat({ label, value, accent = false }) {
 
 // --- Restaurant create/edit form ------------------------------------------
 const EMPTY_RESTAURANT = {
-  name: '', cuisine_type: '', description: '', address: '', logo_url: '', lat: '', lng: '',
+  name: '', cuisine_type: '', description: '', address: '', street: '', building_number: '',
+  logo_url: '', lat: '', lng: '',
   is_active: false, is_featured: false, badge: '',
 };
 
@@ -198,6 +199,8 @@ function RestaurantForm({ initial, onSave, onCancel, busy, merchantId }) {
       cuisine_type: form.cuisine_type.trim() || null,
       description: form.description.trim() || null,
       address: form.address.trim() || null,
+      street: (form.street || '').trim() || null,
+      building_number: (form.building_number || '').trim() || null,
       logo_url: form.logo_url.trim() || null,
       lat: form.lat === '' || form.lat == null ? null : Number(form.lat),
       lng: form.lng === '' || form.lng == null ? null : Number(form.lng),
@@ -231,10 +234,14 @@ function RestaurantForm({ initial, onSave, onCancel, busy, merchantId }) {
           placeholder="Search the restaurant's street, district, or name"
           address={form.address || ''}
           coords={hasPin ? { lat: Number(form.lat), lng: Number(form.lng) } : null}
-          onChange={({ address: nextAddress, coords: nextCoords }) => {
+          street={form.street || ''}
+          buildingNumber={form.building_number || ''}
+          onChange={({ address: nextAddress, coords: nextCoords, street: nextStreet, buildingNumber: nextBuilding }) => {
             setForm((f) => ({
               ...f,
               address: nextAddress,
+              street: nextStreet || '',
+              building_number: nextBuilding || '',
               lat: nextCoords?.lat ?? '',
               lng: nextCoords?.lng ?? '',
             }));
@@ -727,6 +734,8 @@ function MerchantsSection({ onError }) {
                     cuisine_type: editing.cuisineType,
                     description: editing.description,
                     address: editing.address,
+                    street: editing.street || '',
+                    building_number: editing.buildingNumber || '',
                     logo_url: editing.logoUrl,
                     lat: editing.lat,
                     lng: editing.lng,

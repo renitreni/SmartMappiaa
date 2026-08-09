@@ -7,7 +7,9 @@
 //
 // The prop contract is unchanged from the old Leaflet/MapLibre versions —
 // markers, line, height, className, legend, follow, followTarget — so no
-// consumer ever needs to know the engine swapped.
+// consumer ever needs to know the engine swapped. `interactive` + `onIdle`
+// are new: they opt into free panning with a center-idle callback, for the
+// "adjust pin on map" flow (LocationPicker draws its own fixed center pin).
 // ---------------------------------------------------------------------
 import { lazy, Suspense } from 'react';
 
@@ -44,6 +46,10 @@ export default function RideMap({
   legend = null,
   follow = false,
   followTarget = null,
+  interactive = false,
+  onIdle = null,
+  initialCenter = null,
+  children = null,
 }) {
   return (
     <div
@@ -53,10 +59,19 @@ export default function RideMap({
       <Suspense
         fallback={<div className="w-full h-full animate-pulse" style={{ background: '#F3F4F6' }} />}
       >
-        <GoogleMap markers={markers} line={line} follow={follow} followTarget={followTarget} />
+        <GoogleMap
+          markers={markers}
+          line={line}
+          follow={follow}
+          followTarget={followTarget}
+          interactive={interactive}
+          onIdle={onIdle}
+          initialCenter={initialCenter}
+        />
       </Suspense>
 
       {legend && <MapLegend items={legend} />}
+      {children}
     </div>
   );
 }

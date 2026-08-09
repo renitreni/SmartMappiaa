@@ -1,6 +1,7 @@
 // ---------------------------------------------------------------------
 // The Google Maps renderer behind RideMap (replaces the MapLibre engine).
-// Same prop subset RideMap forwards: markers, line, follow, followTarget.
+// Same prop subset RideMap forwards: markers, line, follow, followTarget,
+// interactive, onIdle.
 // This is the LAZY CHUNK: the Google Maps JS API is loaded here (via a small
 // self-contained script loader) so only map screens pull it in. One SDK serves
 // both the website and the Capacitor APK webview — no native Google Maps SDK.
@@ -83,6 +84,9 @@ export default function GoogleMap({
   line = null,
   follow = false,
   followTarget = null,
+  interactive = false,
+  onIdle = null,
+  initialCenter = null,
 }) {
   const containerRef = useRef(null);
   const mapRef = useRef(null);
@@ -94,8 +98,13 @@ export default function GoogleMap({
   const lastFixAtRef = useRef(null); // when the previous fix landed, to size the tween
   const rafRef = useRef(null);
   const didFollowFitRef = useRef(false);
+  const onIdleRef = useRef(onIdle);
   const [ready, setReady] = useState(false);
   const [failed, setFailed] = useState(false);
+
+  useEffect(() => {
+    onIdleRef.current = onIdle;
+  }, [onIdle]);
 
   const valid = markers.filter((m) => m && m.lat != null && m.lng != null);
   const driver = valid.find((m) => m.type === 'driver') || null;
@@ -124,10 +133,14 @@ export default function GoogleMap({
       .then((g) => {
         if (cancelled || !containerRef.current) return;
         gRef.current = g;
-        const first = valid[0] || RIYADH_CENTER;
+        // initialCenter matters most in interactive mode: there are no markers
+        // to derive a camera from and the fit-all effect is suppressed, so
+        // without it the map would open over RIYADH_CENTER regardless of where
+        // the caller's pin actually is.
+        const first = initialCenter || valid[0] || RIYADH_CENTER;
         const map = new g.Map(containerRef.current, {
           center: { lat: first.lat, lng: first.lng },
-          zoom: 12,
+          zoom: initialCenter ? 16 : 12,
           mapId: MAP_ID,
           disableDefaultUI: true,
           zoomControl: true,
@@ -323,12 +336,30 @@ export default function GoogleMap({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [lineSig, ready]);
 
-  // --- 5. Camera: fit-all (default) ------------------------------------------
+  // --- 5. Interactive mode: report the center once panning/zooming settles ---
+  // Used by LocationPicker's "adjust pin on map" flow — a fixed pin sits at
+  // screen-center (drawn by the caller, not a marker here) and the user pans
+  // the map underneath it. `idle` (not `center_changed`) fires once per
+  // gesture, after the map stops moving, so this can't spam reverse-geocode
+  // on every intermediate frame of a drag.
+  useEffect(() => {
+    const map = mapRef.current;
+    const g = gRef.current;
+    if (!ready || !map || !g || !interactive) return undefined;
+    const listener = g.event.addListener(map, 'idle', () => {
+      const center = map.getCenter();
+      if (center) onIdleRef.current?.({ lat: center.lat(), lng: center.lng() });
+    });
+    return () => listener.remove();
+  }, [ready, interactive]);
+
+  // --- 6. Camera: fit-all (default) ------------------------------------------
+  // Skipped in interactive mode: fitBounds would fight the user's own panning.
   const pointsSig = JSON.stringify(valid.map((p) => [p.lat, p.lng]));
   useEffect(() => {
     const map = mapRef.current;
     const g = gRef.current;
-    if (!ready || !map || !g || (follow && driver) || valid.length === 0) return;
+    if (!ready || !map || !g || interactive || (follow && driver) || valid.length === 0) return;
     if (valid.length === 1) {
       map.setCenter({ lat: valid[0].lat, lng: valid[0].lng });
       map.setZoom(14);
@@ -353,9 +384,9 @@ export default function GoogleMap({
     map.fitBounds(bounds, 48);
     capZoomOnce(map, g);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pointsSig, follow, !!driver, ready]);
+  }, [pointsSig, follow, !!driver, ready, interactive]);
 
-  // --- 6. Camera: follow the driver + leg target -----------------------------
+  // --- 7. Camera: follow the driver + leg target -----------------------------
   useEffect(() => {
     if (!follow) didFollowFitRef.current = false;
   }, [follow]);
@@ -363,7 +394,7 @@ export default function GoogleMap({
   useEffect(() => {
     const map = mapRef.current;
     const g = gRef.current;
-    if (!ready || !map || !g || !follow || !driver) return;
+    if (!ready || !map || !g || !follow || !driver || interactive) return;
     const hasTarget = followTarget && followTarget.lat != null && followTarget.lng != null;
 
     // Test/teleport data on far-apart points: stay local, don't world-zoom.
@@ -395,7 +426,7 @@ export default function GoogleMap({
     // Subsequent pings: gentle pan to the driver, keeping the current zoom.
     map.panTo({ lat: driver.lat, lng: driver.lng });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [follow, driver?.lat, driver?.lng, followTarget?.lat, followTarget?.lng, ready]);
+  }, [follow, driver?.lat, driver?.lng, followTarget?.lat, followTarget?.lng, ready, interactive]);
 
   if (failed) {
     return (

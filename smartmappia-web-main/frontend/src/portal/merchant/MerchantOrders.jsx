@@ -35,6 +35,8 @@ function toInvoiceOrder(o) {
     payment_status: o.paymentStatus,
     payment_method: o.paymentMethod,
     delivery_address: o.deliveryAddress,
+    delivery_street: o.deliveryStreet,
+    delivery_building: o.deliveryBuilding,
   };
 }
 

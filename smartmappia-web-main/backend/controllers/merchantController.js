@@ -15,7 +15,7 @@ const { validateImageFile, validateMenuImageFile } = require('../lib/uploadValid
 const { normalizeSizeOptions } = require('../lib/foodSizes');
 
 const MERCHANT_SELECT =
-  'id, name, vertical, cuisine_type, description, logo_url, address, lat, lng, ' +
+  'id, name, vertical, cuisine_type, description, logo_url, address, street, building_number, lat, lng, ' +
   'is_active, status, credit_limit, credit_used, is_featured, badge, created_at';
 
 async function loadOwnedMerchant(ownerId) {
@@ -40,6 +40,8 @@ function merchantView(m) {
     description: m.description,
     logoUrl: m.logo_url,
     address: m.address,
+    street: m.street,
+    buildingNumber: m.building_number,
     lat: m.lat,
     lng: m.lng,
     isActive: m.is_active,
@@ -95,6 +97,8 @@ async function updateProfile(req, res) {
         description: req.body.description ?? null,
         logo_url: req.body.logo_url ?? null,
         address: req.body.address ?? null,
+        street: req.body.street ?? null,
+        building_number: req.body.building_number ?? null,
         lat: req.body.lat,
         lng: req.body.lng,
       })
