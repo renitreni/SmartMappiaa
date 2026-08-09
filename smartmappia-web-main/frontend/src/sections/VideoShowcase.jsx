@@ -103,7 +103,7 @@ const VideoShowcase = () => {
           <div className="relative w-full aspect-video rounded-3xl overflow-hidden border border-white/10 shadow-2xl shadow-black/40 group">
             <video
               ref={videoRef}
-              src="/New%20Image/SMARTMAPPIAADS.mp4"
+              src="/media/smartmappia-ads.mp4"
               autoPlay
               loop
               muted

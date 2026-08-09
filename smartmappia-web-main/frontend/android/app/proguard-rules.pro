@@ -1,21 +1,43 @@
-# Add project specific ProGuard rules here.
-# You can control the set of applied configuration files using the
-# proguardFiles setting in build.gradle.
+# ---------------------------------------------------------------------
+# R8 rules for the Capacitor shell.
 #
-# For more details, see
-#   http://developer.android.com/guide/developing/tools/proguard.html
+# Capacitor never calls its plugins directly: the bridge scans for the
+# @CapacitorPlugin annotation and invokes @PluginMethod members reflectively
+# from JavaScript. R8 sees no caller for any of it and, left alone, strips or
+# renames the lot — the app then launches to a white screen with no Java
+# stack trace, because nothing actually threw on the native side.
+#
+# Anything reachable only from JavaScript has to be named here.
+# ---------------------------------------------------------------------
 
-# If your project uses WebView with JS, uncomment the following
-# and specify the fully qualified class name to the JavaScript interface
-# class:
-#-keepclassmembers class fqcn.of.javascript.interface.for.webview {
-#   public *;
-#}
+# Annotations drive the plugin lookup, so they must survive minification.
+-keepattributes *Annotation*
 
-# Uncomment this to preserve the line number information for
-# debugging stack traces.
-#-keepattributes SourceFile,LineNumberTable
+# Keep line numbers in release stack traces. Without SourceFile the traces
+# Play Console shows are unreadable; renamesourcefileattribute hides the
+# original filenames while keeping the numbers useful.
+-keepattributes SourceFile,LineNumberTable
+-renamesourcefileattribute SourceFile
 
-# If you keep the line number information, uncomment this to
-# hide the original source file name.
-#-renamesourcefileattribute SourceFile
+# The bridge itself and every plugin the bridge resolves by reflection.
+-keep class com.getcapacitor.** { *; }
+-keep @com.getcapacitor.annotation.CapacitorPlugin class * { *; }
+-keep class * extends com.getcapacitor.Plugin { *; }
+-keepclassmembers class * extends com.getcapacitor.Plugin {
+    @com.getcapacitor.PluginMethod public <methods>;
+}
+
+# @capacitor/geolocation, and any plugin added later, land in these packages.
+-keep class com.capacitorjs.plugins.** { *; }
+
+# Cordova plugins bridged in through capacitor-cordova-android-plugins.
+-keep class org.apache.cordova.** { *; }
+
+# Anything the WebView calls straight into.
+-keepclassmembers class * {
+    @android.webkit.JavascriptInterface <methods>;
+}
+
+# Capacitor parses plugin call payloads with these; both use reflection.
+-keep class org.json.** { *; }
+-dontwarn com.getcapacitor.**

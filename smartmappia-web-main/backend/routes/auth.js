@@ -8,6 +8,7 @@ const {
   syncProfile,
   updateProfile,
   createAvatarUploadUrlHandler,
+  deleteAccount,
 } = require('../controllers/authController');
 
 // POST /api/auth/signup -> create an account pre-confirmed (no email step).
@@ -41,5 +42,9 @@ router.post(
   }),
   createAvatarUploadUrlHandler
 );
+
+// DELETE /api/auth/account -> permanent account deletion, required by both
+// app stores. Needs migration 0036 applied first.
+router.delete('/account', requireAuth, deleteAccount);
 
 module.exports = router;

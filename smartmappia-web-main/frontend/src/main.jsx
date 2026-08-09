@@ -33,6 +33,9 @@ import ShopTrackPage from './portal/shop/ShopTrackPage.jsx'
 import NotificationsPage from './portal/user/NotificationsPage.jsx'
 import TransactionsPage from './portal/user/TransactionsPage.jsx'
 import ProfilePage from './portal/user/ProfilePage.jsx'
+import LegalDocPage from './pages/legal/LegalDocPage.jsx'
+import HelpCenterPage from './pages/legal/HelpCenterPage.jsx'
+import AccountDeletionPage from './pages/legal/AccountDeletionPage.jsx'
 import ServicesPage from './pages/ServicesPage.jsx'
 import FoodServicePage from './pages/services/FoodServicePage.jsx'
 import ShopServicePage from './pages/services/ShopServicePage.jsx'
@@ -99,6 +102,13 @@ createRoot(document.getElementById('root')).render(
                 lazy-loads either the restaurant or the store dashboard. */}
             <Route path="/merchant" element={<RequireAuth role="merchant"><MerchantPortal /></RequireAuth>} />
             <Route path="/admin" element={<RequireAuth role="admin"><AdminPage /></RequireAuth>} />
+
+            {/* Legal — must stay public. Store reviewers open the privacy URL logged
+                out, and Play requires a deletion page reachable after uninstalling. */}
+            <Route path="/privacy-policy" element={<LegalDocPage kind="privacy" />} />
+            <Route path="/terms-of-service" element={<LegalDocPage kind="terms" />} />
+            <Route path="/help-center" element={<HelpCenterPage />} />
+            <Route path="/account-deletion" element={<AccountDeletionPage />} />
 
             {/* Services hub — public, icon cards linking to the 3 dedicated pages below,
                 which each carry the full preview content and link into /food, /shop, /book. */}
