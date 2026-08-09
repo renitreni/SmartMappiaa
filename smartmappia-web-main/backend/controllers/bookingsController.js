@@ -46,6 +46,19 @@ async function createBooking(req, res) {
     if (![b.pickup_lat, b.pickup_lng, b.dropoff_lat, b.dropoff_lng].every(numOrNull)) {
       errors.push('coordinates must be numbers');
     }
+    // This route has no validateBody schema, so the optional address details
+    // are capped here — same limits the food/shop/merchant schemas use. They
+    // reach the driver card and the PDF invoice, so an uncapped string would
+    // land straight in both.
+    for (const [field, max] of [
+      ['pickup_street', 200], ['pickup_building', 100],
+      ['dropoff_street', 200], ['dropoff_building', 100],
+    ]) {
+      const v = b[field];
+      if (v != null && (typeof v !== 'string' || v.length > max)) {
+        errors.push(`${field} must be a string of at most ${max} characters`);
+      }
+    }
     // Tap isn't live yet: rides are manual STC Pay or cash to the driver.
     const paymentMethod = b.payment_method ?? 'stcpay_manual';
     if (!['stcpay_manual', 'cash'].includes(paymentMethod)) {
@@ -85,9 +98,13 @@ async function createBooking(req, res) {
         pickup_address: b.pickup_address,
         pickup_lat: b.pickup_lat ?? null,
         pickup_lng: b.pickup_lng ?? null,
+        pickup_street: b.pickup_street || null,
+        pickup_building: b.pickup_building || null,
         dropoff_address: b.dropoff_address,
         dropoff_lat: b.dropoff_lat ?? null,
         dropoff_lng: b.dropoff_lng ?? null,
+        dropoff_street: b.dropoff_street || null,
+        dropoff_building: b.dropoff_building || null,
         pickup_datetime: b.pickup_datetime,
         passenger_count: b.passenger_count ?? 1,
         luggage_count: b.luggage_count ?? 0,
@@ -192,6 +209,7 @@ async function listMyBookings(req, res) {
       .from('bookings')
       .select(
         'booking_code, trip_type, airport_terminal, pickup_address, dropoff_address, ' +
+          'pickup_street, pickup_building, dropoff_street, dropoff_building, ' +
           'pickup_datetime, fare_amount, vat_amount, vat_rate, total_amount, currency, ' +
           'payment_status, payment_method, booking_status, driver_ride_status, created_at'
       )
@@ -216,6 +234,7 @@ async function getBookingByCode(req, res) {
       .from('bookings')
       .select(
         'booking_code, trip_type, airport_terminal, pickup_address, dropoff_address, ' +
+          'pickup_street, pickup_building, dropoff_street, dropoff_building, ' +
           'pickup_datetime, fare_amount, vat_amount, vat_rate, total_amount, currency, ' +
           'payment_status, booking_status'
       )

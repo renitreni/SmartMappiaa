@@ -45,6 +45,8 @@ export default function ShopCheckoutPage() {
   const [loading, setLoading] = useState(true);
   const [address, setAddress] = useState('');
   const [point, setPoint] = useState(null);
+  const [street, setStreet] = useState('');
+  const [buildingNumber, setBuildingNumber] = useState('');
   const [phone, setPhone] = useState(profile?.mobile || '');
   const [method, setMethod] = useState('stcpay');
   const [busy, setBusy] = useState(false);
@@ -85,6 +87,8 @@ export default function ShopCheckoutPage() {
           delivery_address: address.trim(),
           delivery_lat: point.lat,
           delivery_lng: point.lng,
+          delivery_street: street.trim() || null,
+          delivery_building: buildingNumber.trim() || null,
           contact_phone: phone || null,
           payment_method: method,
         },
@@ -152,9 +156,13 @@ export default function ShopCheckoutPage() {
           placeholder="Search nearby places, streets, or districts"
           address={address}
           coords={point}
-          onChange={({ address: nextAddress, coords: nextCoords }) => {
+          street={street}
+          buildingNumber={buildingNumber}
+          onChange={({ address: nextAddress, coords: nextCoords, street: nextStreet, buildingNumber: nextBuilding }) => {
             setAddress(nextAddress || '');
             setPoint(nextCoords || null);
+            setStreet(nextStreet || '');
+            setBuildingNumber(nextBuilding || '');
           }}
         />
       </Card>

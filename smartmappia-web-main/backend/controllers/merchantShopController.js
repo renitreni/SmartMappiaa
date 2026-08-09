@@ -31,7 +31,7 @@ const { lowStockProducts } = require('../lib/stock');
 const { logAudit } = require('../lib/audit');
 
 const STORE_SELECT =
-  'id, name, vertical, cuisine_type, description, logo_url, address, lat, lng, ' +
+  'id, name, vertical, cuisine_type, description, logo_url, address, street, building_number, lat, lng, ' +
   'is_active, status, credit_limit, credit_used, is_featured, badge, created_at';
 
 // Deliberately omits net_price.
@@ -52,6 +52,8 @@ function storeView(m) {
     description: m.description,
     logoUrl: m.logo_url,
     address: m.address,
+    street: m.street,
+    buildingNumber: m.building_number,
     lat: m.lat,
     lng: m.lng,
     isActive: m.is_active,

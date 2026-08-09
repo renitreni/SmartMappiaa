@@ -22,6 +22,7 @@
 // actually generated.
 // ---------------------------------------------------------------------
 import { COMPANY } from '../../config/company';
+import { formatAddressDetail } from './address';
 import { vatLabel } from './constants';
 
 const ORANGE = '#FF7E21';
@@ -326,7 +327,12 @@ export function downloadFoodInvoice({ order, items, merchant, customerName, driv
     serviceLabel: 'Food Delivery',
     customerName,
     contactNumber: order.contact_phone || null,
-    deliveryAddress: order.delivery_address || null,
+    deliveryAddress:
+      formatAddressDetail({
+        street: order.delivery_street,
+        building: order.delivery_building,
+        address: order.delivery_address,
+      }) || null,
     driverName: driverName || null,
     provider: merchant ? { name: merchant.name, address: merchant.address } : null,
     summaryTitle: 'Order summary',
@@ -371,8 +377,20 @@ export function downloadRideInvoice({ booking, customerName, driverName }) {
     provider: { name: 'Smart Mappia Transport', address: COMPANY.address.full },
     summaryTitle: 'Trip summary',
     lineItems: [
-      { label: `Pickup: ${booking.pickup_address || '—'}` },
-      { label: `Drop-off: ${booking.dropoff_address || '—'}` },
+      {
+        label: `Pickup: ${formatAddressDetail({
+          street: booking.pickup_street,
+          building: booking.pickup_building,
+          address: booking.pickup_address,
+        }) || '—'}`,
+      },
+      {
+        label: `Drop-off: ${formatAddressDetail({
+          street: booking.dropoff_street,
+          building: booking.dropoff_building,
+          address: booking.dropoff_address,
+        }) || '—'}`,
+      },
       { label: 'Airport transfer fare', quantity: 1, unitPrice: booking.fare_amount, amount: booking.fare_amount },
     ],
     totals: [

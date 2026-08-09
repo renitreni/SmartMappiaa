@@ -25,6 +25,8 @@ router.patch(
     description: { type: 'string', maxLength: 2000, nullable: true },
     logo_url: { type: 'string', maxLength: 500, nullable: true },
     address: { type: 'string', maxLength: 500, nullable: true },
+    street: { type: 'string', maxLength: 200, nullable: true },
+    building_number: { type: 'string', maxLength: 100, nullable: true },
     lat: { type: 'number', min: -90, max: 90, nullable: true },
     lng: { type: 'number', min: -180, max: 180, nullable: true },
     // is_active, is_featured, badge, status, credit_*, vertical and owner_id

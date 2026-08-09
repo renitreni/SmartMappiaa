@@ -9,6 +9,7 @@ import { toCsv, downloadCsv } from '../lib/csv';
 import { useBroadcast } from '../lib/useBroadcast';
 import { realtimeEnabled } from '../lib/supabaseClient';
 import { statusMeta } from '../lib/constants';
+import { formatAddressDetail } from '../lib/address';
 import { Card, Badge, Spinner, btnPrimary } from '../components/ui';
 import AdminLayout from './AdminLayout';
 import Dashboard from './Dashboard';
@@ -248,11 +249,19 @@ function BookingsView() {
               <div className="grid sm:grid-cols-2 gap-4 mt-4 text-sm">
                 <div className="p-3 rounded-xl bg-brand-muted">
                   <div className="text-[10px] font-bold text-brand-grey uppercase mb-1">Pickup</div>
-                  {detail.booking.pickup_address}
+                  {formatAddressDetail({
+                    street: detail.booking.pickup_street,
+                    building: detail.booking.pickup_building,
+                    address: detail.booking.pickup_address,
+                  })}
                 </div>
                 <div className="p-3 rounded-xl bg-brand-muted">
                   <div className="text-[10px] font-bold text-brand-grey uppercase mb-1">Drop-off</div>
-                  {detail.booking.dropoff_address}
+                  {formatAddressDetail({
+                    street: detail.booking.dropoff_street,
+                    building: detail.booking.dropoff_building,
+                    address: detail.booking.dropoff_address,
+                  })}
                 </div>
                 <div className="p-3 rounded-xl bg-brand-muted">
                   <div className="text-[10px] font-bold text-brand-grey uppercase mb-1">Fare</div>

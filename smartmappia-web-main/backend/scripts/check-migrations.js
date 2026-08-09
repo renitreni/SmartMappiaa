@@ -588,6 +588,41 @@ const CHECKS = [
     sqlFile: '0034_distance_surcharge.sql',
   },
   {
+    id: '0035',
+    name: 'street + building number on delivery, pickup/dropoff and merchant addresses',
+    // Same two halves as 0034: columns, then the grants that are the trap.
+    // orders/shop_orders carry a fixed column list (0019/0029), so these two
+    // customer-typed columns are unreadable by anon/authenticated unless
+    // granted back. bookings and merchants have no SELECT restriction.
+    run: async () => {
+      const e1 = (
+        await supabase.from('orders').select('delivery_street, delivery_building').limit(0)
+      ).error;
+      if (e1) return e1.message;
+      const e2 = (
+        await supabase.from('shop_orders').select('delivery_street, delivery_building').limit(0)
+      ).error;
+      if (e2) return e2.message;
+      const e3 = (
+        await supabase
+          .from('bookings')
+          .select('pickup_street, pickup_building, dropoff_street, dropoff_building')
+          .limit(0)
+      ).error;
+      if (e3) return e3.message;
+      const e4 = (await supabase.from('merchants').select('street, building_number').limit(0)).error;
+      if (e4) return e4.message;
+      return (
+        (await assertVisible('orders', 'delivery_street')) ||
+        (await assertVisible('orders', 'delivery_building')) ||
+        (await assertVisible('shop_orders', 'delivery_street')) ||
+        (await assertVisible('shop_orders', 'delivery_building')) ||
+        null
+      );
+    },
+    sqlFile: '0035_delivery_street_building.sql',
+  },
+  {
     id: '0030-priv',
     name: 'write grants revoked from the public client roles (CRITICAL)',
     // The privilege half of 0030. Needs the anon key for the same reason

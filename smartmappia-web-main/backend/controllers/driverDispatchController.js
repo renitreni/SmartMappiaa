@@ -55,9 +55,9 @@ async function listOffers(req, res) {
       .from('dispatch_offers')
       .select(
         'id, order_id, booking_id, shop_order_id, distance_km, expires_at, ' +
-          'orders ( order_code, total, delivery_address, merchants ( name, address ) ), ' +
-          'shop_orders ( order_code, total, delivery_address, merchants ( name, address ) ), ' +
-          'bookings ( booking_code, trip_type, pickup_address, dropoff_address, fare_amount )'
+          'orders ( order_code, total, delivery_address, delivery_street, delivery_building, merchants ( name, address, street, building_number ) ), ' +
+          'shop_orders ( order_code, total, delivery_address, delivery_street, delivery_building, merchants ( name, address, street, building_number ) ), ' +
+          'bookings ( booking_code, trip_type, pickup_address, pickup_street, pickup_building, dropoff_address, dropoff_street, dropoff_building, fare_amount )'
       )
       .eq('driver_id', req.driverId)
       .eq('status', 'pending')
@@ -85,7 +85,11 @@ async function listOffers(req, res) {
           ? {
               merchantName: o.orders.merchants?.name || null,
               pickupAddress: o.orders.merchants?.address || null,
+              pickupStreet: o.orders.merchants?.street || null,
+              pickupBuilding: o.orders.merchants?.building_number || null,
               dropoffAddress: o.orders.delivery_address,
+              dropoffStreet: o.orders.delivery_street,
+              dropoffBuilding: o.orders.delivery_building,
               total: o.orders.total,
             }
           : null,
@@ -95,7 +99,11 @@ async function listOffers(req, res) {
           ? {
               merchantName: o.shop_orders.merchants?.name || null,
               pickupAddress: o.shop_orders.merchants?.address || null,
+              pickupStreet: o.shop_orders.merchants?.street || null,
+              pickupBuilding: o.shop_orders.merchants?.building_number || null,
               dropoffAddress: o.shop_orders.delivery_address,
+              dropoffStreet: o.shop_orders.delivery_street,
+              dropoffBuilding: o.shop_orders.delivery_building,
               total: o.shop_orders.total,
             }
           : null,
@@ -103,7 +111,11 @@ async function listOffers(req, res) {
           ? {
               tripType: o.bookings.trip_type,
               pickupAddress: o.bookings.pickup_address,
+              pickupStreet: o.bookings.pickup_street,
+              pickupBuilding: o.bookings.pickup_building,
               dropoffAddress: o.bookings.dropoff_address,
+              dropoffStreet: o.bookings.dropoff_street,
+              dropoffBuilding: o.bookings.dropoff_building,
               fareAmount: o.bookings.fare_amount,
             }
           : null,
@@ -378,8 +390,8 @@ async function declineOffer(req, res) {
 const DELIVERY_SELECT =
   'id, status, delivered_at, pickup_photo_path, delivery_photo_path, ' +
   'orders!inner ( order_code, status, payment_status, payment_method, total, delivery_fee, ' +
-  'delivery_address, delivery_lat, delivery_lng, contact_phone, created_at, ' +
-  'merchants ( name, address, lat, lng ), ' +
+  'delivery_address, delivery_street, delivery_building, delivery_lat, delivery_lng, contact_phone, created_at, ' +
+  'merchants ( name, address, street, building_number, lat, lng ), ' +
   'profiles!orders_customer_id_fkey ( full_name, mobile_number, whatsapp_number ) )';
 
 function shapeDelivery(d) {
@@ -396,7 +408,14 @@ function shapeDelivery(d) {
     deliveryStatus: d.status,
     hasPickupPhoto: !!d.pickup_photo_path,
     merchant: o.merchants
-      ? { name: o.merchants.name, address: o.merchants.address, lat: o.merchants.lat, lng: o.merchants.lng }
+      ? {
+          name: o.merchants.name,
+          address: o.merchants.address,
+          street: o.merchants.street,
+          buildingNumber: o.merchants.building_number,
+          lat: o.merchants.lat,
+          lng: o.merchants.lng,
+        }
       : null,
     // The order's own contact number (editable mid-delivery) wins over the
     // profile's stored one, so the rider always calls the current number.
@@ -410,6 +429,8 @@ function shapeDelivery(d) {
         ? { name: null, mobile: o.contact_phone, whatsapp: null }
         : null,
     dropoffAddress: o.delivery_address,
+    dropoffStreet: o.delivery_street,
+    dropoffBuilding: o.delivery_building,
     dropoffLat: o.delivery_lat,
     dropoffLng: o.delivery_lng,
     createdAt: o.created_at,
@@ -427,8 +448,8 @@ function shapeDelivery(d) {
 const SHOP_DELIVERY_SELECT =
   'id, status, delivered_at, pickup_photo_path, delivery_photo_path, ' +
   'shop_orders!inner ( order_code, status, payment_status, payment_method, total, delivery_fee, ' +
-  'delivery_address, delivery_lat, delivery_lng, contact_phone, created_at, ' +
-  'merchants ( name, address, lat, lng ), ' +
+  'delivery_address, delivery_street, delivery_building, delivery_lat, delivery_lng, contact_phone, created_at, ' +
+  'merchants ( name, address, street, building_number, lat, lng ), ' +
   'profiles!shop_orders_customer_id_fkey ( full_name, mobile_number, whatsapp_number ) )';
 
 async function listMyDeliveries(req, res) {

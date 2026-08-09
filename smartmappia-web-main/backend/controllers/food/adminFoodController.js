@@ -105,7 +105,7 @@ async function listMerchants(req, res) {
     const { data, error } = await supabase
       .from('merchants')
       .select(
-        'id, name, cuisine_type, description, logo_url, address, lat, lng, is_active, status, ' +
+        'id, name, cuisine_type, description, logo_url, address, street, building_number, lat, lng, is_active, status, ' +
           'credit_limit, credit_used, is_featured, badge, owner_id, created_at'
       )
       .eq('vertical', 'food')
@@ -134,6 +134,8 @@ async function listMerchants(req, res) {
         description: m.description,
         logoUrl: m.logo_url,
         address: m.address,
+        street: m.street,
+        buildingNumber: m.building_number,
         lat: m.lat,
         lng: m.lng,
         isActive: m.is_active,
@@ -174,7 +176,7 @@ async function loadMerchant(id) {
 // creates them + imports the menu. owner_id is linked later (nullable).
 
 const ADMIN_MERCHANT_SELECT =
-  'id, name, cuisine_type, description, logo_url, address, lat, lng, ' +
+  'id, name, cuisine_type, description, logo_url, address, street, building_number, lat, lng, ' +
   'is_active, status, credit_limit, credit_used, is_featured, badge, owner_id, created_at';
 
 async function createMerchant(req, res) {
@@ -632,7 +634,7 @@ async function listOrders(req, res) {
       .from('orders')
       .select(
         'id, order_code, status, payment_status, payment_method, subtotal, delivery_fee, ' +
-          'platform_margin_total, vat_amount, total, delivery_address, contact_phone, created_at, accepted_at, ' +
+          'platform_margin_total, vat_amount, total, delivery_address, delivery_street, delivery_building, contact_phone, created_at, accepted_at, ' +
           'merchants ( id, name ), profiles!orders_customer_id_fkey ( full_name, mobile_number ), ' +
           'deliveries ( driver_id, status, pickup_photo_path, delivery_photo_path, profiles ( full_name ) ), ' +
           'order_items ( name_snapshot, size_snapshot, quantity, line_total )'
@@ -697,6 +699,8 @@ async function listOrders(req, res) {
           vatAmount: o.vat_amount,
           total: o.total,
           deliveryAddress: o.delivery_address,
+          deliveryStreet: o.delivery_street,
+          deliveryBuilding: o.delivery_building,
           merchantId: o.merchants ? o.merchants.id : null,
           merchantName: o.merchants ? o.merchants.name : null,
           customerName: o.profiles ? o.profiles.full_name : null,

@@ -22,7 +22,8 @@ async function getTracking(req, res) {
       .from('bookings')
       .select(
         'id, assigned_driver_id, booking_code, trip_type, airport_terminal, ' +
-          'pickup_address, pickup_lat, pickup_lng, dropoff_address, dropoff_lat, dropoff_lng, ' +
+          'pickup_address, pickup_street, pickup_building, pickup_lat, pickup_lng, ' +
+          'dropoff_address, dropoff_street, dropoff_building, dropoff_lat, dropoff_lng, ' +
           'pickup_datetime, fare_amount, currency, passenger_mobile, passenger_whatsapp, ' +
           'payment_method, payment_status, booking_status, verification_mode, driver_ride_status, ' +
           'confirmed_at, created_at'
@@ -85,9 +86,13 @@ async function getTracking(req, res) {
       tripType: booking.trip_type,
       airportTerminal: booking.airport_terminal,
       pickupAddress: booking.pickup_address,
+      pickupStreet: booking.pickup_street,
+      pickupBuilding: booking.pickup_building,
       pickupLat: booking.pickup_lat,
       pickupLng: booking.pickup_lng,
       dropoffAddress: booking.dropoff_address,
+      dropoffStreet: booking.dropoff_street,
+      dropoffBuilding: booking.dropoff_building,
       dropoffLat: booking.dropoff_lat,
       dropoffLng: booking.dropoff_lng,
       pickupDatetime: booking.pickup_datetime,

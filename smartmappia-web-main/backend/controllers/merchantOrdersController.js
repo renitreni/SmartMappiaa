@@ -28,7 +28,7 @@ async function listOrders(req, res) {
       .from('orders')
       .select(
         'id, order_code, status, payment_status, payment_method, subtotal, delivery_fee, total, ' +
-          'delivery_address, created_at, delivered_at, ' +
+          'delivery_address, delivery_street, delivery_building, created_at, delivered_at, ' +
           'profiles!orders_customer_id_fkey ( full_name, mobile_number ), ' +
           'deliveries ( driver_id, status, pickup_photo_path, delivery_photo_path, profiles ( full_name, whatsapp_number, mobile_number ) ), ' +
           'order_items ( name_snapshot, quantity, line_total )'
@@ -60,6 +60,8 @@ async function listOrders(req, res) {
           deliveryFee: o.delivery_fee,
           total: o.total,
           deliveryAddress: o.delivery_address,
+          deliveryStreet: o.delivery_street,
+          deliveryBuilding: o.delivery_building,
           customerName: o.profiles ? o.profiles.full_name : null,
           customerMobile: o.profiles ? o.profiles.mobile_number : null,
           items: o.order_items || [],

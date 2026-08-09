@@ -43,6 +43,8 @@ const emptyBusiness = {
   description: '',
   logo_url: '',
   address: '',
+  street: '',
+  building_number: '',
   lat: '',
   lng: '',
 };
@@ -139,6 +141,8 @@ function toBusinessForm(merchant) {
     description: merchant?.description || '',
     logo_url: merchant?.logoUrl || '',
     address: merchant?.address || '',
+    street: merchant?.street || '',
+    building_number: merchant?.buildingNumber || '',
     lat: merchant?.lat ?? '',
     lng: merchant?.lng ?? '',
   };
@@ -151,6 +155,8 @@ function businessPayload(form) {
     description: form.description.trim() || null,
     logo_url: form.logo_url.trim() || null,
     address: form.address.trim() || null,
+    street: form.street.trim() || null,
+    building_number: form.building_number.trim() || null,
     lat: form.lat === '' ? null : Number(form.lat),
     lng: form.lng === '' ? null : Number(form.lng),
   };
@@ -783,10 +789,14 @@ function BusinessTab({ merchant, businessForm, setBusinessForm, setMerchant, sav
                   ? { lat: Number(businessForm.lat), lng: Number(businessForm.lng) }
                   : null
               }
-              onChange={({ address: nextAddress, coords: nextCoords }) =>
+              street={businessForm.street}
+              buildingNumber={businessForm.building_number}
+              onChange={({ address: nextAddress, coords: nextCoords, street: nextStreet, buildingNumber: nextBuilding }) =>
                 setBusinessForm((f) => ({
                   ...f,
                   address: nextAddress,
+                  street: nextStreet || '',
+                  building_number: nextBuilding || '',
                   lat: nextCoords?.lat ?? '',
                   lng: nextCoords?.lng ?? '',
                 }))

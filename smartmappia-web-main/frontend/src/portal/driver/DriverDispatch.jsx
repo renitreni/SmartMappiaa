@@ -15,6 +15,7 @@ import { api } from '../lib/api';
 import { useBroadcast } from '../lib/useBroadcast';
 import { realtimeEnabled, uploadProofFile } from '../lib/supabaseClient';
 import { fmtSAR, whatsappLink, googleMapsNavLink } from '../lib/constants';
+import { formatAddressDetail } from '../lib/address';
 import { notifyAlert } from '../lib/notify';
 import { Card, Badge, Spinner, btnPrimary, btnGhost, fileInputClass } from '../components/ui';
 
@@ -59,9 +60,13 @@ function OfferCard({ offer, busy, onAccept, onDecline }) {
             <Store className="w-4 h-4 text-brand-orange shrink-0" /> {job.merchantName || pickupNoun}
           </p>
           {job.pickupAddress && (
-            <p className="text-brand-grey text-xs truncate">Pick up: {job.pickupAddress}</p>
+            <p className="text-brand-grey text-xs truncate">
+              Pick up: {formatAddressDetail({ street: job.pickupStreet, building: job.pickupBuilding, address: job.pickupAddress })}
+            </p>
           )}
-          <p className="text-brand-grey text-xs truncate">Deliver to: {job.dropoffAddress}</p>
+          <p className="text-brand-grey text-xs truncate">
+            Deliver to: {formatAddressDetail({ street: job.dropoffStreet, building: job.dropoffBuilding, address: job.dropoffAddress })}
+          </p>
           <p className="text-xs">
             <span className="text-brand-grey">Order value:</span>{' '}
             <span className="font-bold text-brand-dark">{fmtSAR(job.total)}</span>
@@ -74,8 +79,12 @@ function OfferCard({ offer, busy, onAccept, onDecline }) {
       {!isDelivery && offer.ride && (
         <div className="space-y-1 text-sm">
           <p className="font-black text-brand-black">Airport transfer · {fmtSAR(offer.ride.fareAmount)}</p>
-          <p className="text-brand-grey text-xs truncate">From: {offer.ride.pickupAddress}</p>
-          <p className="text-brand-grey text-xs truncate">To: {offer.ride.dropoffAddress}</p>
+          <p className="text-brand-grey text-xs truncate">
+            From: {formatAddressDetail({ street: offer.ride.pickupStreet, building: offer.ride.pickupBuilding, address: offer.ride.pickupAddress })}
+          </p>
+          <p className="text-brand-grey text-xs truncate">
+            To: {formatAddressDetail({ street: offer.ride.dropoffStreet, building: offer.ride.dropoffBuilding, address: offer.ride.dropoffAddress })}
+          </p>
           {offer.distanceKm != null && (
             <p className="text-xs text-brand-grey">{offer.distanceKm} km from you</p>
           )}
@@ -128,14 +137,26 @@ function DeliveryCard({ delivery, busy, onStatus, onCancel }) {
           <Store className="w-4 h-4 text-brand-orange shrink-0 mt-0.5" />
           <span>
             <span className="font-bold">{delivery.merchant?.name || (delivery.kind === 'shop' ? 'Store' : 'Restaurant')}</span>
-            {delivery.merchant?.address && <span className="text-brand-grey"> · {delivery.merchant.address}</span>}
+            {delivery.merchant?.address && (
+              <span className="text-brand-grey">
+                {' · '}
+                {formatAddressDetail({
+                  street: delivery.merchant.street,
+                  building: delivery.merchant.buildingNumber,
+                  address: delivery.merchant.address,
+                })}
+              </span>
+            )}
           </span>
         </p>
         <p className="text-brand-dark flex items-start gap-1.5">
           <MapPin className="w-4 h-4 text-brand-orange shrink-0 mt-0.5" />
           <span>
             <span className="font-bold">{delivery.customer?.name || 'Customer'}</span>
-            <span className="text-brand-grey"> · {delivery.dropoffAddress}</span>
+            <span className="text-brand-grey">
+              {' · '}
+              {formatAddressDetail({ street: delivery.dropoffStreet, building: delivery.dropoffBuilding, address: delivery.dropoffAddress })}
+            </span>
           </span>
         </p>
       </div>
@@ -435,7 +456,7 @@ export default function DriverDispatch({ online, foodEnabled = true, driverId, c
               <div className="min-w-0 flex-1">
                 <p className="font-bold text-brand-dark truncate">{d.merchant?.name || (d.kind === 'shop' ? 'Store' : 'Restaurant')}</p>
                 <p className="text-xs text-brand-grey truncate">
-                  To: {d.dropoffAddress}
+                  To: {formatAddressDetail({ street: d.dropoffStreet, building: d.dropoffBuilding, address: d.dropoffAddress })}
                   {d.distanceKm != null && ` · ${d.distanceKm} km from you`}
                 </p>
               </div>

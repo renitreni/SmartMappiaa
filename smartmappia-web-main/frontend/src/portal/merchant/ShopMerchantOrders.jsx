@@ -13,6 +13,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Package, Check, X, Clock, AlertTriangle, RefreshCw } from 'lucide-react';
 import { api } from '../lib/api';
 import { fmtSAR, shopStatusMeta, shopPaymentMeta, TONE_CLASSES, SHOP_PAYMENT_METHODS } from '../lib/constants';
+import { formatAddressDetail } from '../lib/address';
 import { notifySuccess } from '../lib/notify';
 import { Card, Spinner, inputClass, btnPrimary, btnGhost } from '../components/ui';
 import SoundToggle from '../components/SoundToggle';
@@ -82,7 +83,14 @@ function OrderCard({ order, onAccept, onReject, onAdvance, busy }) {
       </div>
 
       <div className="mt-3 pt-3 border-t border-brand-border text-xs text-brand-grey space-y-0.5">
-        <p>Deliver to: {order.deliveryAddress}</p>
+        <p>
+          Deliver to:{' '}
+          {formatAddressDetail({
+            street: order.deliveryStreet,
+            building: order.deliveryBuilding,
+            address: order.deliveryAddress,
+          })}
+        </p>
         {order.customer && (
           <p>
             {order.customer.name || 'Customer'}

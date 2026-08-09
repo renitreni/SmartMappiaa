@@ -27,7 +27,7 @@ const { requireOwnedStore } = require('./merchantShopController');
 
 const ORDER_SELECT =
   'id, order_code, status, subtotal, delivery_fee, vat_amount, vat_rate, total, ' +
-  'delivery_address, contact_phone, payment_status, payment_method, reject_reason, ' +
+  'delivery_address, delivery_street, delivery_building, contact_phone, payment_status, payment_method, reject_reason, ' +
   'created_at, accepted_at, packed_at, ready_at, delivered_at, ' +
   'shop_order_items ( id, name_snapshot, variant_label_snapshot, sku_snapshot, ' +
   'unit_price, quantity, line_total ), ' +
@@ -78,6 +78,8 @@ async function listOrders(req, res) {
           vatRate: o.vat_rate,
           total: o.total,
           deliveryAddress: o.delivery_address,
+          deliveryStreet: o.delivery_street,
+          deliveryBuilding: o.delivery_building,
           contactPhone: o.contact_phone,
           paymentStatus: o.payment_status,
           paymentMethod: o.payment_method,

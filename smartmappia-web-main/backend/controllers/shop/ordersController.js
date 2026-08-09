@@ -46,6 +46,7 @@ const PAYABLE_STATUSES = ['awaiting', 'failed'];
 const ORDER_SELECT =
   'id, order_code, customer_id, merchant_id, status, subtotal, delivery_fee, delivery_surcharge, ' +
   'vat_amount, vat_rate, total, distance_km, delivery_address, delivery_lat, delivery_lng, ' +
+  'delivery_street, delivery_building, ' +
   'contact_phone, payment_status, payment_method, created_at, accepted_at, packed_at, ' +
   'ready_at, delivered_at, reject_reason';
 
@@ -221,6 +222,8 @@ async function checkout(req, res) {
         delivery_address: b.delivery_address,
         delivery_lat: Number.isFinite(b.delivery_lat) ? b.delivery_lat : '',
         delivery_lng: Number.isFinite(b.delivery_lng) ? b.delivery_lng : '',
+        delivery_street: b.delivery_street || '',
+        delivery_building: b.delivery_building || '',
         contact_phone: b.contact_phone || '',
         payment_method: b.payment_method,
       },
