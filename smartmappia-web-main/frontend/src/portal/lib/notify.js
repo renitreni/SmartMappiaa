@@ -76,6 +76,8 @@ export function notifySuccess(title, text) {
   });
 }
 
+// requireText: for actions that cannot be undone, make the user type a word
+// before Confirm does anything, so a mis-tap can never trigger it.
 export async function confirmAction({
   title = 'Are you sure?',
   text,
@@ -83,6 +85,7 @@ export async function confirmAction({
   cancelText = 'Cancel',
   icon = 'warning',
   danger = false,
+  requireText = null,
 }) {
   const result = await Swal.fire({
     icon,
@@ -94,6 +97,20 @@ export async function confirmAction({
     confirmButtonColor: danger ? '#ef4444' : '#f97316',
     reverseButtons: true,
     focusCancel: true,
+    ...(requireText
+      ? {
+          input: 'text',
+          inputPlaceholder: requireText,
+          inputAttributes: { autocapitalize: 'off', autocorrect: 'off' },
+          preConfirm: (value) => {
+            if ((value || '').trim().toUpperCase() !== requireText.toUpperCase()) {
+              Swal.showValidationMessage(`Type ${requireText} to continue`);
+              return false;
+            }
+            return true;
+          },
+        }
+      : {}),
   });
   return result.isConfirmed;
 }

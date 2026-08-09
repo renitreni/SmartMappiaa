@@ -7,11 +7,12 @@
 // ---------------------------------------------------------------------
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Camera, User, Phone, MapPin, Mail, KeyRound, Save, History } from 'lucide-react';
+import { Camera, User, Phone, MapPin, Mail, KeyRound, Save, History, Trash2 } from 'lucide-react';
 import { api } from '../lib/api';
 import { useAuth } from '../lib/AuthProvider';
 import { supabase, uploadProofFile } from '../lib/supabaseClient';
-import { notifySuccess, notifyError } from '../lib/notify';
+import { compressImage } from '../lib/imageCompress';
+import { notifySuccess, notifyError, confirmAction } from '../lib/notify';
 import { getPasswordValidationError } from '../lib/passwordValidation';
 import { PortalShell, Card, Field, Spinner, inputClass, btnPrimary, btnGhost } from '../components/ui';
 
@@ -23,7 +24,7 @@ function initialsOf(name, email) {
 
 export default function ProfilePage() {
   const navigate = useNavigate();
-  const { user, profile, refreshProfile } = useAuth();
+  const { user, profile, refreshProfile, signOut } = useAuth();
   const fileRef = useRef(null);
 
   const [form, setForm] = useState({
@@ -40,6 +41,7 @@ export default function ProfilePage() {
   const [password, setPassword] = useState('');
   const [password2, setPassword2] = useState('');
   const [savingSecurity, setSavingSecurity] = useState(false);
+  const [deleting, setDeleting] = useState(false);
 
   const set = (k) => (e) => setForm((f) => ({ ...f, [k]: e.target.value }));
 
@@ -75,12 +77,16 @@ export default function ProfilePage() {
     if (!file) return;
     setUploadingAvatar(true);
     try {
+      // Downscale before the size check, not after: a straight-off-the-camera
+      // photo is comfortably over the limit at full resolution but well under
+      // it once resized, and rejecting it would be pointless.
+      const image = await compressImage(file);
       const { bucket, path, token, publicUrl, maxBytes } = await api.avatarSignedUrl({
-        file_name: file.name,
-        mime_type: file.type,
+        file_name: image.name,
+        mime_type: image.type,
       });
-      if (file.size > maxBytes) throw new Error('The image is too large (max 5 MB).');
-      await uploadProofFile(bucket, path, token, file);
+      if (image.size > maxBytes) throw new Error('The image is too large (max 5 MB).');
+      await uploadProofFile(bucket, path, token, image);
       await api.updateProfile({ avatar_url: publicUrl });
       setAvatarPreview(publicUrl);
       await refreshProfile();
@@ -133,6 +139,32 @@ export default function ProfilePage() {
       notifyError(err.message || 'Could not update your account.');
     } finally {
       setSavingSecurity(false);
+    }
+  }
+
+  // Both app stores require an in-app way to delete an account. The server
+  // refuses while a trip or order is still running and explains why, so the
+  // error popup api.js raises is the right thing for the user to read.
+  async function deleteAccount() {
+    const confirmed = await confirmAction({
+      title: 'Delete your account?',
+      text: 'This removes your profile, contact details and saved addresses, and cannot be undone. Records of past payments are kept in anonymised form as required by tax law.',
+      confirmText: 'Delete permanently',
+      danger: true,
+      requireText: 'DELETE',
+    });
+    if (!confirmed) return;
+
+    setDeleting(true);
+    try {
+      await api.deleteAccount();
+      notifySuccess('Account deleted', 'Your account has been removed.');
+      await signOut();
+      navigate('/', { replace: true });
+    } catch {
+      /* api.js already showed the error popup */
+    } finally {
+      setDeleting(false);
     }
   }
 
@@ -265,6 +297,23 @@ export default function ProfilePage() {
               {savingSecurity ? <Spinner className="!border-white/40 !border-t-white" /> : (<><Save className="w-4 h-4" /> Update account</>)}
             </button>
           </form>
+        </Card>
+
+        <Card className="p-6 border-red-200">
+          <p className="font-black text-red-600 mb-2 flex items-center gap-2">
+            <Trash2 className="w-4 h-4" /> Delete account
+          </p>
+          <p className="text-sm text-brand-grey mb-4">
+            Permanently delete your account and personal data. This cannot be undone.
+          </p>
+          <button
+            type="button"
+            onClick={deleteAccount}
+            disabled={deleting}
+            className={btnGhost + ' w-full !text-red-600 hover:!bg-red-50 disabled:opacity-50'}
+          >
+            {deleting ? <Spinner /> : (<><Trash2 className="w-4 h-4" /> Delete my account</>)}
+          </button>
         </Card>
       </div>
     </PortalShell>

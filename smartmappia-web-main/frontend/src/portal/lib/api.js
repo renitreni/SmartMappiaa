@@ -62,6 +62,8 @@ export const api = {
   // through Supabase Auth on the client).
   updateProfile: (body) => request('/api/auth/profile', { method: 'PATCH', body }),
   avatarSignedUrl: (body) => request('/api/auth/avatar/signed-url', { method: 'POST', body }),
+  // Permanent, and required by both app stores. 204 on success.
+  deleteAccount: () => request('/api/auth/account', { method: 'DELETE' }),
 
   // --- passenger ---
   createBooking: (b) => request('/api/bookings', { method: 'POST', body: b }),

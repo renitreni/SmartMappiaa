@@ -17,7 +17,12 @@ const {
   profileSelectColumns,
   buildProfileUpsert,
 } = require('../lib/profileSchema');
-const { buildAvatarPath, createAvatarUploadUrl, avatarPublicUrl } = require('../lib/storage');
+const {
+  buildAvatarPath,
+  createAvatarUploadUrl,
+  avatarPublicUrl,
+  deleteAvatarFolder,
+} = require('../lib/storage');
 const { opsError } = require('../lib/opsError');
 const { MIN_PASSWORD_LENGTH, MAX_PASSWORD_LENGTH } = require('../lib/validate');
 
@@ -344,4 +349,115 @@ async function createAvatarUploadUrlHandler(req, res) {
   }
 }
 
-module.exports = { signup, syncProfile, updateProfile, createAvatarUploadUrlHandler };
+// Work that would be silently orphaned by a deletion. A passenger with a paid
+// but undelivered booking, or a driver mid-ride, must finish or cancel first —
+// otherwise the trip loses its passenger contact or its driver with no trace.
+const FINISHED_BOOKING = '(completed,cancelled)';
+const FINISHED_ORDER = '(delivered,cancelled,rejected)';
+
+async function countActiveWork(userId) {
+  const active = async (table, ownerColumn, statusColumn, finished) => {
+    const { count, error } = await supabase
+      .from(table)
+      .select('id', { count: 'exact', head: true })
+      .eq(ownerColumn, userId)
+      .not(statusColumn, 'in', finished);
+    if (error) throw error;
+    return count || 0;
+  };
+
+  const [rides, driving, food, shop] = await Promise.all([
+    active('bookings', 'user_id', 'booking_status', FINISHED_BOOKING),
+    active('bookings', 'assigned_driver_id', 'booking_status', FINISHED_BOOKING),
+    active('orders', 'customer_id', 'status', FINISHED_ORDER),
+    active('shop_orders', 'customer_id', 'status', FINISHED_ORDER),
+  ]);
+  return rides + driving + food + shop;
+}
+
+// DELETE /api/auth/account  (requireAuth)
+// Required by both stores for any app that lets users create an account.
+//
+// Deletion is destructive but NOT a purge: fare, VAT and payout figures are
+// snapshotted onto each order and Saudi tax law requires we keep them. The RPC
+// blanks the identifying snapshot, then removing the auth user cascades into
+// profiles and drops the order rows to a null customer (migration 0036).
+async function deleteAccount(req, res) {
+  try {
+    const userId = req.userId;
+
+    const { data: profile, error: profileError } = await supabase
+      .from('profiles')
+      .select('role')
+      .eq('id', userId)
+      .single();
+    if (profileError || !profile) {
+      console.error('deleteAccount profile lookup error:', profileError);
+      return res.status(500).json({ error: 'Could not load your account' });
+    }
+
+    // Merchant and admin accounts are provisioned by an admin rather than
+    // self-registered (see SELF_ROLES), and deleting one would strand a live
+    // storefront or lock the platform out of its own console.
+    if (!SELF_ROLES.includes(profile.role)) {
+      return res.status(403).json({
+        error:
+          'Business and administrator accounts cannot be deleted from the app. Please contact support so we can hand over or close the account properly.',
+      });
+    }
+
+    const activeWork = await countActiveWork(userId);
+    if (activeWork > 0) {
+      return res.status(409).json({
+        error:
+          'You still have a trip or order in progress. Please wait for it to finish, or cancel it, then delete your account.',
+      });
+    }
+
+    // Scrub first, while the rows still point at this user.
+    const { error: scrubError } = await supabase.rpc('delete_account_pii', {
+      p_user_id: userId,
+    });
+    if (scrubError) {
+      console.error('deleteAccount scrub error:', scrubError);
+      return res
+        .status(500)
+        .json(
+          opsError(
+            req,
+            'Your account could not be deleted right now. Nothing was changed.',
+            'Run backend/migrations/0036_account_deletion.sql in the Supabase SQL Editor.'
+          )
+        );
+    }
+
+    // Best effort: a leftover image is a storage-cost problem, not a reason to
+    // leave the user with an account they asked us to remove.
+    try {
+      await deleteAvatarFolder(userId);
+    } catch (err) {
+      console.error('deleteAccount avatar cleanup failed:', err);
+    }
+
+    const { error: deleteError } = await supabase.auth.admin.deleteUser(userId);
+    if (deleteError) {
+      console.error('deleteAccount auth delete error:', deleteError);
+      return res.status(500).json({
+        error: 'Your account could not be deleted right now. Please contact support.',
+      });
+    }
+
+    return res.status(204).send();
+  } catch (err) {
+    console.error('deleteAccount error:', err);
+    return res.status(500).json({ error: 'Unexpected server error' });
+  }
+}
+
+module.exports = {
+  signup,
+  syncProfile,
+  updateProfile,
+  createAvatarUploadUrlHandler,
+  deleteAccount,
+};

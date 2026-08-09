@@ -10,6 +10,7 @@
 // polling and the proof-upload step shows a configuration hint.
 // ---------------------------------------------------------------------
 import { createClient } from '@supabase/supabase-js';
+import { compressImage } from './imageCompress';
 
 const url = import.meta.env.VITE_SUPABASE_URL;
 const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
@@ -52,13 +53,18 @@ export const supabase =
 export const realtimeEnabled = !!supabase;
 
 // Upload a file to a backend-issued signed upload URL.
+//
+// Every storage upload in the app goes through here, which makes it the one
+// place worth downscaling: see imageCompress.js for why the 1 GB free tier
+// makes that necessary. Non-images and already-small files pass through.
 export async function uploadProofFile(bucket, path, token, file) {
   if (!supabase) {
     throw new Error(
       'Supabase is not configured. Set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY.'
     );
   }
-  const { error } = await supabase.storage.from(bucket).uploadToSignedUrl(path, token, file);
+  const payload = await compressImage(file);
+  const { error } = await supabase.storage.from(bucket).uploadToSignedUrl(path, token, payload);
   if (error) throw error;
   return true;
 }

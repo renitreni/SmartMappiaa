@@ -158,6 +158,25 @@ function avatarPublicUrl(path) {
   return data.publicUrl;
 }
 
+// Every avatar the user ever uploaded, not just the current one: replacing a
+// picture leaves the old object behind (buildAvatarPath always makes a new
+// name), so account deletion has to clear the whole folder.
+async function deleteAvatarFolder(userId) {
+  const safeId = String(userId).replace(/[^A-Za-z0-9-]/g, '');
+  const { data: files, error: listError } = await supabase.storage
+    .from(config.avatars.bucket)
+    .list(safeId);
+  if (listError) throw listError;
+  if (!files || files.length === 0) return 0;
+
+  const paths = files.map((f) => `${safeId}/${f.name}`);
+  const { error: removeError } = await supabase.storage
+    .from(config.avatars.bucket)
+    .remove(paths);
+  if (removeError) throw removeError;
+  return paths.length;
+}
+
 module.exports = {
   buildProofPath,
   createProofUploadUrl,
@@ -165,6 +184,7 @@ module.exports = {
   buildAvatarPath,
   createAvatarUploadUrl,
   avatarPublicUrl,
+  deleteAvatarFolder,
   buildDriverDocPath,
   createDriverDocUploadUrl,
   createDriverDocDownloadUrl,
