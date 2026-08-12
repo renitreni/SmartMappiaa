@@ -49,10 +49,40 @@ import { useAuth } from './portal/lib/AuthProvider.jsx'
 import { roleHome } from './portal/lib/constants.js'
 import MobileSplashScreen from './portal/auth/mobile/screens/SplashScreen.jsx'
 
+// Added new component
+import { App as CapacitorApp } from '@capacitor/app'
+import { useLocation, useNavigate } from 'react-router-dom'
+
 if (import.meta.env.PROD) {
   registerServiceWorker().catch(() => {
     // PWA support is best-effort; the web app remains fully usable without it.
   })
+}
+
+function BackButtonHandler() {
+  const navigate = useNavigate()
+  const location = useLocation()
+
+  useEffect(() => {
+    if (!Capacitor.isNativePlatform()) return undefined
+
+    const listener = CapacitorApp.addListener('backButton', () => {
+      // If we're not on the root/landing route, go back one screen instead
+      // of letting the OS close or reset the app.
+      if (window.history.state && window.history.state.idx > 0) {
+        navigate(-1)
+      } else {
+        // Nothing left in history — this IS the root screen, so actually exit.
+        CapacitorApp.exitApp()
+      }
+    })
+
+    return () => {
+      listener.then((l) => l.remove())
+    }
+  }, [navigate, location])
+
+  return null
 }
 
 function RootRedirect() {
@@ -74,6 +104,8 @@ createRoot(document.getElementById('root')).render(
     <BrowserRouter>
       <AuthProvider>
         <ViewModeProvider>
+        {/* Added this */}
+        <BackButtonHandler />
           <Routes>
             <Route path="/" element={Capacitor.isNativePlatform() ? <RootRedirect /> : <App />} />
             <Route path="/login" element={<LoginPage />} />
