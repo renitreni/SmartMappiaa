@@ -70,6 +70,13 @@ export default function MerchantOrders({ merchant }) {
       // announceNewOrder dedupes on the code, so a reconnect that replays the
       // event cannot chime twice for the same order.
       new_order: (payload) => { announceNewOrder(payload?.orderCode); load(); },
+      // The server-side "you still have not started this" chase. Ring again —
+      // keyed on the attempt so each reminder is heard, since the plain order
+      // code was already spent on the new_order chime above.
+      preparing_overdue: (payload) => {
+        announceNewOrder(`${payload?.orderCode}#${payload?.attempt}`);
+        load();
+      },
       order_update: () => load(),
       payment_update: () => load(),
     },

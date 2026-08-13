@@ -685,6 +685,11 @@ async function listOrders(req, res) {
 
     logAudit({ actorId: req.adminId, action: 'admin_food_orders_read', resourceType: 'orders' });
     return res.json({
+      // The window lib/foodPreparingReminder.js actually chases on, so the
+      // admin UI flags "waiting to start preparing" on the same threshold the
+      // server reminds on instead of a hardcoded copy that drifts when
+      // FOOD_PREPARING_REMINDER_MINUTES is overridden.
+      preparingReminderMinutes: config.food.preparingReminderMinutes,
       orders: (data || []).map((o) => {
         const payment = latestPayment.get(o.id);
         const delivery = Array.isArray(o.deliveries) ? o.deliveries[0] : o.deliveries;

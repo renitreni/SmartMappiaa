@@ -42,6 +42,7 @@ const {
 const { logNotification } = require('./notifications');
 const { logAudit } = require('./audit');
 const { SERVICE_TYPES } = require('./serviceTypes');
+const { sweepOrdersAwaitingPreparing } = require('./foodPreparingReminder');
 
 // --- Candidates --------------------------------------------------------
 
@@ -813,10 +814,19 @@ function startDispatchSweeper() {
   setInterval(() => {
     sweepStaleShopOrders().catch((err) => console.error('shop stale order sweep error:', err));
   }, config.shop.staleSweepMs);
+  // "Kitchen never started" chase. Minutes, not seconds, and each pass is an
+  // indexed range scan, so it runs on its own slow cadence like the one above.
+  setInterval(() => {
+    sweepOrdersAwaitingPreparing().catch((err) =>
+      console.error('food preparing reminder sweep error:', err)
+    );
+  }, config.food.preparingReminderSweepMs);
   console.log(
     `Dispatch sweeper running (offers expire after ${config.dispatch.offerSeconds}s; ` +
       `rider disconnect watchdog after ${config.dispatch.abandonMinutes}m; ` +
-      `unpaid shop orders release stock after ${config.shop.orderExpiryMinutes}m).`
+      `unpaid shop orders release stock after ${config.shop.orderExpiryMinutes}m; ` +
+      `"start preparing" reminders every ${config.food.preparingReminderMinutes}m ` +
+      `up to ${config.food.preparingReminderMaxCount} times).`
   );
 }
 
