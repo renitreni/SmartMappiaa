@@ -163,6 +163,16 @@ const config = {
     },
     merchantCreditLimit: toNumber(process.env.MERCHANT_CREDIT_LIMIT, 300),
     creditAlertPct: toNumber(process.env.CREDIT_ALERT_PCT, 0.8), // 80% => 240 SAR
+    // An order stuck at 'pending' or 'accepted' means the kitchen never
+    // tapped "Start preparing" and the customer is waiting on nothing.
+    // lib/foodPreparingReminder.js re-notifies the restaurant, the admins
+    // and the customer this often, measured from created_at (so an order
+    // that was never even accepted is chased too), until it reaches
+    // 'preparing'. The cap stops a forgotten order nagging forever —
+    // past it a human has to intervene.
+    preparingReminderMinutes: toNumber(process.env.FOOD_PREPARING_REMINDER_MINUTES, 10),
+    preparingReminderMaxCount: toNumber(process.env.FOOD_PREPARING_REMINDER_MAX, 6),
+    preparingReminderSweepMs: toNumber(process.env.FOOD_PREPARING_REMINDER_SWEEP_MS, 60000),
   },
 
   // Ecommerce ("shop") business rules — docs/archive/ecommerce/ECOMMERCE_PLAN.md §2.

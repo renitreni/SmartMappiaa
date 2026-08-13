@@ -3,6 +3,7 @@
 // Access is gated by RequireAuth role="admin"; identity from the session.
 // ---------------------------------------------------------------------
 import { useCallback, useEffect, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { Check, X, ExternalLink, ShieldCheck, ShieldX, Search, FileText, Bike } from 'lucide-react';
 import { api } from '../lib/api';
 import { toCsv, downloadCsv } from '../lib/csv';
@@ -11,8 +12,9 @@ import { realtimeEnabled } from '../lib/supabaseClient';
 import { statusMeta } from '../lib/constants';
 import { formatAddressDetail } from '../lib/address';
 import { Card, Badge, Spinner, btnPrimary } from '../components/ui';
-import AdminLayout from './AdminLayout';
+import AdminLayout, { ADMIN_NAV } from './AdminLayout';
 import Dashboard from './Dashboard';
+import RestaurantOrders from './RestaurantOrders';
 import FoodAdmin from './FoodAdmin';
 import ShopAdmin from './ShopAdmin';
 
@@ -899,7 +901,15 @@ function ReportsView() {
 }
 
 export default function AdminPage() {
-  const [tab, setTab] = useState('overview');
+  // Notifications deep-link to a tab with ?tab= (see portal/lib/notifications.js).
+  // Validated against ADMIN_NAV so a stale or hand-typed value renders the
+  // overview instead of an empty workspace. Read once on mount only — after
+  // that the tab is local state, so clicking around does not rewrite the URL.
+  const [params] = useSearchParams();
+  const [tab, setTab] = useState(() => {
+    const wanted = params.get('tab');
+    return ADMIN_NAV.some((n) => n.id === wanted) ? wanted : 'overview';
+  });
   const [tick, setTick] = useState(0);
 
   return (
@@ -911,6 +921,7 @@ export default function AdminPage() {
       {tab === 'overview' && <Dashboard key={`o${tick}`} onNavigate={setTab} />}
       {tab === 'bookings' && <BookingsView key={`b${tick}`} />}
       {tab === 'drivers' && <DriversView key={`d${tick}`} />}
+      {tab === 'restaurant' && <RestaurantOrders key={`ro${tick}`} />}
       {tab === 'food' && <FoodAdmin key={`f${tick}`} />}
       {tab === 'shop' && <ShopAdmin key={`s${tick}`} />}
       {tab === 'reports' && <ReportsView key={`r${tick}`} />}

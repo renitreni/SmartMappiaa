@@ -42,6 +42,20 @@ const COPY = {
   food_order_accepted: { title: 'Restaurant accepted your order', body: 'Your order is being prepared.' },
   food_order_rejected: { title: 'Order rejected', body: 'The restaurant could not accept your order.' },
   food_order_preparing: { title: 'Your order is being prepared', body: 'The kitchen is preparing your food.' },
+  // The three below are the "kitchen never started" chase — see
+  // lib/foodPreparingReminder.js. They repeat every reminder interval.
+  food_order_preparing_reminder: {
+    title: 'Start preparing this order',
+    body: 'An order is still waiting. Tap "Start preparing" so the customer knows the kitchen began.',
+  },
+  admin_food_order_preparing_overdue: {
+    title: 'Restaurant has not started preparing',
+    body: 'An order is past the reminder window and still not in the kitchen.',
+  },
+  food_order_delayed: {
+    title: 'Your order is taking a little longer',
+    body: 'We are following up with the restaurant.',
+  },
   food_order_ready: { title: 'Your order is ready', body: 'Waiting for a rider to pick it up.' },
   food_order_out_for_delivery: { title: 'Your order was picked up', body: 'Your rider is on the way.' },
   food_order_delivered: { title: 'Order delivered', body: 'Enjoy your meal!' },

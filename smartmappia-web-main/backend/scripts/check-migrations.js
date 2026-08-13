@@ -623,6 +623,39 @@ const CHECKS = [
     sqlFile: '0035_delivery_street_building.sql',
   },
   {
+    id: '0037',
+    name: '"start preparing" reminder bookkeeping on orders',
+    // The sweeper (lib/foodPreparingReminder.js) selects AND updates both
+    // columns on every pass, so a missing column is a logged error every
+    // minute rather than a one-off — worth gating on.
+    //
+    // The grant half is the inverse of 0034/0035: these are internal sweeper
+    // state, not a customer receipt line, so anon must NOT be able to read
+    // them. Asserting that proves the 0019 restriction still covers columns
+    // added after it, which is the same invariant from the other direction.
+    run: async () => {
+      const { error } = await supabase
+        .from('orders')
+        .select('preparing_reminder_count, preparing_reminder_last_at')
+        .limit(0);
+      return error ? error.message : null;
+    },
+    sqlFile: '0037_preparing_reminder.sql',
+  },
+  {
+    id: '0037-grant',
+    name: 'reminder bookkeeping stays server-side',
+    grantCheck: true,
+    run: async () => {
+      return (
+        (await assertHidden('orders', 'preparing_reminder_count')) ||
+        (await assertHidden('orders', 'preparing_reminder_last_at')) ||
+        null
+      );
+    },
+    sqlFile: '0037_preparing_reminder.sql',
+  },
+  {
     id: '0030-priv',
     name: 'write grants revoked from the public client roles (CRITICAL)',
     // The privilege half of 0030. Needs the anon key for the same reason

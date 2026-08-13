@@ -21,6 +21,7 @@ import {
   CreditCard,
   Bell,
   Wallet,
+  AlarmClock,
 } from 'lucide-react';
 
 // Where a notification opens when tapped. Codes deep-link to live tracking;
@@ -53,6 +54,13 @@ const META = {
   food_order_accepted: { title: 'Restaurant accepted your order', body: 'The kitchen will start preparing it shortly.', icon: CheckCircle2, tone: 'blue', href: foodHref },
   food_order_rejected: { title: 'Order rejected', body: 'The restaurant could not accept your order.', icon: XCircle, tone: 'red', href: foodHref },
   food_order_preparing: { title: 'Your order is being prepared', body: 'The restaurant is cooking your food.', icon: UtensilsCrossed, tone: 'blue', href: foodHref },
+  // tone must be a TONE_CLASSES key (constants.js) — 'orange' is not one and
+  // falls back to grey, which is why these use amber.
+  food_order_preparing_reminder: { title: 'Start preparing this order', body: 'An order is still waiting. Tap "Start preparing" so the customer knows the kitchen began.', icon: AlarmClock, tone: 'amber', href: () => '/merchant' },
+  // ?tab= lands on the Restaurant Orders tab rather than the overview — this
+  // alert is only actionable there. AdminPage reads it on mount.
+  admin_food_order_preparing_overdue: { title: 'Restaurant has not started preparing', body: 'An order is past the reminder window and still not in the kitchen.', icon: AlarmClock, tone: 'red', href: () => '/admin?tab=restaurant' },
+  food_order_delayed: { title: 'Your order is taking a little longer', body: 'We are following up with the restaurant.', icon: AlarmClock, tone: 'amber', href: foodHref },
   food_order_ready: { title: 'Your order is ready', body: 'Waiting for a rider to pick it up.', icon: UtensilsCrossed, tone: 'blue', href: foodHref },
   food_rider_assigned: { title: 'A rider is assigned to your order', body: 'They are heading to the restaurant.', icon: Bike, tone: 'blue', href: foodHref },
   food_delivery_assigned: { title: 'New delivery assigned', body: 'Open the driver portal for delivery details.', icon: Bike, tone: 'blue', href: () => '/driver' },
