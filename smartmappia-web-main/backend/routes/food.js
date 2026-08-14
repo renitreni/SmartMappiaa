@@ -9,6 +9,7 @@ const {
   foodCheckoutLimiter,
   foodPayLimiter,
   foodEventsLimiter,
+  cardChargeLimiter,
 } = require('../middleware/rateLimiters');
 const { listRestaurants, getRestaurant } = require('../controllers/food/restaurantsController');
 const {
@@ -24,8 +25,8 @@ const {
   getPaymentInfo,
   createPayUploadUrl,
   recordPayment,
+  createCardCharge,
   createTapCharge,
-  tapWebhook,
   updateOrderContact,
 } = require('../controllers/food/ordersController');
 const { recordEvent } = require('../controllers/food/eventsController');
@@ -114,6 +115,22 @@ router.post(
   }),
   recordPayment
 );
+// Card payment (new card, saved card, or Apple Pay). Tighter limiter than
+// the proof endpoints: a saved-card charge can capture without any human
+// step, so this is the one food endpoint that can move money unattended.
+router.post(
+  '/orders/:code/charge',
+  requireAuth,
+  cardChargeLimiter,
+  idempotent,
+  validateBody({
+    saved_method_id: { type: 'string', maxLength: 60, nullable: true },
+    save_card: { type: 'boolean' },
+  }),
+  createCardCharge
+);
+// Superseded by /charge. Kept for one release so a cached frontend bundle
+// gets a readable 503 instead of a 404; delete after the next deploy.
 router.post('/orders/:code/tap-charge', requireAuth, foodPayLimiter, createTapCharge);
 
 // Rate the delivery rider (1-5 stars) after the order is delivered.
@@ -127,8 +144,9 @@ router.post(
   rateFoodDriver
 );
 
-// Signed gateway webhook — the source of truth for Tap charges.
-router.post('/webhooks/tap', tapWebhook);
+// The Tap webhook used to be mounted here per vertical. There is now one
+// handler for all three at POST /api/payments/webhooks/tap — see
+// routes/payments.js. Tap is configured with that URL on every charge.
 
 // --- Client analytics events (anonymous allowed, whitelisted names) ---
 router.post(

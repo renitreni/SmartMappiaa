@@ -46,6 +46,9 @@ async function request(path, { method = 'GET', body, headers = {}, silent = fals
     const err = new Error(msg);
     err.status = res.status;
     err.details = data && data.details;
+    // Machine-readable reason (card_declined, min_order, out_of_stock, ...)
+    // so a caller can branch on WHY rather than string-matching the message.
+    err.failure_reason = data && data.failure_reason;
     if (!silent) notifyError(msg);
     throw err;
   }
@@ -65,6 +68,15 @@ export const api = {
   // Permanent, and required by both app stores. 204 on success.
   deleteAccount: () => request('/api/auth/account', { method: 'DELETE' }),
 
+  // --- saved cards ("card on file"), shared by all three services ---
+  // A card is never ADDED here: Tap only mints one as a side effect of a
+  // real charge with save_card, so saving happens at checkout. These only
+  // list, remove and re-prioritise. The ids are our own uuids — the gateway
+  // references never reach the browser.
+  paymentMethods: () => request('/api/payment-methods', { silent: true }),
+  deletePaymentMethod: (id) => request(`/api/payment-methods/${id}`, { method: 'DELETE' }),
+  setDefaultPaymentMethod: (id) => request(`/api/payment-methods/${id}/default`, { method: 'POST' }),
+
   // --- passenger ---
   createBooking: (b) => request('/api/bookings', { method: 'POST', body: b }),
   myBookings: () => request('/api/bookings', { silent: true }), // Pick & Drop history
@@ -75,8 +87,15 @@ export const api = {
   paymentInstructions: (code) => request(`/api/bookings/${code}/payment-instructions`),
   proofSignedUrl: (code, body) => request(`/api/bookings/${code}/payment-proof/signed-url`, { method: 'POST', body }),
   recordProof: (code, body) => request(`/api/bookings/${code}/payment-proof`, { method: 'POST', body }),
-  // Tap Payments hosted-redirect charge (backend endpoint pending — see NOTES §2).
-  createTapCharge: (code) => request(`/api/payments/${code}/tap-charge`, { method: 'POST' }),
+  // Card charge for a ride. The path is /bookings/:code/charge, not
+  // /:code/charge, so the sibling /webhooks/tap route can never be matched
+  // as a booking code.
+  bookingCardCharge: (code, body = {}) =>
+    request(`/api/payments/bookings/${code}/charge`, {
+      method: 'POST',
+      body,
+      headers: { 'Idempotency-Key': crypto.randomUUID() },
+    }),
   tracking: (code) => request(`/api/tracking/${code}`, { silent: true }), // polled every 8s
 
   // --- location search / nearby places (Google Places + Geocoding via backend) ---
@@ -170,7 +189,12 @@ export const api = {
   foodPaymentInfo: (code) => request(`/api/food/orders/${code}/pay`),
   foodPaySignedUrl: (code, body) => request(`/api/food/orders/${code}/pay/signed-url`, { method: 'POST', body }),
   foodRecordPayment: (code, body) => request(`/api/food/orders/${code}/pay`, { method: 'POST', body }),
-  foodTapCharge: (code) => request(`/api/food/orders/${code}/tap-charge`, { method: 'POST' }),
+  foodCardCharge: (code, body = {}) =>
+    request(`/api/food/orders/${code}/charge`, {
+      method: 'POST',
+      body,
+      headers: { 'Idempotency-Key': crypto.randomUUID() },
+    }),
   foodEvent: (body) => request('/api/food/events', { method: 'POST', body, silent: true }),
 
   // --- ecommerce ("shop"): customer ---
@@ -202,7 +226,12 @@ export const api = {
   shopPaymentInfo: (code) => request(`/api/shop/orders/${code}/pay`),
   shopPaySignedUrl: (code, body) => request(`/api/shop/orders/${code}/pay/signed-url`, { method: 'POST', body }),
   shopRecordPayment: (code, body) => request(`/api/shop/orders/${code}/pay`, { method: 'POST', body }),
-  shopTapCharge: (code) => request(`/api/shop/orders/${code}/tap-charge`, { method: 'POST' }),
+  shopCardCharge: (code, body = {}) =>
+    request(`/api/shop/orders/${code}/charge`, {
+      method: 'POST',
+      body,
+      headers: { 'Idempotency-Key': crypto.randomUUID() },
+    }),
   rateShopDriver: (code, body) =>
     request(`/api/shop/orders/${code}/rate-driver`, { method: 'POST', body, silent: true }),
   shopEvent: (body) => request('/api/shop/events', { method: 'POST', body, silent: true }),

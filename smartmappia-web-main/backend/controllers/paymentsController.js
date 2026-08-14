@@ -86,6 +86,11 @@ async function getPaymentInstructions(req, res) {
       },
       // The booking code IS the transfer note so we can match the payment.
       reference: booking.booking_code,
+      // Whether to offer the card option at all. Only the PUBLIC key is
+      // ever sent — the secret is what gates availability server-side.
+      cardAvailable: !!config.tap.secretKey,
+      tapPublicKey: config.tap.publicKey || null,
+      applePayEnabled: !!config.tap.applePayEnabled,
       instructions: [
         `Open STC Pay and send ${payable} ${booking.currency} to ${config.stcPay.number} (${config.stcPay.recipientName}).`,
         `Put your booking code ${booking.booking_code} in the transfer note.`,

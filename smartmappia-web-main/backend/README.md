@@ -94,7 +94,9 @@ Twelve route modules mounted in `app.js`.
 - `POST /orders` — checkout. Re-reads menu prices, recomputes distance, enforces the SAR 30 minimum
   and 15 km radius. Accepts `Idempotency-Key`.
 - `GET /orders` · `/orders/:code` · `PATCH /orders/:code/contact` · `POST /orders/:code/rate-driver`
-- Payments: `GET|POST /orders/:code/pay[...]` · `POST /orders/:code/tap-charge`
+- Payments: `GET|POST /orders/:code/pay[...]` (STC Pay proof) · `POST /orders/:code/charge` (card)
+- Card payments platform-wide: `/api/payment-methods` (saved cards) and `/api/payments`
+  (ride charge + the single Tap webhook). Both 503 until `TAP_SECRET_KEY` is set.
 - `POST /webhooks/tap` (signed) · `POST /events`
 
 **Admin** — `/api/admin` (entire router behind `requireAdmin`)

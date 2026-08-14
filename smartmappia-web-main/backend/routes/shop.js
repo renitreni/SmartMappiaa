@@ -9,6 +9,7 @@ const {
   shopCheckoutLimiter,
   shopPayLimiter,
   shopEventsLimiter,
+  cardChargeLimiter,
 } = require('../middleware/rateLimiters');
 const { listStores, getStore } = require('../controllers/shop/storesController');
 const {
@@ -25,8 +26,8 @@ const {
   getPaymentInfo,
   createPayUploadUrl,
   recordPayment,
+  createCardCharge,
   createTapCharge,
-  tapWebhook,
 } = require('../controllers/shop/ordersController');
 const { recordEvent } = require('../controllers/shop/eventsController');
 const { rateShopDriver } = require('../controllers/ratingsController');
@@ -73,7 +74,9 @@ router.post(
     contact_phone: { type: 'string', maxLength: 40, nullable: true },
     // Cash on delivery is available here (unlike food's stcpay-only
     // checkout) because retail baskets are larger and COD is the norm.
-    // Tap still arrives only via the gated /orders/:code/tap-charge route.
+    // Card is deliberately NOT selectable here: it is chosen on the payment
+    // step via /orders/:code/charge, so an order can never be created with a
+    // payment method whose gateway is unconfigured.
     // required: the RPC inserts this into a NOT NULL column, so omitting it
     // surfaced as a generic 500 instead of a 400 naming the missing field.
     payment_method: { type: 'string', required: true, enum: ['stcpay', 'cash'] },
@@ -117,6 +120,21 @@ router.post(
   }),
   recordPayment
 );
+// Card payment (new card, saved card, or Apple Pay). Tighter limiter than
+// the proof endpoints: a saved-card charge can capture with no human step.
+router.post(
+  '/orders/:code/charge',
+  requireAuth,
+  cardChargeLimiter,
+  idempotent,
+  validateBody({
+    saved_method_id: { type: 'string', maxLength: 60, nullable: true },
+    save_card: { type: 'boolean' },
+  }),
+  createCardCharge
+);
+// Superseded by /charge. Kept for one release so a cached frontend bundle
+// gets a readable 503 instead of a 404; delete after the next deploy.
 router.post('/orders/:code/tap-charge', requireAuth, shopPayLimiter, createTapCharge);
 
 // Rate the delivery rider (1-5 stars) after the order is delivered.
@@ -130,10 +148,9 @@ router.post(
   rateShopDriver
 );
 
-// Signed gateway webhook — the source of truth for Tap charges. Fails closed
-// (503) without TAP_WEBHOOK_SECRET so an unsigned "CAPTURED" POST can never
-// mark an order paid.
-router.post('/webhooks/tap', tapWebhook);
+// The Tap webhook used to be mounted here per vertical. There is now one
+// handler for all three at POST /api/payments/webhooks/tap — see
+// routes/payments.js. Tap is configured with that URL on every charge.
 
 // --- Client analytics events (anonymous allowed, whitelisted names) ---
 router.post(

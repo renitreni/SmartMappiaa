@@ -28,7 +28,9 @@ const config = {
   // When true, uploading a proof auto-verifies the booking. TESTING ONLY.
   autoVerifyTestMode: toBool(process.env.AUTO_VERIFY_STCPAY_TEST_MODE, false),
 
-  // stcpay_manual | stcpay_manual_test_auto | moyasar | both
+  // Legacy knob, read by nothing. Kept so an existing PAYMENT_MODE in a
+  // deployed .env stays harmless. Which methods are actually offered is
+  // derived from config: STC Pay is always on, card follows tap.secretKey.
   paymentMode: process.env.PAYMENT_MODE || 'stcpay_manual',
 
   // STC Pay recipient details shown to the passenger (spec §6).
@@ -259,14 +261,46 @@ const config = {
     maxFixAgeMinutes: toNumber(process.env.GEOFENCE_MAX_FIX_AGE_MINUTES, 3),
   },
 
-  // Tap Payments (deferred online path — PLACEHOLDER until go-live: keep
-  // these unset and every Tap endpoint answers "not configured" while the
-  // manual STC Pay path stays the live one).
+  // Tap Payments — the online card gateway (cards, mada, Apple Pay, and
+  // saved cards). Keep secretKey unset and every card endpoint answers 503
+  // "not configured" while manual STC Pay stays the live path.
   tap: {
     secretKey: process.env.TAP_SECRET_KEY || '',
+    // Public/publishable key. Safe in a browser; mirrored here only so the
+    // API can hand it to the client alongside "card payment is available".
     publicKey: process.env.TAP_PUBLIC_KEY || '',
-    webhookSecret: process.env.TAP_WEBHOOK_SECRET || '',
     merchantId: process.env.TAP_MERCHANT_ID || '',
+    apiBase: process.env.TAP_API_BASE || 'https://api.tap.company',
+
+    // There is deliberately NO webhookSecret. Tap's `hashstring` header is
+    // an HMAC over a concatenation of named charge fields keyed with the
+    // SECRET API KEY itself — there is no separate webhook credential. The
+    // old TAP_WEBHOOK_SECRET was a wrong assumption and the verification
+    // built on it could never have matched a real Tap webhook.
+    // See lib/tap.js verifyWebhookHash().
+
+    applePayEnabled: toBool(process.env.TAP_APPLE_PAY_ENABLED, false),
+
+    // Charging a saved card without a 3DS redirect is only legal once Tap
+    // has activated Payment Agreements on the account, and only for a card
+    // that actually has an agreement id. Default OFF so the first live
+    // charges are 3DS whatever else is true — turning this on is a
+    // deliberate act taken after confirming the activation landed.
+    allowNon3dsOnFile: toBool(process.env.TAP_ALLOW_NON_3DS_ON_FILE, false),
+
+    // How many cards one customer may keep. Tap's list endpoint returns the
+    // 10 most recent, so staying under that means reconciliation never has
+    // to paginate.
+    maxSavedCards: toNumber(process.env.TAP_MAX_SAVED_CARDS, 5),
+  },
+
+  // Absolute public URLs. Gateway redirect and webhook URLs need them, and
+  // deriving the web origin from CORS_ORIGINS[0] (as the old Tap charge did)
+  // made the ORDER of that env var silently load-bearing: reordering the
+  // list would have redirected paying customers to the wrong host.
+  publicUrls: {
+    web: process.env.PUBLIC_WEB_URL || (process.env.CORS_ORIGINS || '').split(',')[0] || '',
+    api: process.env.PUBLIC_API_BASE || '',
   },
 };
 

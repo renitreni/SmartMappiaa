@@ -93,4 +93,25 @@ module.exports = {
   shopPayLimiter: make(10),
   // Client analytics events.
   shopEventsLimiter: make(60),
+
+  // --- Card payments (Tap: cards, mada, Apple Pay, saved cards) ---
+  // Reading your own saved cards. The picker loads once per checkout and the
+  // manage screen once per visit, so 30/min is far above human use — but low
+  // enough that the endpoint is useless as an enumeration oracle if an auth
+  // bug ever let it be called for someone else.
+  paymentMethodsLimiter: make(30),
+  // Delete / set-default. Each delete makes a live revoke call to Tap, so
+  // this caps outbound gateway traffic as much as it caps requests.
+  paymentMethodsWriteLimiter: make(10),
+  // Starting a card charge. Deliberately tighter than foodPayLimiter (10):
+  // a saved-card charge with a payment agreement skips 3DS, making this the
+  // only endpoint on the platform that can move money with no human
+  // interaction — which is exactly the shape of a card-testing probe. Five
+  // per minute is more than any real customer needs.
+  cardChargeLimiter: make(5, 'Too many payment attempts — please wait a minute and try again.'),
+  // Gateway webhook. High because Tap retries on a non-2xx and a 429 would
+  // turn a burst into a redelivery storm, but not unlimited — it is a public
+  // unauthenticated endpoint. It is also exempt from the global limiter in
+  // app.js for the same reason.
+  webhookLimiter: make(300),
 };

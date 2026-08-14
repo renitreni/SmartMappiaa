@@ -24,6 +24,8 @@ const foodRoutes = require('./routes/food');
 const shopRoutes = require('./routes/shop');
 const merchantShopRoutes = require('./routes/merchantShop');
 const locationRoutes = require('./routes/locations');
+const paymentRoutes = require('./routes/payments');
+const paymentMethodRoutes = require('./routes/paymentMethods');
 const { config } = require('./lib/config');
 
 const app = express();
@@ -79,7 +81,20 @@ app.use(express.json({ limit: '100kb' }));
 // The general cap is 240/min because map-heavy screens (live tracking + the
 // location picker) legitimately make many small read calls per minute; the
 // sensitive endpoints keep their own tighter per-route limiters.
-const generalLimiter = rateLimit({ windowMs: 60 * 1000, max: 240, standardHeaders: true, legacyHeaders: false });
+const generalLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 240,
+  standardHeaders: true,
+  legacyHeaders: false,
+  // Gateway webhooks are exempt. Tap retries six times with backoff on any
+  // non-2xx, so 429-ing it converts a burst into a redelivery storm — and a
+  // dropped webhook means an order the customer paid for is never confirmed.
+  // The webhook has its own limiter plus a signature check.
+  //
+  // originalUrl, not path: this limiter is mounted at '/api/', and inside a
+  // mounted middleware req.path is the REMAINDER after the mount point.
+  skip: (req) => req.originalUrl.includes('/webhooks/'),
+});
 const authLimiter = rateLimit({ windowMs: 60 * 1000, max: 20, standardHeaders: true, legacyHeaders: false });
 app.use('/api/', generalLimiter);
 app.use('/api/auth', authLimiter);
@@ -110,6 +125,27 @@ if (config.shop.enabled) {
   app.use('/api/merchant/shop', shopClosed);
 }
 app.use('/api/merchant', merchantRoutes);
+// --- Card payments (Tap), gated on the gateway secret ---
+//
+// Same posture as the shop gate above: with no key configured there is
+// nothing to charge, nothing to list and nothing to revoke, so 503 is the
+// truthful answer. An empty array from /payment-methods would read as "you
+// have no saved cards", which is a different and wrong statement.
+//
+// /api/payment-methods and /api/payments do not collide — Express matches
+// whole path segments, so the former is not "under" the latter and the
+// mount order between them does not matter. (Unlike /api/merchant/shop
+// before /api/merchant above, which genuinely does.)
+if (config.tap.secretKey) {
+  app.use('/api/payments', paymentRoutes);
+  app.use('/api/payment-methods', paymentMethodRoutes);
+  console.log('Card payments (Tap) ENABLED.');
+} else {
+  const cardsClosed = (req, res) =>
+    res.status(503).json({ error: 'Card payment is not available yet.' });
+  app.use('/api/payments', cardsClosed);
+  app.use('/api/payment-methods', cardsClosed);
+}
 app.use('/api/notifications', notificationRoutes);
 app.use('/api/route', routeRoutes);
 app.use('/api/food', foodRoutes);

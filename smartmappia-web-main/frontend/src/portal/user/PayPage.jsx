@@ -11,7 +11,7 @@ import { api } from '../lib/api';
 import { vatLabel } from '../lib/constants';
 import { uploadProofFile } from '../lib/supabaseClient';
 import { PortalShell, Card, Field, fileInputClass, btnPrimary, Spinner } from '../components/ui';
-import TapPayButton from '../../components/booking/TapPayButton';
+import CardPaySection from '../components/CardPaySection';
 
 export default function PayPage() {
   const { code } = useParams();
@@ -61,7 +61,16 @@ export default function PayPage() {
               Booking code <span className="font-mono font-bold text-brand-dark">{code}</span>
             </p>
 
-            <TapPayButton bookingCode={code} />
+            <CardPaySection
+              code={code}
+              amount={instructions.fare?.total ?? instructions.amount}
+              available={instructions.cardAvailable}
+              charge={api.bookingCardCharge}
+              // A card payment confirms the booking and starts dispatch on
+              // the spot, so go straight to tracking rather than back here.
+              onPaid={() => navigate(`/track/${code}`)}
+              onError={setError}
+            />
             <div className="relative my-5 text-center">
               <div className="absolute inset-0 flex items-center"><div className="w-full border-t border-brand-border" /></div>
               <span className="relative bg-white px-3 text-xs font-bold uppercase tracking-wider text-brand-grey">or pay manually</span>

@@ -6,8 +6,10 @@
 //   - getPaymentInfo      : GET  /api/food/orders/:code/pay
 //   - createPayUploadUrl  : POST /api/food/orders/:code/pay/signed-url
 //   - recordPayment       : POST /api/food/orders/:code/pay
-//   - createTapCharge     : POST /api/food/orders/:code/tap-charge
-//   - tapWebhook          : POST /api/food/webhooks/tap
+//   - createCardCharge    : POST /api/food/orders/:code/charge
+//
+// The Tap webhook is NOT here — one handler serves all three verticals at
+// POST /api/payments/webhooks/tap (controllers/cardPaymentsController).
 //
 // HARD RULES enforced here (never client-side):
 //   * money is recomputed from DB menu prices via lib/foodMoney.js —
@@ -16,9 +18,10 @@
 //   * outside the 15 km radius -> 422 { failure_reason: 'outside_radius' }
 //   * only the gateway token / transaction id is stored, never card data
 // ---------------------------------------------------------------------
-const crypto = require('crypto');
 const { supabase } = require('../../lib/supabase');
 const { config } = require('../../lib/config');
+const { chargeForOrder, respondToCharge } = require('../../lib/cardCharge');
+const { confirmGatewayPayment } = require('../../lib/gatewayPaid');
 const { haversineKm } = require('../../lib/geo');
 const { travelEtaMinutes, deliveryEtaBand } = require('../../lib/eta');
 const { latestDriverFix } = require('../../lib/tracking');
@@ -516,7 +519,11 @@ async function getPaymentInfo(req, res) {
       },
       // The order code IS the transfer note so payments can be matched.
       reference: order.order_code,
-      tapAvailable: !!config.tap.secretKey,
+      // Whether to offer the card option at all. Only the PUBLIC key is
+      // ever sent — the secret is what gates availability server-side.
+      cardAvailable: !!config.tap.secretKey,
+      tapPublicKey: config.tap.publicKey || null,
+      applePayEnabled: !!config.tap.applePayEnabled,
       instructions: [
         `Open STC Pay and send SAR ${Number(order.total).toFixed(2)} to ${config.stcPay.number} (${config.stcPay.recipientName}).`,
         `Put your order code ${order.order_code} in the transfer note.`,
@@ -722,103 +729,72 @@ async function recordPayment(req, res) {
   }
 }
 
-// --- Payment: Tap (online, deferred) -----------------------------------
-async function createTapCharge(req, res) {
+// --- Payment: card via Tap (new card, saved card, or Apple Pay) --------
+//
+// The decision tree (which of Tap's save-card scenarios applies) lives in
+// lib/cardCharge.js so all three verticals behave identically. This handler
+// only loads the order, authorizes it, and maps the result onto HTTP.
+async function createCardCharge(req, res) {
   try {
-    if (!config.tap.secretKey) {
-      return res.status(503).json({ error: 'Tap Payments is not configured yet. Please pay with STC Pay.' });
-    }
     const order = await loadOrder(req.params.code);
     if (!assertOwner(req, res, order)) return undefined;
+    if (order.payment_method === 'cash') {
+      return res.status(409).json({ error: 'This order is cash on delivery — pay the rider directly' });
+    }
     if (!PAYABLE_STATUSES.includes(order.payment_status)) {
       return res.status(409).json({ error: `Payment is already ${order.payment_status}` });
     }
+    // assertOwner lets admins through for support. Charging a card is the
+    // one thing they must not do on someone else's behalf, so the card path
+    // requires the real owner even when the caller is an admin.
+    if (order.customer_id !== req.userId) {
+      return res.status(403).json({ error: 'A card payment can only be made by the customer' });
+    }
 
-    // Hosted redirect: Tap collects the card inside its own PCI-DSS
-    // environment; we only ever see the charge id.
-    const response = await fetch('https://api.tap.company/v2/charges', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${config.tap.secretKey}`,
-      },
-      body: JSON.stringify({
-        amount: Number(order.total),
-        currency: 'SAR',
-        reference: { order: order.order_code },
-        source: { id: 'src_all' },
-        redirect: { url: `${(process.env.CORS_ORIGINS || '').split(',')[0] || ''}/food/track/${order.order_code}` },
-        post: { url: `${process.env.PUBLIC_API_BASE || ''}/api/food/webhooks/tap` },
-      }),
+    const result = await chargeForOrder({
+      req,
+      profile: req.profile,
+      vertical: 'food',
+      code: order.order_code,
+      amount: Number(order.total),
+      redirectPath: `/food/track/${order.order_code}`,
+      savedMethodId: req.body.saved_method_id || null,
+      saveCard: req.body.save_card === true,
     });
-    const charge = await response.json();
-    if (!response.ok || !charge.transaction || !charge.transaction.url) {
-      console.error('createTapCharge gateway error:', charge);
-      return res.status(502).json({ error: 'Could not start the Tap payment' });
+
+    // Only claim the order for card once the gateway has accepted it.
+    if (result.kind === 'redirect' || result.kind === 'paid') {
+      await supabase.from('orders').update({ payment_method: 'tap' }).eq('id', order.id);
     }
 
-    await supabase.from('orders').update({ payment_method: 'tap' }).eq('id', order.id);
-    return res.status(201).json({ orderCode: order.order_code, url: charge.transaction.url });
-  } catch (err) {
-    console.error('createTapCharge error:', err);
-    return res.status(500).json({ error: 'Unexpected server error' });
-  }
-}
-
-async function tapWebhook(req, res) {
-  try {
-    // Tap is a deferred/placeholder path. With no gateway configured, NO
-    // legitimate Tap webhook can arrive — so reject rather than trust an
-    // unsigned request. (Otherwise an unsigned "CAPTURED" POST with a known
-    // order code would mark that order paid, bypassing payment.) Mirrors
-    // createTapCharge's 503 while TAP_* is unset.
-    if (!config.tap.webhookSecret) {
-      return res.status(503).json({ error: 'Tap Payments is not configured' });
-    }
-    // The signed webhook is the source of truth for Tap payments.
-    {
-      const signature = req.get('hashstring') || '';
-      const payload = JSON.stringify(req.body || {});
-      const expected = crypto
-        .createHmac('sha256', config.tap.webhookSecret)
-        .update(payload)
-        .digest('hex');
-      // Constant-time compare so the signature can't be recovered by timing.
-      const sigBuf = Buffer.from(signature, 'utf8');
-      const expBuf = Buffer.from(expected, 'utf8');
-      if (
-        sigBuf.length !== expBuf.length ||
-        !crypto.timingSafeEqual(sigBuf, expBuf)
-      ) {
-        return res.status(401).json({ error: 'Invalid webhook signature' });
-      }
-    }
-
-    const charge = req.body || {};
-    const orderCode = charge.reference && charge.reference.order;
-    if (!orderCode || !charge.id) return res.status(400).json({ error: 'Malformed webhook' });
-
-    const order = await loadOrder(orderCode);
-    if (!order) return res.status(404).json({ error: 'Order not found' });
-
-    if (charge.status === 'CAPTURED') {
-      // markOrderPaid dedupes by transaction id -> replayed webhooks are no-ops.
-      await markOrderPaid(order, {
-        provider: 'tap',
-        transactionId: charge.id,
-        raw: { status: charge.status, id: charge.id }, // never the card object
+    return respondToCharge(res, result, order.order_code, async () => {
+      await confirmGatewayPayment({
+        vertical: 'food',
+        code: order.order_code,
+        chargeId: result.chargeId,
+        status: 'CAPTURED',
+        amountPaid: result.charge && result.charge.amount,
+        currency: result.charge && result.charge.currency,
       });
-    } else if (['FAILED', 'DECLINED', 'CANCELLED'].includes(charge.status)) {
-      await supabase.from('orders').update({ payment_status: 'failed' }).eq('id', order.id)
-        .eq('payment_status', 'awaiting');
-      pushFoodOrderStatus(order.order_code, { paymentStatus: 'failed' });
-    }
-    return res.json({ received: true });
+    });
   } catch (err) {
-    console.error('tapWebhook error:', err);
+    console.error('createCardCharge error:', err);
     return res.status(500).json({ error: 'Unexpected server error' });
   }
 }
+
+// The old /tap-charge path, kept for one release so a cached frontend
+// bundle degrades to "not available" instead of a 404. Remove after the
+// next deploy.
+async function createTapCharge(req, res) {
+  return res.status(503).json({ error: 'This payment link is out of date — please refresh the page.' });
+}
+
+// NOTE: the per-vertical Tap webhook that used to live here is gone. It
+// HMAC'd JSON.stringify(body), but Tap signs a concatenation of named
+// charge fields keyed with the secret API key, so it could never have
+// matched a real webhook. There is now one correct handler for all three
+// verticals: POST /api/payments/webhooks/tap (controllers/cardPaymentsController).
 
 module.exports = {
   checkout,
@@ -827,8 +803,10 @@ module.exports = {
   getPaymentInfo,
   createPayUploadUrl,
   recordPayment,
+  createCardCharge,
   createTapCharge,
-  tapWebhook,
   markOrderPaid,
   updateOrderContact,
+  loadOrder,
+  PAYABLE_STATUSES,
 };
