@@ -3,7 +3,7 @@
 // ---------------------------------------------------------------------
 import { useEffect, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { ArrowLeft, LogOut, UserCircle, History, Settings, ChevronDown } from 'lucide-react';
+import { ArrowLeft, LogOut, UserCircle, History, Settings, ChevronDown, CreditCard } from 'lucide-react';
 import { TONE_CLASSES } from '../lib/constants';
 import { useAuth } from '../lib/AuthProvider';
 import NotificationBell from './NotificationBell';
@@ -70,6 +70,9 @@ export function UserMenu() {
           </button>
           <button type="button" onClick={() => go('/transactions')} className={itemClass}>
             <History className="w-4 h-4 text-brand-orange" /> Order History
+          </button>
+          <button type="button" onClick={() => go('/payment-methods')} className={itemClass}>
+            <CreditCard className="w-4 h-4 text-brand-orange" /> Payment methods
           </button>
           <button type="button" onClick={() => go('/profile#settings')} className={itemClass}>
             <Settings className="w-4 h-4 text-brand-orange" /> Settings

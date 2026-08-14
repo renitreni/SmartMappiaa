@@ -31,7 +31,7 @@ import {
   MapPinLegend,
   LegalConsentNote,
 } from '../../components/booking/BookingUI';
-import TapPayButton from '../../components/booking/TapPayButton';
+import CardPaySection from '../components/CardPaySection';
 
 const FARE = fareBreakdown();
 const AIRPORT_OPTIONS = airportDropdownOptions();
@@ -365,7 +365,16 @@ export default function BookPage() {
 
             <div className="p-6 space-y-6">
               <div>
-                <TapPayButton bookingCode={booking.bookingCode} />
+                <CardPaySection
+                  code={booking.bookingCode}
+                  amount={instructions.fare?.total ?? instructions.amount}
+                  available={instructions.cardAvailable}
+                  charge={api.bookingCardCharge}
+                  // A card payment confirms the booking and starts the driver
+                  // dispatch immediately, so go straight to tracking.
+                  onPaid={() => navigate(`/track/${booking.bookingCode}`)}
+                  onError={setError}
+                />
                 <div className="relative my-5 text-center">
                   <div className="absolute inset-0 flex items-center"><div className="w-full border-t border-brand-border" /></div>
                   <span className="relative bg-white px-3 text-xs font-bold uppercase tracking-wider text-brand-grey">or pay manually</span>

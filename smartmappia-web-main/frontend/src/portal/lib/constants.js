@@ -243,7 +243,7 @@ export const FOOD_TRACK_STEPS = [
 
 export const FOOD_PAYMENT_METHODS = {
   stcpay: 'STC Pay',
-  tap: 'Card (Tap)',
+  tap: 'Card',
   cash: 'Cash on delivery',
 };
 
@@ -305,9 +305,40 @@ export function trackStepIndex(steps, orderStatus, deliveryStatus) {
 
 export const SHOP_PAYMENT_METHODS = {
   stcpay: 'STC Pay',
-  tap: 'Card (Tap)',
+  tap: 'Card',
   cash: 'Cash on delivery',
 };
+
+// --- Saved cards -----------------------------------------------------
+// Brands we know how to name. Anything else renders as a plain "Card"
+// rather than echoing a raw gateway string at the customer.
+export const CARD_BRANDS = {
+  visa: 'Visa',
+  mastercard: 'Mastercard',
+  mada: 'mada',
+  amex: 'Amex',
+  american_express: 'Amex',
+  unionpay: 'UnionPay',
+};
+
+export function cardBrandLabel(brand) {
+  return CARD_BRANDS[String(brand || '').toLowerCase()] || 'Card';
+}
+
+// "08/29". Returns '' when the gateway gave us no expiry rather than
+// rendering "undefined/undefined".
+export function cardExpiryLabel(method) {
+  if (!method || !method.exp_month || !method.exp_year) return '';
+  return `${String(method.exp_month).padStart(2, '0')}/${String(method.exp_year).slice(-2)}`;
+}
+
+export function savedCardLabel(method) {
+  if (!method) return '';
+  const parts = [cardBrandLabel(method.brand)];
+  if (method.last4) parts.push(`•••• ${method.last4}`);
+  const expiry = cardExpiryLabel(method);
+  return expiry ? `${parts.join(' ')} · ${expiry}` : parts.join(' ');
+}
 
 // Stock is never exposed as a number to customers — the API sends a band
 // instead, because an exact count polled over time reveals a store's sales

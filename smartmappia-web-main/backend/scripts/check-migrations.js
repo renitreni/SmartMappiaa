@@ -687,6 +687,51 @@ const CHECKS = [
     sqlFile: '0038_store_hours.sql',
   },
   {
+    id: '0039',
+    name: 'saved payment methods (card on file)',
+    // Every card charge reads payment_customers and writes
+    // saved_payment_methods, and the webhook writes webhook_events. A
+    // missing table here is not a degraded feature, it is a 500 on payment.
+    run: async () => {
+      const e1 = (
+        await supabase.from('payment_customers').select('user_id, gateway_customer_id').limit(0)
+      ).error;
+      if (e1) return e1.message;
+      const e2 = (
+        await supabase
+          .from('saved_payment_methods')
+          .select('user_id, gateway_customer_id, gateway_card_id, payment_agreement_id, is_default, consent_at')
+          .limit(0)
+      ).error;
+      if (e2) return e2.message;
+      const e3 = (
+        await supabase
+          .from('webhook_events')
+          .select('order_id, shop_order_id, verified_by_fetch, payload_sha256')
+          .limit(0)
+      ).error;
+      return e3 ? e3.message : null;
+    },
+    sqlFile: '0039_saved_payment_methods.sql',
+  },
+  {
+    id: '0039-grant',
+    name: 'saved cards are invisible to the public roles (CRITICAL)',
+    // Not one column but the WHOLE table, because there is no safe column:
+    // a client holding gateway_card_id + gateway_customer_id can mint a
+    // charge token against someone else's card. 0039 grants nothing and
+    // creates no RLS policy, so both probes must be refused outright.
+    grantCheck: true,
+    run: async () => {
+      return (
+        (await assertHidden('saved_payment_methods', 'gateway_card_id')) ||
+        (await assertHidden('payment_customers', 'gateway_customer_id')) ||
+        null
+      );
+    },
+    sqlFile: '0039_saved_payment_methods.sql',
+  },
+  {
     id: '0030-priv',
     name: 'write grants revoked from the public client roles (CRITICAL)',
     // The privilege half of 0030. Needs the anon key for the same reason

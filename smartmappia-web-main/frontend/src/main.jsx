@@ -33,6 +33,7 @@ import ShopTrackPage from './portal/shop/ShopTrackPage.jsx'
 import NotificationsPage from './portal/user/NotificationsPage.jsx'
 import TransactionsPage from './portal/user/TransactionsPage.jsx'
 import ProfilePage from './portal/user/ProfilePage.jsx'
+import PaymentMethodsPage from './portal/user/PaymentMethodsPage.jsx'
 import LegalDocPage from './pages/legal/LegalDocPage.jsx'
 import HelpCenterPage from './pages/legal/HelpCenterPage.jsx'
 import AccountDeletionPage from './pages/legal/AccountDeletionPage.jsx'
@@ -91,6 +92,8 @@ createRoot(document.getElementById('root')).render(
             <Route path="/transactions" element={<RequireAuth><TransactionsPage /></RequireAuth>} />
             {/* Profile management (any signed-in user). */}
             <Route path="/profile" element={<RequireAuth><ProfilePage /></RequireAuth>} />
+            {/* Saved cards. List/remove only — a card is added by paying. */}
+            <Route path="/payment-methods" element={<RequireAuth><PaymentMethodsPage /></RequireAuth>} />
             {/* Booking is for passengers only — drivers/admins are redirected to their dashboard. */}
             <Route path="/book" element={<RequireAuth role="passenger" redirectWrongRole><BookPage /></RequireAuth>} />
             {/* Payment + tracking stay open by booking code. */}
