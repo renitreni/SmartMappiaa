@@ -87,7 +87,7 @@ async function checkout(req, res) {
 
     const { data: store, error: sErr } = await supabase
       .from('merchants')
-      .select('id, name, vertical, is_active, status, lat, lng, owner_id')
+      .select('id, name, vertical, is_active, status, accepting_orders, lat, lng, owner_id')
       .eq('id', b.merchant_id)
       .maybeSingle();
     if (sErr) {
@@ -100,6 +100,10 @@ async function checkout(req, res) {
         failure_reason: 'store_unavailable',
       });
     }
+    // Outside opening hours, or shut manually. Checked server-side because
+    // the disabled button on the storefront is presentation, not a control.
+    const openState = await merchantOpenState(store.id, store.accepting_orders);
+    if (!openState.open) return res.status(409).json(CLOSED_RESPONSE);
     // A store with no map pin cannot take orders: the rider would have no
     // pickup point, and the radius check below would be skipped (distance
     // null), letting orders slip in from any distance.

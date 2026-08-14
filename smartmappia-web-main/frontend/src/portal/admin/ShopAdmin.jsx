@@ -20,6 +20,7 @@ import {
   UserPlus,
   RefreshCw,
   Download,
+  Clock,
 } from 'lucide-react';
 import { api } from '../lib/api';
 import { useBroadcast } from '../lib/useBroadcast';
@@ -28,6 +29,8 @@ import { notifySuccess, notifyError, confirmAction } from '../lib/notify';
 import { toCsv, downloadCsv } from '../lib/csv';
 import { Card, Field, Spinner, inputClass, btnPrimary, btnGhost } from '../components/ui';
 import PasswordInput from '../components/PasswordInput';
+import ImageUploadField from '../components/ImageUploadField';
+import StoreHoursEditor from '../components/StoreHoursEditor';
 
 // Owner passwords are chosen by the admin and handed over in person — keep this
 // in step with MIN_PASSWORD_LENGTH in backend/lib/validate.js.
@@ -78,6 +81,7 @@ function markupHint(price, netPrice) {
 function StoresSection({ stores, onChanged, onOpenCatalogue }) {
   const [showForm, setShowForm] = useState(false);
   const [editing, setEditing] = useState(null);
+  const [hoursFor, setHoursFor] = useState(null);
   const [form, setForm] = useState({ name: '', cuisine_type: '', description: '', logo_url: '', address: '' });
   const [ownerFor, setOwnerFor] = useState(null);
   const [ownerEmail, setOwnerEmail] = useState('');
@@ -189,8 +193,15 @@ function StoresSection({ stores, onChanged, onOpenCatalogue }) {
               <Field label="Category">
                 <input value={form.cuisine_type} onChange={(e) => setForm({ ...form, cuisine_type: e.target.value })} className={inputClass} />
               </Field>
-              <Field label="Logo URL">
-                <input value={form.logo_url} onChange={(e) => setForm({ ...form, logo_url: e.target.value })} className={inputClass} />
+              <Field label="Logo">
+                <ImageUploadField
+                  kind="logo"
+                  value={form.logo_url}
+                  onChange={(url) => setForm({ ...form, logo_url: url || '' })}
+                  ready={!!editing}
+                  notReadyHint="Save the store first, then edit it to upload a logo."
+                  getSignedUrl={(body) => api.adminShopStoreImageSignedUrl(editing, body)}
+                />
               </Field>
               <Field label="Address">
                 <input value={form.address} onChange={(e) => setForm({ ...form, address: e.target.value })} className={inputClass} />
@@ -230,6 +241,10 @@ function StoresSection({ stores, onChanged, onOpenCatalogue }) {
                     <div className="flex flex-wrap gap-1.5 mt-2">
                       <Pill tone={s.is_active ? 'green' : 'grey'}>{s.is_active ? 'Listed' : 'Unlisted'}</Pill>
                       {s.status === 'suspended' && <Pill tone="red">Suspended</Pill>}
+                      {/* Closed is not Unlisted: still on the storefront, just
+                          not taking orders. Only the manual switch is visible
+                          here — the schedule is per-store, behind Hours. */}
+                      {s.accepting_orders === false && <Pill tone="amber">Closed now</Pill>}
                       {!s.logo_url && <Pill tone="amber">No logo</Pill>}
                       {(s.lat == null || s.lng == null) && <Pill tone="red">No map pin</Pill>}
                       {s.ownerEmail ? <Pill tone="blue">{s.ownerEmail}</Pill> : <Pill tone="amber">No owner</Pill>}
@@ -246,6 +261,12 @@ function StoresSection({ stores, onChanged, onOpenCatalogue }) {
                   </button>
                   <button onClick={() => toggleListed(s)} className={btnGhost + ' !py-1.5 !px-3 text-sm'}>
                     {s.is_active ? 'Unlist' : 'List'}
+                  </button>
+                  <button
+                    onClick={() => setHoursFor(hoursFor === s.id ? null : s.id)}
+                    className={btnGhost + ' !py-1.5 !px-3 text-sm'}
+                  >
+                    <Clock className="w-4 h-4" /> Hours
                   </button>
                   <button
                     onClick={() => {
@@ -314,6 +335,19 @@ function StoresSection({ stores, onChanged, onOpenCatalogue }) {
                     </button>
                   )}
                 </div>
+
+                {hoursFor === s.id && (
+                  <div className="mt-3 pt-3 border-t border-brand-border">
+                    <StoreHoursEditor
+                      load={() => api.adminShopHours(s.id)}
+                      save={(hours) => api.adminShopSetHours(s.id, hours)}
+                      setAccepting={async (accepting) => {
+                        await api.adminShopSetAccepting(s.id, accepting);
+                        onChanged(); // refresh the "Closed now" pill above
+                      }}
+                    />
+                  </div>
+                )}
 
                 {ownerFor === s.id && (
                   <form onSubmit={linkOwner} className="mt-3 pt-3 border-t border-brand-border space-y-2">
@@ -542,8 +576,13 @@ function CatalogueSection({ stores, selectedStore, onSelectStore }) {
               <Field label="Low-stock warning at">
                 <input type="number" min="0" value={form.low_stock_threshold} onChange={(e) => setForm({ ...form, low_stock_threshold: e.target.value })} className={inputClass} />
               </Field>
-              <Field label="Image URL">
-                <input value={form.image_url} onChange={(e) => setForm({ ...form, image_url: e.target.value })} className={inputClass} />
+              <Field label="Product photo">
+                <ImageUploadField
+                  kind="item"
+                  value={form.image_url}
+                  onChange={(url) => setForm({ ...form, image_url: url || '' })}
+                  getSignedUrl={(body) => api.adminShopStoreImageSignedUrl(selectedStore, body)}
+                />
               </Field>
             </div>
 

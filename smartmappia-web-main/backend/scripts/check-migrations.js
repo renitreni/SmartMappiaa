@@ -656,6 +656,37 @@ const CHECKS = [
     sqlFile: '0037_preparing_reminder.sql',
   },
   {
+    id: '0038',
+    name: 'store opening hours + "closed now"',
+    // The storefront selects accepting_orders and joins merchant_hours on
+    // every browse, and both checkout paths read them before accepting an
+    // order — a missing column here is not a degraded feature, it is a 500
+    // on the shop and food home pages.
+    run: async () => {
+      const e1 = (await supabase.from('merchants').select('accepting_orders').limit(0)).error;
+      if (e1) return e1.message;
+      const e2 = (
+        await supabase.from('merchant_hours').select('merchant_id, weekday, opens_at, closes_at').limit(0)
+      ).error;
+      if (e2) return e2.message;
+      return null;
+    },
+    sqlFile: '0038_store_hours.sql',
+  },
+  {
+    id: '0038-grant',
+    name: 'merchants cannot open themselves by writing the row (CRITICAL)',
+    // merchants is UPDATE-restricted (0030/0032). accepting_orders is
+    // deliberately NOT in that grant list: a merchant flips it through an
+    // ownership-checked endpoint. If this ever passes to authenticated, any
+    // signed-in user can reopen a store an admin closed.
+    grantCheck: true,
+    run: async () => {
+      return (await assertNoWrite('merchants', { accepting_orders: true })) || null;
+    },
+    sqlFile: '0038_store_hours.sql',
+  },
+  {
     id: '0030-priv',
     name: 'write grants revoked from the public client roles (CRITICAL)',
     // The privilege half of 0030. Needs the anon key for the same reason

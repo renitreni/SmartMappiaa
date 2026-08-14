@@ -30,6 +30,7 @@ import {
   validateMenuImageFile,
 } from '../lib/uploadFiles';
 import { Badge, Field, Spinner, btnGhost, btnPrimary, inputClass } from '../components/ui';
+import StoreHoursEditor from '../components/StoreHoursEditor';
 import LocationPicker from '../components/LocationPicker';
 import MerchantLayout from './MerchantLayout';
 import MerchantOrders from './MerchantOrders';
@@ -1033,14 +1034,24 @@ export default function MerchantDashboard() {
           {activeTab === 'orders' && <MerchantOrders merchant={merchant} />}
 
           {activeTab === 'business' && (
-            <BusinessTab
-              merchant={merchant}
-              businessForm={businessForm}
-              setBusinessForm={setBusinessForm}
-              setMerchant={setMerchant}
-              saving={saving}
-              saveBusiness={saveBusiness}
-            />
+            <div className="space-y-4">
+              <BusinessTab
+                merchant={merchant}
+                businessForm={businessForm}
+                setBusinessForm={setBusinessForm}
+                setMerchant={setMerchant}
+                saving={saving}
+                saveBusiness={saveBusiness}
+              />
+              {/* Separate from the profile form on purpose: these write
+                  through their own endpoints, not the profile PATCH whose
+                  whitelist stops a merchant listing itself. */}
+              <StoreHoursEditor
+                load={() => api.merchantHours()}
+                save={(hours) => api.merchantSetHours(hours)}
+                setAccepting={(accepting) => api.merchantSetAccepting(accepting)}
+              />
+            </div>
           )}
 
           {activeTab === 'categories' && (

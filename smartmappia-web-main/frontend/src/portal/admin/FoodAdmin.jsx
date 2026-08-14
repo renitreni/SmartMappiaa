@@ -29,28 +29,22 @@ import {
   EyeOff,
   UtensilsCrossed,
   ChevronRight,
-  Upload,
   Image as ImageIcon,
   UserPlus,
   UserCheck,
   Coins,
   Download,
+  Clock,
 } from 'lucide-react';
 import { api } from '../lib/api';
 import { toCsv, downloadCsv } from '../lib/csv';
 import { useBroadcast } from '../lib/useBroadcast';
-import { realtimeEnabled, uploadProofFile } from '../lib/supabaseClient';
-import {
-  validateLogoFile,
-  validateMenuImageFile,
-  LOGO_ACCEPT,
-  MENU_IMAGE_ACCEPT,
-  LOGO_FORMATS_HINT,
-  MENU_IMAGE_FORMATS_HINT,
-} from '../lib/uploadFiles';
+import { realtimeEnabled } from '../lib/supabaseClient';
 import { fmtSAR, foodStatusMeta, foodPaymentMeta } from '../lib/constants';
 import { notifySuccess } from '../lib/notify';
 import { Card, Badge, Field, Spinner, btnPrimary, btnGhost, inputClass } from '../components/ui';
+import SharedImageUploadField from '../components/ImageUploadField';
+import StoreHoursEditor from '../components/StoreHoursEditor';
 import LocationPicker from '../components/LocationPicker';
 import PasswordInput from '../components/PasswordInput';
 
@@ -58,82 +52,20 @@ import PasswordInput from '../components/PasswordInput';
 // in step with MIN_PASSWORD_LENGTH in backend/lib/validate.js.
 const MIN_OWNER_PASSWORD = 8;
 
-// --- Reusable image upload (restaurant logo / menu photo) -------------------
-// Uploads straight to the PUBLIC merchant-images bucket via a backend-issued
-// signed URL, then hands the stored PUBLIC url up to the form. Needs a saved
-// merchant id, so on a brand-new restaurant it asks the admin to save first.
-// Logos accept JPG/PNG/WebP; menu photos are JPG/PNG only — same rules as the
-// merchant portal (uploadFiles.js) and the backend validators.
+// Restaurant logo / menu photo upload. The shared field does the work; food
+// only supplies its own signed-URL endpoint.
 function ImageUploadField({ merchantId, kind, value, onChange }) {
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState(null);
-  const isMenu = kind === 'item';
-  const validate = isMenu ? validateMenuImageFile : validateLogoFile;
-  const accept = isMenu ? MENU_IMAGE_ACCEPT : LOGO_ACCEPT;
-  const hint = isMenu ? MENU_IMAGE_FORMATS_HINT : LOGO_FORMATS_HINT;
-
-  async function onPick(e) {
-    const file = e.target.files?.[0];
-    e.target.value = ''; // allow re-picking the same file
-    if (!file) return;
-    setError(null);
-
-    const check = validate(file);
-    if (!check.ok) return setError(check.error);
-
-    setBusy(true);
-    try {
-      const { bucket, path, token, publicUrl, maxBytes } = await api.adminFoodMerchantImageSignedUrl(
-        merchantId,
-        { kind, file_name: file.name, mime_type: check.mimeType }
-      );
-      if (maxBytes && file.size > maxBytes) {
-        throw new Error(`Image too large (max ${Math.floor(maxBytes / 1024 / 1024)} MB).`);
-      }
-      await uploadProofFile(bucket, path, token, file);
-      onChange(publicUrl);
-    } catch (err) {
-      setError(err.message || 'Upload failed. Please try again.');
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  if (!merchantId) {
-    return (
-      <p className="text-xs text-brand-grey border border-dashed border-brand-border rounded-xl px-3 py-2.5">
-        Save the restaurant first, then edit it to upload {kind === 'logo' ? 'a logo' : 'a photo'}.
-      </p>
-    );
-  }
-
   return (
-    <div className="flex items-center gap-3">
-      <div className="w-14 h-14 rounded-lg bg-brand-surface border border-brand-border flex items-center justify-center overflow-hidden shrink-0">
-        {value ? (
-          <img src={value} alt="" className="w-full h-full object-cover" />
-        ) : (
-          <ImageIcon className="w-5 h-5 text-brand-grey/50" />
-        )}
-      </div>
-      <div className="min-w-0">
-        <label className={btnGhost + ' !py-1.5 !px-3 !text-xs cursor-pointer inline-flex'}>
-          {busy ? <Spinner className="!w-3.5 !h-3.5" /> : <Upload className="w-3.5 h-3.5" />}
-          {value ? 'Replace image' : 'Upload image'}
-          <input type="file" accept={accept} onChange={onPick} disabled={busy} className="hidden" />
-        </label>
-        {value && (
-          <button
-            type="button"
-            onClick={() => onChange(null)}
-            className="ml-2 text-xs font-bold text-brand-grey hover:text-red-600 cursor-pointer"
-          >
-            Remove
-          </button>
-        )}
-        <p className="text-[11px] text-brand-grey mt-1">{error || hint}</p>
-      </div>
-    </div>
+    <SharedImageUploadField
+      kind={kind}
+      value={value}
+      onChange={onChange}
+      ready={!!merchantId}
+      notReadyHint={`Save the restaurant first, then edit it to upload ${
+        kind === 'logo' ? 'a logo' : 'a photo'
+      }.`}
+      getSignedUrl={(body) => api.adminFoodMerchantImageSignedUrl(merchantId, body)}
+    />
   );
 }
 
@@ -677,6 +609,7 @@ function MerchantsSection({ onError }) {
   const [editing, setEditing] = useState(null); // null | 'new' | merchant
   const [menuFor, setMenuFor] = useState(null); // merchant whose menu is open
   const [ownerFor, setOwnerFor] = useState(null); // merchant whose owner form is open
+  const [hoursFor, setHoursFor] = useState(null); // merchant whose hours editor is open
   const [ownerForm, setOwnerForm] = useState({ email: '', password: '', full_name: '', phone: '' });
   const [ownerPassword, setOwnerPassword] = useState(''); // re-issue field for a linked owner
 
@@ -787,6 +720,9 @@ function MerchantsSection({ onError }) {
                   </div>
                   <Badge tone={m.isActive ? 'green' : 'grey'}>{m.isActive ? 'Listed' : 'Unlisted'}</Badge>
                   {m.status === 'suspended' && <Badge tone="red">Suspended</Badge>}
+                  {/* Closed is not Unlisted: still on the storefront, just not
+                      taking orders right now. */}
+                  {m.acceptingOrders === false && <Badge tone="amber">Closed now</Badge>}
                   {(m.lat == null || m.lng == null) && <Badge tone="amber">No location pin</Badge>}
                   {/* Whether this restaurant actually reaches smartmappia.com.
                       Featuring alone is not enough — a card with no logo is
@@ -816,6 +752,11 @@ function MerchantsSection({ onError }) {
                   <button type="button" disabled={busyId === m.id} onClick={() => setEditing(m)}
                     className={btnGhost + ' !py-1.5 !px-2.5 !text-xs'}>
                     <Pencil className="w-3.5 h-3.5" /> Edit
+                  </button>
+                  <button type="button" disabled={busyId === m.id}
+                    onClick={() => setHoursFor(hoursFor === m.id ? null : m.id)}
+                    className={btnGhost + ' !py-1.5 !px-2.5 !text-xs'}>
+                    <Clock className="w-3.5 h-3.5" /> Hours
                   </button>
                   <button
                     type="button"
@@ -875,6 +816,19 @@ function MerchantsSection({ onError }) {
                     <Trash2 className="w-3.5 h-3.5" />
                   </button>
                 </div>
+
+                {hoursFor === m.id && (
+                  <div className="mt-3 pt-3 border-t border-brand-border">
+                    <StoreHoursEditor
+                      load={() => api.adminFoodHours(m.id)}
+                      save={(hours) => api.adminFoodSetHours(m.id, hours)}
+                      setAccepting={async (accepting) => {
+                        await api.adminFoodSetAccepting(m.id, accepting);
+                        load(); // refresh the "Closed now" badge above
+                      }}
+                    />
+                  </div>
+                )}
 
                 {ownerFor === m.id && (
                   <div className="mt-3 p-3 rounded-xl border border-brand-orange/40 bg-brand-warm space-y-2">

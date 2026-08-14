@@ -25,6 +25,8 @@ import { fmtSAR, TONE_CLASSES } from '../lib/constants';
 import { notifyError, notifySuccess, confirmAction } from '../lib/notify';
 import { announceNewOrder } from '../lib/orderAlert';
 import { Card, Field, Spinner, inputClass, btnPrimary, btnGhost } from '../components/ui';
+import ImageUploadField from '../components/ImageUploadField';
+import StoreHoursEditor from '../components/StoreHoursEditor';
 import MerchantLayout from './MerchantLayout';
 import ShopMerchantOrders from './ShopMerchantOrders';
 import LocationPicker from '../components/LocationPicker';
@@ -293,12 +295,12 @@ function ProductsTab({ products, categories, onSaved, onDeleted }) {
                   className={inputClass}
                 />
               </Field>
-              <Field label="Image URL">
-                <input
+              <Field label="Product photo">
+                <ImageUploadField
+                  kind="item"
                   value={form.image_url}
-                  onChange={(e) => setForm({ ...form, image_url: e.target.value })}
-                  placeholder="/products/example.jpg"
-                  className={inputClass}
+                  onChange={(url) => setForm({ ...form, image_url: url || '' })}
+                  getSignedUrl={(body) => api.merchantShopImageSignedUrl(body)}
                 />
               </Field>
             </div>
@@ -673,11 +675,12 @@ function BusinessTab({ store, onSaved }) {
             className={inputClass}
           />
         </Field>
-        <Field label="Logo URL">
-          <input
+        <Field label="Logo">
+          <ImageUploadField
+            kind="logo"
             value={form.logo_url}
-            onChange={(e) => setForm({ ...form, logo_url: e.target.value })}
-            className={inputClass}
+            onChange={(url) => setForm({ ...form, logo_url: url || '' })}
+            getSignedUrl={(body) => api.merchantShopImageSignedUrl(body)}
           />
         </Field>
         <LocationPicker
@@ -785,7 +788,19 @@ export default function ShopMerchantDashboard() {
       )}
       {activeTab === 'categories' && <CategoriesTab categories={categories} onChanged={load} />}
       {activeTab === 'inventory' && <InventoryTab products={products} onChanged={load} />}
-      {activeTab === 'business' && <BusinessTab store={store} onSaved={load} />}
+      {activeTab === 'business' && (
+        <div className="space-y-4">
+          <BusinessTab store={store} onSaved={load} />
+          {/* Separate from the profile form on purpose: these write through
+              their own endpoints, not the profile PATCH whose whitelist stops
+              a store listing itself or clearing its own credit. */}
+          <StoreHoursEditor
+            load={() => api.merchantShopHours()}
+            save={(hours) => api.merchantShopSetHours(hours)}
+            setAccepting={(accepting) => api.merchantShopSetAccepting(accepting)}
+          />
+        </div>
+      )}
     </MerchantLayout>
   );
 }

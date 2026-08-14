@@ -5,6 +5,7 @@ const { validateBody } = require('../lib/validate');
 const { merchantOrderLimiter } = require('../middleware/rateLimiters');
 const ctrl = require('../controllers/merchantShopController');
 const orders = require('../controllers/merchantShopOrdersController');
+const hours = require('../controllers/merchantHoursController');
 
 // ROUTER-LEVEL GUARD, not per-route. Every endpoint in this file is
 // protected, including ones added tomorrow — the failure mode of per-route
@@ -49,6 +50,22 @@ router.post(
 );
 
 // --- Catalogue ---
+// --- Opening hours + "closed now" (0038) ---
+// The store id comes from the session, never the request. Deliberately NOT
+// folded into the profile PATCH whitelist above, which exists to stop a
+// store listing itself or clearing its own credit.
+router.get('/hours', hours.ownerGetHours);
+router.put(
+  '/hours',
+  validateBody({ hours: { type: 'array', itemType: 'object', maxItems: 50, required: true } }),
+  hours.ownerSetHours
+);
+router.patch(
+  '/accepting-orders',
+  validateBody({ accepting_orders: { type: 'boolean', required: true } }),
+  hours.ownerSetAccepting
+);
+
 router.get('/catalogue', ctrl.getCatalogue);
 router.get('/analytics', ctrl.getAnalytics);
 

@@ -23,6 +23,7 @@ const { haversineKm } = require('../../lib/geo');
 const { travelEtaMinutes, deliveryEtaBand } = require('../../lib/eta');
 const { latestDriverFix } = require('../../lib/tracking');
 const { priceOrder } = require('../../lib/foodMoney');
+const { merchantOpenState, CLOSED_RESPONSE } = require('../../lib/storeHours');
 const { findSizeOption } = require('../../lib/foodSizes');
 const { logFoodEvent } = require('../../lib/foodEvents');
 const { logAudit } = require('../../lib/audit');
@@ -77,7 +78,7 @@ async function checkout(req, res) {
 
     const { data: merchant, error: mErr } = await supabase
       .from('merchants')
-      .select('id, name, vertical, is_active, status, lat, lng, service_radius_km, owner_id')
+      .select('id, name, vertical, is_active, status, accepting_orders, lat, lng, service_radius_km, owner_id')
       .eq('id', b.merchant_id)
       .maybeSingle();
     if (mErr) {
@@ -93,6 +94,12 @@ async function checkout(req, res) {
         error: 'This restaurant is not accepting orders right now',
         failure_reason: 'restaurant_unavailable',
       });
+    }
+    // Outside opening hours, or shut manually. Checked server-side because
+    // the disabled button on the storefront is presentation, not a control.
+    const openState = await merchantOpenState(merchant.id, merchant.accepting_orders);
+    if (!openState.open) {
+      return res.status(409).json({ ...CLOSED_RESPONSE, error: 'This restaurant is closed right now' });
     }
     // A restaurant with no map pin cannot take orders: the driver would have
     // no pickup point and the 15 km radius check below would be skipped

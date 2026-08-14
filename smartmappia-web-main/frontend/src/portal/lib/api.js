@@ -233,6 +233,13 @@ export const api = {
   // --- business owner / merchant ---
   merchantProfile: () => request('/api/merchant/profile'),
   merchantUpdateProfile: (body) => request('/api/merchant/profile', { method: 'PATCH', body }),
+  merchantHours: () => request('/api/merchant/hours'),
+  merchantSetHours: (hours) => request('/api/merchant/hours', { method: 'PUT', body: { hours } }),
+  merchantSetAccepting: (accepting) =>
+    request('/api/merchant/accepting-orders', {
+      method: 'PATCH',
+      body: { accepting_orders: accepting },
+    }),
   merchantLogoSignedUrl: (body) => request('/api/merchant/logo/signed-url', { method: 'POST', body }),
   merchantLogoConfirm: (body) => request('/api/merchant/logo/confirm', { method: 'POST', body }),
   merchantMenuItemImageSignedUrl: (body) =>
@@ -261,6 +268,14 @@ export const api = {
   merchantShopUpdateProfile: (body) => request('/api/merchant/shop/profile', { method: 'PATCH', body }),
   merchantShopImageSignedUrl: (body) =>
     request('/api/merchant/shop/images/signed-url', { method: 'POST', body }),
+  merchantShopHours: () => request('/api/merchant/shop/hours'),
+  merchantShopSetHours: (hours) =>
+    request('/api/merchant/shop/hours', { method: 'PUT', body: { hours } }),
+  merchantShopSetAccepting: (accepting) =>
+    request('/api/merchant/shop/accepting-orders', {
+      method: 'PATCH',
+      body: { accepting_orders: accepting },
+    }),
   merchantShopCatalogue: () => request('/api/merchant/shop/catalogue'),
   merchantShopAnalytics: () => request('/api/merchant/shop/analytics'),
   merchantShopAddCategory: (body) => request('/api/merchant/shop/categories', { method: 'POST', body }),
@@ -303,6 +318,25 @@ export const api = {
   adminShopCredit: (id, body) => request(`/api/admin/shop/stores/${id}/credit`, { method: 'POST', body }),
   adminShopStoreImageSignedUrl: (id, body) =>
     request(`/api/admin/shop/stores/${id}/image/signed-url`, { method: 'POST', body }),
+
+  // Opening hours + "closed now" (0038). One merchant_hours table, so the
+  // food and shop paths differ only in the URL prefix.
+  adminShopHours: (id) => request(`/api/admin/shop/stores/${id}/hours`),
+  adminShopSetHours: (id, hours) =>
+    request(`/api/admin/shop/stores/${id}/hours`, { method: 'PUT', body: { hours } }),
+  adminShopSetAccepting: (id, accepting) =>
+    request(`/api/admin/shop/stores/${id}/accepting-orders`, {
+      method: 'PATCH',
+      body: { accepting_orders: accepting },
+    }),
+  adminFoodHours: (id) => request(`/api/admin/food/merchants/${id}/hours`),
+  adminFoodSetHours: (id, hours) =>
+    request(`/api/admin/food/merchants/${id}/hours`, { method: 'PUT', body: { hours } }),
+  adminFoodSetAccepting: (id, accepting) =>
+    request(`/api/admin/food/merchants/${id}/accepting-orders`, {
+      method: 'PATCH',
+      body: { accepting_orders: accepting },
+    }),
   adminShopSetOwner: (id, body) => request(`/api/admin/shop/stores/${id}/owner`, { method: 'POST', body }),
   adminShopSetOwnerPassword: (id, body) =>
     request(`/api/admin/shop/stores/${id}/owner/password`, { method: 'POST', body }),
