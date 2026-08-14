@@ -5,17 +5,21 @@
 // ---------------------------------------------------------------------
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { Search, ShoppingBag, Bike, ReceiptText, RefreshCw } from 'lucide-react';
+import { Search, ShoppingBag, Bike, ReceiptText, RefreshCw, Clock3 } from 'lucide-react';
 import { api } from '../lib/api';
 import { useAuth } from '../lib/AuthProvider';
 import { fmtSAR, SHOP_MIN_ORDER } from '../lib/constants';
+import { reopensLabel, todayHoursLabel } from '../lib/storeHours';
 import { PortalShell, Card, Badge, btnPrimary, inputClass } from '../components/ui';
 
 function StoreCard({ store, deliveryFee }) {
   // A closed store stays on the grid — it is listed and will trade again —
   // but nothing about it is actionable. Rendered as a div rather than a Link
   // so there is no navigable target at all, not merely a suppressed click.
+  // It carries its reopening time, so "closed" is an answer, not a dead end.
   const closed = store.isOpen === false;
+  const reopens = reopensLabel(store);
+  const hours = todayHoursLabel(store);
   const Wrapper = closed ? 'div' : Link;
   const wrapperProps = closed
     ? { 'aria-disabled': true }
@@ -39,10 +43,11 @@ function StoreCard({ store, deliveryFee }) {
           <ShoppingBag className="w-8 h-8 text-brand-orange/50" />
         )}
         {closed && (
-          <span className="absolute inset-0 flex items-center justify-center bg-black/45">
+          <span className="absolute inset-0 flex flex-col items-center justify-center gap-1.5 bg-black/45 px-3 text-center">
             <span className="px-3 py-1 rounded-full bg-white text-brand-dark text-xs font-black">
               Closed
             </span>
+            <span className="text-white text-[11px] font-bold">{reopens}</span>
           </span>
         )}
       </div>
@@ -52,10 +57,15 @@ function StoreCard({ store, deliveryFee }) {
           {store.badge && <Badge tone="amber">{store.badge.replace(/_/g, ' ')}</Badge>}
         </div>
         {store.cuisine_type && <p className="text-sm text-brand-grey mt-0.5">{store.cuisine_type}</p>}
-        <div className="flex items-center gap-3 mt-3 text-xs text-brand-grey">
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mt-3 text-xs text-brand-grey">
           <span className="inline-flex items-center gap-1">
             <Bike className="w-3.5 h-3.5" /> {fmtSAR(deliveryFee)}
           </span>
+          {(closed ? reopens : hours) && (
+            <span className="inline-flex items-center gap-1">
+              <Clock3 className="w-3.5 h-3.5" /> {closed ? reopens : hours}
+            </span>
+          )}
           {store.rating != null && (
             <span className="font-bold text-brand-dark">
               {store.rating.toFixed(1)} ({store.reviewCount})

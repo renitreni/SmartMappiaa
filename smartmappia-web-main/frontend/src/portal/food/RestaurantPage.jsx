@@ -22,7 +22,9 @@ import { api } from '../lib/api';
 import { useAuth } from '../lib/AuthProvider';
 import { fmtSAR } from '../lib/constants';
 import { notifyMenuUnavailable } from '../lib/notify';
+import { reopensLabel, todayHoursLabel } from '../lib/storeHours';
 import { PortalShell, Card, Spinner, btnPrimary } from '../components/ui';
+import OpeningHoursCard from '../components/OpeningHours';
 
 export function enabledSizes(item) {
   return (item?.size_options || []).filter((s) => s && s.enabled !== false);
@@ -417,9 +419,13 @@ export default function RestaurantPage() {
                     {data.restaurant.description}
                   </p>
                 )}
+                {/* The reopening time only appears when the schedule is what
+                    closed them — a manual "closed now" has no known end. */}
                 {data.restaurant.isOpen === false && (
                   <p className="mt-2 inline-flex items-center gap-1.5 rounded-full bg-amber-100 text-amber-800 text-[11px] font-black px-2.5 py-1">
-                    Closed right now — browse the menu, ordering reopens later
+                    {data.restaurant.opensNext
+                      ? `Closed right now — ${reopensLabel(data.restaurant).toLowerCase()}`
+                      : 'Closed right now — browse the menu, ordering reopens later'}
                   </p>
                 )}
                 <div className="mt-3 flex flex-wrap items-center gap-2">
@@ -427,10 +433,13 @@ export default function RestaurantPage() {
                     <Bike className="w-3.5 h-3.5" />
                     Delivery {fmtSAR(data.deliveryFee)}
                   </span>
-                  <span className="inline-flex items-center gap-1.5 rounded-full bg-brand-surface text-brand-dark text-[11px] font-bold px-2.5 py-1">
-                    <Clock3 className="w-3.5 h-3.5 text-brand-orange" />
-                    20–35 min
-                  </span>
+                  {/* The restaurant's own hours, not a guessed ETA. */}
+                  {todayHoursLabel(data.restaurant) && (
+                    <span className="inline-flex items-center gap-1.5 rounded-full bg-brand-surface text-brand-dark text-[11px] font-bold px-2.5 py-1">
+                      <Clock3 className="w-3.5 h-3.5 text-brand-orange" />
+                      {todayHoursLabel(data.restaurant)}
+                    </span>
+                  )}
                   {data.restaurant.address && (
                     <span className="inline-flex items-center gap-1 text-[11px] font-medium text-brand-grey min-w-0 max-w-full">
                       <MapPin className="w-3.5 h-3.5 shrink-0 text-brand-orange" />
@@ -441,6 +450,8 @@ export default function RestaurantPage() {
               </div>
             </div>
           </motion.section>
+
+          <OpeningHoursCard merchant={data.restaurant} />
 
           {addError && (
             <motion.div

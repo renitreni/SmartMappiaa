@@ -1,24 +1,20 @@
 // ---------------------------------------------------------------------
-// Curated brand list. Two jobs, so read both before editing:
+// ARTWORK FOR THE HERO PHONE ANIMATION (components/PhoneMockup.jsx). That
+// is its only job.
 //
-// 1. SEED for the public marketing page. lib/useMarketingPartners.js merges
-//    these with whatever the admin has ticked "Feature on the homepage", so
-//    the page never renders empty and adding a partner needs no code change.
-//    Deleting an entry here hands that brand over to the database — it will
-//    only reappear once a matching merchant is featured, with a logo, Listed,
-//    and pinned on the map.
+// THIS IS NOT THE RESTAURANT LIST. Adding a brand here does not list it,
+// removing one does not delist it, and neither touches what customers can
+// order. The real list is the merchants table, read live by
+// lib/useMarketingPartners.js for the homepage and by /food for ordering.
+// A partner is onboarded in the admin portal, never here.
 //
-// 2. Content for the hero phone animation (components/PhoneMockup.jsx), which
-//    stays fully static. It reads `timeShort` and `tagline`, which have no
-//    database equivalent, and `flashingRestaurants` below.
+// Everything below is illustrative copy for a looping mockup — the ratings,
+// review counts and delivery fees included. Real listings show their own
+// figures, and show nothing at all where genuine data does not exist yet.
 //
 // WARNING: `flashingRestaurants` must never be empty. PhoneMockup keys off
 // `flash.name`, so an empty array throws and white-screens the whole hero.
 // Keep at least four entries in this list.
-//
-// `rating` and `reviews` here are illustrative marketing copy, not real data.
-// Admin-featured restaurants deliberately show neither until genuine reviews
-// exist — see mapMerchantToCard in lib/useMarketingPartners.js.
 // ---------------------------------------------------------------------
 export const restaurants = [
   {

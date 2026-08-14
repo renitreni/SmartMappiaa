@@ -21,8 +21,11 @@ export function findLiveRestaurantMatch(partnerName, liveList) {
   );
 }
 
+// A closed restaurant is not linkable from the marketing page, the same rule
+// the listing grids enforce — a CTA that lands on a page you cannot order
+// from is worse than no CTA. The caller falls back to its own notice.
 export function liveRestaurantPath(partnerName, liveList) {
   const match = findLiveRestaurantMatch(partnerName, liveList);
-  if (!match?.id || match.hasMenu === false) return null;
+  if (!match?.id || match.hasMenu === false || match.isOpen === false) return null;
   return `/food/r/${match.id}`;
 }

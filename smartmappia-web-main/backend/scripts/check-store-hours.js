@@ -6,7 +6,7 @@
 // The cross-midnight and midnight-boundary cases are the ones worth
 // keeping — they are why this file exists rather than an inline ternary.
 // ---------------------------------------------------------------------
-const { isOpenNow } = require('../lib/storeHours');
+const { isOpenNow, nextOpening, publicHoursState } = require('../lib/storeHours');
 
 let failed = 0;
 function check(label, got, want) {
@@ -57,6 +57,62 @@ check('split shift, second window', isOpenNow({ hours: split }, at('2026-08-16T1
 // closing at 23:00 does not accept an order timestamped 23:00.
 check('closes_at is exclusive', isOpenNow({ hours: sunday }, at('2026-08-16T20:00:00Z')), BY_HOURS);
 check('opens_at is inclusive', isOpenNow({ hours: sunday }, at('2026-08-16T06:00:00Z')), OPEN);
+
+// --- nextOpening: the "come back at" the storefront shows on a closed card.
+
+check('no hours = nothing to promise', nextOpening([], at('2026-08-16T03:00:00Z')), null);
+
+check(
+  'later today',
+  nextOpening(sunday, at('2026-08-16T03:00:00Z')),
+  { weekday: 0, opensAt: '09:00', daysAhead: 0 }
+);
+check(
+  'today is over, so the next weekday with a window',
+  nextOpening(sunday, at('2026-08-16T20:00:00Z')),
+  { weekday: 0, opensAt: '09:00', daysAhead: 7 }
+);
+check(
+  'the gap in a split shift points at the second window, not tomorrow',
+  nextOpening(split, at('2026-08-16T13:00:00Z')),
+  { weekday: 0, opensAt: '18:00', daysAhead: 0 }
+);
+check(
+  'wraps onto the next weekday that actually opens',
+  nextOpening(
+    [{ weekday: 3, opens_at: '09:00:00', closes_at: '17:00:00' }],
+    at('2026-08-16T10:00:00Z')
+  ),
+  { weekday: 3, opensAt: '09:00', daysAhead: 3 }
+);
+
+// --- publicHoursState: the block both storefronts render.
+
+check(
+  'closed by hours carries the reopening time',
+  publicHoursState({ hours: sunday }, at('2026-08-16T03:00:00Z')),
+  {
+    isOpen: false,
+    closedReason: 'hours',
+    hours: [{ weekday: 0, opens_at: '09:00', closes_at: '23:00' }],
+    todayWeekday: 0,
+    opensNext: { weekday: 0, opensAt: '09:00', daysAhead: 0 },
+  }
+);
+
+// The manual override is the owner deciding, not the schedule. Promising a
+// reopening time here would be a promise nobody has made.
+check(
+  'manual override promises no reopening time',
+  publicHoursState({ acceptingOrders: false, hours: sunday }, at('2026-08-16T03:00:00Z')).opensNext,
+  null
+);
+
+check(
+  'open right now needs no reopening time',
+  publicHoursState({ hours: sunday }, at('2026-08-16T10:00:00Z')).opensNext,
+  null
+);
 
 if (failed) {
   console.log(`\n${failed} store-hours assertion(s) failed.`);
