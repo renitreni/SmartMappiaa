@@ -44,6 +44,12 @@ function toMinutes(value) {
   return Number(h) * 60 + Number(m);
 }
 
+// Postgres hands back 'HH:MM:SS'; storefronts show 'HH:MM'. Trimmed here so
+// no caller has to remember to slice.
+function toHHMM(value) {
+  return String(value || '').slice(0, 5);
+}
+
 // Does `window` cover this weekday+time? A window whose closes_at is at or
 // before its opens_at crosses midnight, so it covers the tail of its own
 // weekday AND the head of the next one.
@@ -68,6 +74,65 @@ function isOpenNow({ acceptingOrders = true, hours = [] } = {}, at = new Date())
   const { weekday, minutes } = localNow(at, config.platform.timezone);
   const open = hours.some((win) => windowCovers(win, weekday, minutes));
   return open ? { open: true, reason: null } : { open: false, reason: 'hours' };
+}
+
+// When does this schedule next let the merchant trade? Searched a week
+// forward from `at`, so a customer looking at a closed listing is told when
+// to come back instead of just "closed".
+//
+// -> { weekday, opensAt, daysAhead } | null. null means there is nothing to
+// say: no hours at all (always open), or a schedule with no windows.
+function nextOpening(hours, at = new Date()) {
+  if (!hours || hours.length === 0) return null;
+  const { weekday, minutes } = localNow(at, config.platform.timezone);
+
+  // 8 rather than 7: the last pass wraps back onto today, which is how a
+  // merchant whose only window has already passed gets "opens Sunday 09:00"
+  // instead of nothing at all.
+  for (let daysAhead = 0; daysAhead < 8; daysAhead += 1) {
+    const day = (weekday + daysAhead) % 7;
+    const opensToday = hours
+      .filter((win) => Number(win.weekday) === day)
+      .map((win) => toMinutes(win.opens_at))
+      // Today only counts openings still to come; later days count all.
+      .filter((opens) => daysAhead > 0 || opens > minutes)
+      .sort((a, b) => a - b);
+
+    if (opensToday.length) {
+      const opens = opensToday[0];
+      const hh = String(Math.floor(opens / 60)).padStart(2, '0');
+      const mm = String(opens % 60).padStart(2, '0');
+      return { weekday: day, opensAt: `${hh}:${mm}`, daysAhead };
+    }
+  }
+  return null;
+}
+
+// The whole open/closed block a storefront renders for one merchant, built
+// once here so the food and shop controllers cannot drift apart on it.
+//
+// `opensNext` is deliberately null when the merchant is closed by the manual
+// override: the schedule would happily claim "opens at 09:00" while the
+// owner has switched ordering off by hand, and that is a promise we cannot
+// keep. `todayWeekday` ships so the client can pick today's windows out of
+// `hours` without having to know the platform timezone.
+function publicHoursState({ acceptingOrders = true, hours = [] } = {}, at = new Date()) {
+  const sorted = [...(hours || [])]
+    .map((win) => ({
+      weekday: Number(win.weekday),
+      opens_at: toHHMM(win.opens_at),
+      closes_at: toHHMM(win.closes_at),
+    }))
+    .sort((a, b) => a.weekday - b.weekday || a.opens_at.localeCompare(b.opens_at));
+
+  const state = isOpenNow({ acceptingOrders, hours: sorted }, at);
+  return {
+    isOpen: state.open,
+    closedReason: state.reason,
+    hours: sorted,
+    todayWeekday: localNow(at, config.platform.timezone).weekday,
+    opensNext: state.reason === 'hours' ? nextOpening(sorted, at) : null,
+  };
 }
 
 // Group rows from one merchant_hours query into { merchantId: [rows] } so a
@@ -109,4 +174,11 @@ const CLOSED_RESPONSE = {
   failure_reason: 'store_closed',
 };
 
-module.exports = { isOpenNow, groupHoursByMerchant, merchantOpenState, CLOSED_RESPONSE };
+module.exports = {
+  isOpenNow,
+  nextOpening,
+  publicHoursState,
+  groupHoursByMerchant,
+  merchantOpenState,
+  CLOSED_RESPONSE,
+};

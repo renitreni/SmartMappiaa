@@ -1,170 +1,40 @@
-import React, { useEffect, useMemo, useState } from "react";
+// ---------------------------------------------------------------------
+// Homepage restaurant grid. Every card is a live merchant from
+// GET /api/food/restaurants — list one in admin and it appears here, delist
+// it and it is gone. Nothing on this page is written in code any more; see
+// lib/useMarketingPartners.js for why that matters.
+// ---------------------------------------------------------------------
 import { Link, useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
-import { Star, Clock, Flame, ArrowRight, Sparkles } from "lucide-react";
-import { api } from "../portal/lib/api";
+import { ArrowRight, Sparkles } from "lucide-react";
 import { notifyMenuUnavailable } from "../portal/lib/notify";
-import { useMarketingPartners, MAX_GRID_CARDS } from "../lib/useMarketingPartners";
-import { findLiveRestaurantMatch } from "../lib/restaurantLinks";
-
-const stats = [
-  { value: "500+", label: "Partner restaurants" },
-  { value: "4.8★", label: "Average rating" },
-  { value: "15 min", label: "Avg. delivery" },
-];
-
-const cardVariants = {
-  hidden: { opacity: 0, y: 40 },
-  visible: (index) => ({
-    opacity: 1,
-    y: 0,
-    transition: { duration: 0.5, delay: index * 0.12, ease: "easeOut" },
-  }),
-};
-
-const tagStyles = {
-  "Top Rated": "bg-brand-orange text-white",
-  Popular: "bg-white/95 text-brand-orange",
-  Trending: "bg-brand-red text-white",
-  New: "bg-green-500 text-white",
-};
-
-function RestaurantCard({ resto, index, onOpen }) {
-  return (
-    <button type="button" onClick={() => onOpen(resto)} className="block w-full text-left cursor-pointer">
-      <motion.article
-        custom={index}
-        variants={cardVariants}
-        initial="hidden"
-        whileInView="visible"
-        viewport={{ once: true, margin: "-50px" }}
-        className="group relative bg-white border border-brand-border rounded-3xl overflow-hidden transition-all duration-300 hover:-translate-y-2 hover:border-brand-orange/30 hover:shadow-2xl hover:shadow-brand-orange/10"
-      >
-        <div
-          className="relative h-52 sm:h-56 overflow-hidden"
-          style={{ backgroundColor: resto.bg }}
-        >
-          <img
-            src={resto.image}
-            alt={resto.name}
-            className={`absolute inset-0 w-full h-full transform group-hover:scale-110 transition-transform duration-500 ${
-              resto.cover ? "object-cover" : "object-contain p-5 sm:p-6"
-            }`}
-          />
-          {resto.cover && (
-            <div className="absolute inset-0 bg-linear-to-t from-black/60 via-black/15 to-transparent" />
-          )}
-
-          {/* Badge and rating are absolutely positioned, so omitting either
-              leaves no gap. A DB-featured restaurant has no rating until real
-              customers review it, and may carry no badge at all. */}
-          {resto.tag && (
-            <span
-              className={`absolute top-4 left-4 text-[10px] font-black uppercase tracking-wider px-3 py-1.5 rounded-full shadow-md ${
-                tagStyles[resto.tag] || "bg-white/95 text-brand-dark"
-              }`}
-            >
-              {resto.tag}
-            </span>
-          )}
-
-          {resto.rating != null && (
-            <div className="absolute top-4 right-4 flex items-center gap-1 bg-white/95 backdrop-blur-sm text-brand-black text-xs font-black px-2.5 py-1.5 rounded-full shadow-md">
-              <Star className="w-3.5 h-3.5 text-brand-orange fill-brand-orange" strokeWidth={0} />
-              {resto.rating}
-            </div>
-          )}
-
-          <div className="absolute bottom-4 left-4 right-4 flex items-center justify-between">
-            <span className="inline-flex items-center gap-1.5 bg-white/95 backdrop-blur-sm text-brand-dark text-xs font-bold px-3 py-1.5 rounded-full shadow-sm">
-              <Clock className="w-3.5 h-3.5 text-brand-orange" strokeWidth={2.5} />
-              {resto.time}
-            </span>
-            <span className="text-[10px] font-bold text-white/90 bg-black/30 backdrop-blur-sm px-2.5 py-1 rounded-full">
-              {resto.fee}
-            </span>
-          </div>
-        </div>
-
-        <div className="p-5 sm:p-6">
-          <h3 className="text-lg font-black text-brand-black tracking-tight group-hover:text-brand-orange transition-colors leading-snug mb-2">
-            {resto.name}
-          </h3>
-          {resto.cuisine && (
-            <p className="text-brand-grey text-sm font-medium mb-4">{resto.cuisine}</p>
-          )}
-
-          <div className="flex items-center justify-between pt-4 border-t border-brand-border">
-            {/* The empty span keeps justify-between pushing "Order Now" right
-                when a restaurant has no reviews yet. */}
-            {resto.reviews ? (
-              <span className="inline-flex items-center gap-1 text-xs text-brand-grey font-medium">
-                <Flame className="w-3.5 h-3.5 text-brand-orange" strokeWidth={2.5} />
-                {resto.reviews} reviews
-              </span>
-            ) : (
-              <span />
-            )}
-            <span className="inline-flex items-center gap-1.5 text-sm font-bold text-brand-orange opacity-0 translate-y-1 group-hover:opacity-100 group-hover:translate-y-0 transition-all duration-300">
-              Order Now
-              <ArrowRight className="w-4 h-4" strokeWidth={2.5} />
-            </span>
-          </div>
-        </div>
-      </motion.article>
-    </button>
-  );
-}
+import { useMarketingPartners, MARKETING_ETA_SHORT } from "../lib/useMarketingPartners";
+import MarketingListingGrid from "../components/MarketingListingCard";
 
 const Restaurants = () => {
   const navigate = useNavigate();
+  const { partners, total, loading, deliveryFee } = useMarketingPartners();
 
-  // Admin-featured restaurants first, then the curated seeds. Seeded from the
-  // bundle so this renders instantly — no skeleton, no layout shift.
-  const partners = useMarketingPartners();
-  const cards = useMemo(() => partners.slice(0, MAX_GRID_CARDS), [partners]);
+  // Counts are real or absent. A dash while the request is in flight beats a
+  // round number that turns out to be wrong a second later.
+  const stats = [
+    { value: loading ? "—" : String(total), label: "Partner restaurants" },
+    {
+      value: loading ? "—" : Number(deliveryFee) > 0 ? `SAR ${deliveryFee}` : "Free",
+      label: "Delivery",
+    },
+    { value: MARKETING_ETA_SHORT, label: "Avg. delivery" },
+  ];
 
-  const [liveRestaurants, setLiveRestaurants] = useState([]);
-
-  useEffect(() => {
-    let alive = true;
-    (async () => {
-      try {
-        const data = await api.foodRestaurants();
-        if (!alive) return;
-        setLiveRestaurants(data?.restaurants || []);
-      } catch {
-        // Marketing grid still works without the API.
-      }
-    })();
-    return () => {
-      alive = false;
-    };
-  }, []);
-
-  // Live merchant keyed by marketing card id: { id, hasMenu }. Derived rather
-  // than filled inside the fetch, so admin-featured partners arriving after
-  // first paint also get matched instead of falling through to the
-  // "menu unavailable" notice.
-  const liveByCardId = useMemo(() => {
-    const map = {};
-    if (!liveRestaurants.length) return map;
-    for (const resto of cards) {
-      const match = findLiveRestaurantMatch(resto.name, liveRestaurants);
-      if (match) {
-        map[resto.id] = { id: match.id, hasMenu: match.hasMenu !== false };
-      }
-    }
-    return map;
-  }, [cards, liveRestaurants]);
-
-  function openRestaurant(resto) {
-    const live = liveByCardId[resto.id];
-    if (live?.id && live.hasMenu) {
-      navigate(`/food/r/${live.id}`);
+  // The card IS the merchant now, so opening one is a route, not a name
+  // match against a second list. A restaurant with an empty menu still shows
+  // — it is listed — but says so instead of opening a blank page.
+  function openRestaurant(listing) {
+    if (listing.hasMenu) {
+      navigate(`/food/r/${listing.id}`);
       return;
     }
-    notifyMenuUnavailable(resto.name);
+    notifyMenuUnavailable(listing.name);
   }
 
   return (
@@ -230,16 +100,13 @@ const Restaurants = () => {
           </motion.div>
         </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-6 lg:gap-7">
-          {cards.map((resto, index) => (
-            <RestaurantCard
-              key={resto.id}
-              resto={resto}
-              index={index}
-              onOpen={openRestaurant}
-            />
-          ))}
-        </div>
+        <MarketingListingGrid
+          listings={partners}
+          loading={loading}
+          ctaLabel="Order Now"
+          onOpen={openRestaurant}
+          emptyText="No restaurants are listed yet. New partners appear here the moment they go live."
+        />
 
         <motion.div
           initial={{ opacity: 0, y: 30 }}

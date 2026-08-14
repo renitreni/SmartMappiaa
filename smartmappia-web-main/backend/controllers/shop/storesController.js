@@ -20,7 +20,7 @@ const { supabase } = require('../../lib/supabase');
 const { config } = require('../../lib/config');
 const { logShopEvent } = require('../../lib/foodEvents');
 const { availabilityBand } = require('../../lib/shopMoney');
-const { isOpenNow, groupHoursByMerchant } = require('../../lib/storeHours');
+const { publicHoursState, groupHoursByMerchant } = require('../../lib/storeHours');
 
 const PUBLIC_STORE_FIELDS =
   'id, name, cuisine_type, description, logo_url, address, lat, lng, service_radius_km, is_featured, badge, accepting_orders';
@@ -124,8 +124,8 @@ async function listStores(req, res) {
     const ratingMap = await ratingsForStores((data || []).map((m) => m.id));
 
     // Hours for the whole page in one round trip rather than per store.
-    // A closed store still ships — it stays on the grid, greyed out — so
-    // this deliberately does NOT filter anything out.
+    // A closed store still ships — it stays on the grid, greyed out, showing
+    // when it reopens — so this deliberately does NOT filter anything out.
     const storeIds = (data || []).map((m) => m.id);
     let hourRows = [];
     if (storeIds.length > 0) {
@@ -140,16 +140,14 @@ async function listStores(req, res) {
     return res.json({
       stores: (data || []).map((m) => {
         const r = ratingMap.get(m.id);
-        const openState = isOpenNow({
-          acceptingOrders: m.accepting_orders,
-          hours: hoursByMerchant.get(m.id) || [],
-        });
         return {
           ...m,
           rating: r ? r.rating : null,
           reviewCount: r ? r.reviewCount : 0,
-          isOpen: openState.open,
-          closedReason: openState.reason,
+          ...publicHoursState({
+            acceptingOrders: m.accepting_orders,
+            hours: hoursByMerchant.get(m.id) || [],
+          }),
         };
       }),
       categories: [...new Set((categories || []).map((c) => c.cuisine_type).filter(Boolean))].sort(),
@@ -189,13 +187,13 @@ async function getStore(req, res) {
       .eq('merchant_id', store.id)
       .order('weekday')
       .order('opens_at');
-    const openState = isOpenNow({
-      acceptingOrders: store.accepting_orders,
-      hours: storeHourRows || [],
-    });
-    store.isOpen = openState.open;
-    store.closedReason = openState.reason;
-    store.hours = storeHourRows || [];
+    Object.assign(
+      store,
+      publicHoursState({
+        acceptingOrders: store.accepting_orders,
+        hours: storeHourRows || [],
+      })
+    );
 
     const [{ data: categories }, { data: products }] = await Promise.all([
       supabase

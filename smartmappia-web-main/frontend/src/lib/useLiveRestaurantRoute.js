@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
-import { api } from "../portal/lib/api";
 import { liveRestaurantPath } from "./restaurantLinks";
+import { loadListedRestaurants } from "./useMarketingPartners";
 
 export function useLiveRestaurantRoute(partnerName) {
   const [path, setPath] = useState(null);
@@ -15,15 +15,13 @@ export function useLiveRestaurantRoute(partnerName) {
 
     let alive = true;
 
-    api
-      .foodRestaurants()
+    // Shares the marketing page's one cached request rather than firing a
+    // second identical GET /api/food/restaurants. It resolves to null on
+    // failure instead of rejecting, so there is nothing left to catch.
+    loadListedRestaurants()
       .then((data) => {
         if (!alive) return;
         setPath(liveRestaurantPath(partnerName, data?.restaurants || []));
-      })
-      .catch(() => {
-        if (!alive) return;
-        setPath(null);
       })
       .finally(() => {
         if (alive) setLoading(false);

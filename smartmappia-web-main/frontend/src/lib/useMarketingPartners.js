@@ -1,37 +1,40 @@
 // ---------------------------------------------------------------------
-// Partners shown on the public marketing page (the logo marquee in
-// sections/Logo.jsx and the "Most Loved Flavors" grid in
-// sections/Restaurants.jsx).
+// Partners shown on the public marketing page — the logo marquee
+// (sections/Logo.jsx), the restaurant grid (sections/Restaurants.jsx) and
+// the store grid (sections/Shop.jsx).
 //
-// Admin-managed: any merchant the admin ticks "Feature on the homepage"
-// (merchants.is_featured, migration 0015) shows up here with no code change,
-// via the already-public GET /api/food/restaurants?featured=true.
+// THE RULE, and the whole point of this file: the homepage shows exactly
+// what is listed in admin, and nothing else. List a restaurant or store and
+// it appears; delist it (is_active off, status away from 'active') and it is
+// gone. There is no curated array to keep in step — an earlier version
+// merged one in, which is why brands kept showing after being taken out and
+// why newly onboarded ones did not show at all.
 //
-// The curated list in data/restaurants.js stays as a SEED and is merged with
-// whatever the API returns rather than replaced by it:
-//   * with nothing featured yet, the page renders exactly as it always has —
-//     no regression is possible, by construction rather than by luck;
-//   * featuring a restaurant makes it appear immediately, ahead of the seeds;
-//   * as real partners accumulate they crowd seeds off the tail one at a
-//     time, so the page converges on being fully admin-driven with no cliff.
-// To hand a seeded brand over to the database, delete its object from
-// data/restaurants.js (but read the PhoneMockup warning in that file first).
+// data/restaurants.js is NOT that list any more. It is artwork for the hero
+// phone animation and nothing else — see the warning at the top of it.
 //
-// A merchant needs ALL of these to appear: is_featured, a logo, is_active,
-// status 'active', and a lat/lng pin. is_featured defaults to false, so a
-// half-configured or QA row can never leak onto the public homepage.
+// is_featured is still honoured, as ORDERING rather than as a gate: the
+// public endpoints already return featured merchants first, so an admin
+// picks which partners lead the grid without deciding who is on it at all.
+//
+// A merchant needs is_active, status 'active' and its vertical set correctly
+// to appear here; those are the backend's filters, not ours. A missing logo
+// no longer hides a listing — the card falls back to its initial, because a
+// listed merchant silently absent from the homepage is the bug this file
+// exists to prevent.
 // ---------------------------------------------------------------------
 import { useEffect, useState } from 'react';
 import { api } from '../portal/lib/api';
-import { restaurants as curatedPartners } from '../data/restaurants';
 
-// Delivery ETA is not a per-merchant column. The section headline already
-// claims a platform-wide average, so reuse one honest figure rather than
-// inventing a different number per restaurant.
-export const MARKETING_ETA = '15-25 min';
+// Delivery ETA is not a per-merchant column, so the only place a figure like
+// this belongs is the section's platform-wide stat strip. Cards show the
+// merchant's real opening hours instead.
 export const MARKETING_ETA_SHORT = '15 min';
 
-// The grid is 4-wide at xl; 12 keeps it to three clean rows.
+// The grids are 4-wide at xl; 12 keeps them to three clean rows. Applied by
+// MarketingListingGrid at render, NOT by the hook — the logo marquee consumes
+// the same hook and must see every partner, or a wall of artwork can vanish
+// because the first twelve listings happen to have no logo uploaded.
 export const MAX_GRID_CARDS = 12;
 
 // merchants.badge is snake_case, constrained by the DB to these four values
@@ -46,81 +49,122 @@ export const BADGE_LABELS = {
   trending: 'Trending',
 };
 
-// Compare names loosely so "Ka Inasal" and "ka-inasal" count as the same brand.
-const normalizeName = (name) => String(name || '').toLowerCase().replace(/[^a-z0-9]/g, '');
-
-// A featured merchant with no logo would render an empty card, which is worse
-// than not appearing at all.
-export function isMarketingEligible(merchant) {
-  return !!(merchant && merchant.name && merchant.logo_url);
-}
-
-// Map an API merchant onto the shape the existing cards already consume.
-// Fields with no database source are either a platform-wide default or, where
-// they would be a claim about this specific restaurant (rating, review count),
-// left null so the UI hides them. Never invent those.
+// Map an API merchant onto the shape the marketing cards consume. Fields
+// with no database source are either a platform-wide default or, where they
+// would be a claim about this specific merchant (rating, review count), left
+// null so the UI hides them. Never invent those.
+//
+// The open/closed fields pass through untouched: the backend owns that
+// decision and the platform timezone with it (portal/lib/storeHours.js).
 export function mapMerchantToCard(merchant, deliveryFee) {
   const fee = Number(deliveryFee);
   return {
-    id: `db:${merchant.id}`,
+    id: merchant.id,
     name: merchant.name,
-    cuisine: merchant.cuisine_type || null,
     rating: merchant.rating ?? null,
     reviews: merchant.reviewCount > 0 ? String(merchant.reviewCount) : null,
-    time: MARKETING_ETA,
-    timeShort: MARKETING_ETA_SHORT,
     fee: Number.isFinite(fee) && fee > 0 ? `SAR ${fee} delivery` : 'Free delivery',
     tag: BADGE_LABELS[merchant.badge] || null,
-    logo: merchant.logo_url,
-    image: merchant.logo_url,
-    // An admin uploads a logo, not a cover photo: letterbox it on white and
-    // never crop it.
-    bg: '#FFFFFF',
-    cover: false,
+    logo: merchant.logo_url || null,
     tagline: merchant.description || merchant.cuisine_type || '',
+    hasMenu: merchant.hasMenu !== false,
+    // Left undefined rather than defaulted when the response predates these
+    // fields — portal/lib/storeHours.js reads an absent `hours` as "cannot
+    // say" and shows nothing, which an empty array would defeat.
+    isOpen: merchant.isOpen,
+    hours: merchant.hours,
+    todayWeekday: merchant.todayWeekday,
+    opensNext: merchant.opensNext || null,
   };
 }
 
-// Admin-featured partners first, then the curated seeds. A name collision
-// keeps the seed, which preserves its hand-tuned card styling.
-export function mergePartners(apiRestaurants, deliveryFee, curated = curatedPartners) {
-  const seeded = new Set(curated.map((r) => normalizeName(r.name)));
-  const fromDb = (apiRestaurants || [])
-    .filter(isMarketingEligible)
-    .filter((m) => !seeded.has(normalizeName(m.name)))
-    .map((m) => mapMerchantToCard(m, deliveryFee));
-  return [...fromDb, ...curated];
+export function toMarketingCards(list, deliveryFee) {
+  return (list || [])
+    .filter((m) => m && m.name)
+    .map((m) => mapMerchantToCard(m, deliveryFee))
+    // Closed listings sink below the ones that can actually take an order,
+    // matching both storefront grids. Without this, a homepage loaded at
+    // 02:00 can be twelve non-clickable cards while open partners sit below
+    // the cut. The backend's featured/name order survives within each group.
+    .sort((a, b) => (a.isOpen === false ? 1 : 0) - (b.isOpen === false ? 1 : 0));
 }
 
-// One request per page load however many components call the hook, which also
-// makes React StrictMode's double-effect harmless. The settled promise is
-// cached, so a failure is not retried — a marketing page must not retry-storm.
-// api.foodRestaurants already passes { silent: true }, so a failure here can
-// never raise a popup on a visitor's screen.
-let cachedRequest = null;
-function loadFeaturedOnce() {
-  if (!cachedRequest) {
-    cachedRequest = api.foodRestaurants('?featured=true').catch(() => null);
+// One request per vertical per page load however many components call the
+// hook, which also makes React StrictMode's double-effect harmless. The
+// settled promise is cached, so a failure is not retried — a marketing page
+// must not retry-storm. Both api calls already pass { silent: true }, so a
+// failure can never raise a popup on a visitor's screen.
+const cachedRequests = new Map();
+function loadOnce(key, fetcher) {
+  if (!cachedRequests.has(key)) {
+    cachedRequests.set(key, fetcher().catch(() => null));
   }
-  return cachedRequest;
+  return cachedRequests.get(key);
 }
 
-export function useMarketingPartners() {
-  // Seeded synchronously from the bundle: first paint is immediate and there
-  // is no skeleton state to design around.
-  const [partners, setPartners] = useState(() => mergePartners(null));
+// The same cached food response, for the one consumer that needs the raw
+// merchants rather than cards (useLiveRestaurantRoute, which matches a
+// sponsored banner's brand name to a live listing). Sharing the promise
+// keeps the landing page to one GET /api/food/restaurants — the endpoints
+// share a rate-limit bucket, so a second identical call is not free.
+export function loadListedRestaurants() {
+  return loadOnce('food', () => api.foodRestaurants());
+}
+
+function loadListedStores() {
+  return loadOnce('shop', () => api.shopStores());
+}
+
+// `loading` matters now that nothing is seeded from the bundle: a section
+// that rendered its empty state during the first paint would tell a visitor
+// there are no partners a moment before showing eight of them.
+function useListedMerchants(load, pick) {
+  const [state, setState] = useState({
+    partners: [],
+    // Every listing, not just the dozen the grid shows — the section's
+    // headline count has to be the real number of partners.
+    total: 0,
+    loading: true,
+    failed: false,
+    deliveryFee: null,
+    minOrder: null,
+  });
 
   useEffect(() => {
     let alive = true;
-    loadFeaturedOnce().then((data) => {
-      if (!alive || !data) return;
-      const merged = mergePartners(data.restaurants, data.deliveryFee);
-      if (merged.length) setPartners(merged);
+    load().then((data) => {
+      if (!alive) return;
+      if (!data) {
+        setState((s) => ({ ...s, loading: false, failed: true }));
+        return;
+      }
+      const listed = (pick(data) || []).filter((m) => m && m.name);
+      setState({
+        partners: toMarketingCards(listed, data.deliveryFee),
+        total: listed.length,
+        loading: false,
+        failed: false,
+        deliveryFee: data.deliveryFee ?? null,
+        minOrder: data.minOrder ?? null,
+      });
     });
     return () => {
       alive = false;
     };
+    // load/pick are module-level constants per hook below.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  return partners;
+  return state;
+}
+
+const pickRestaurants = (d) => d.restaurants;
+const pickStores = (d) => d.stores;
+
+export function useMarketingPartners() {
+  return useListedMerchants(loadListedRestaurants, pickRestaurants);
+}
+
+export function useMarketingStores() {
+  return useListedMerchants(loadListedStores, pickStores);
 }

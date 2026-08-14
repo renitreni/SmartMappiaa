@@ -1,46 +1,15 @@
+// ---------------------------------------------------------------------
+// Homepage store grid. Every card is a live merchant from
+// GET /api/shop/stores — list one in admin and it appears here, delist it
+// and it is gone. The two banners below are the only hand-written content
+// left in this section, and neither claims to be a listed store.
+// ---------------------------------------------------------------------
 import { useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
-import {
-  ArrowRight,
-  Clock,
-  Gift,
-  Package,
-  ShoppingBag,
-  Sparkles,
-  Star,
-} from "lucide-react";
-
-const partnerStores = [
-  {
-    id: "pinas",
-    name: "Pinas Supermarket",
-    shortName: "Pinas",
-    tagline: "Your favorite Filipino goods, delivered fresh",
-    logo: "/brands/pinas-supermarket.png",
-    accent: "#1D5FBF",
-    accentDark: "#0E3E8A",
-    tint: "#EAF1FE",
-    rating: "4.8",
-    delivery: "30-45 min",
-    productCount: "500+",
-    categories: ["Rice & Grains", "Pantry", "Snacks", "Beverages"],
-  },
-  {
-    id: "al-wafa",
-    name: "Al Wafa Hypermarket",
-    shortName: "Al Wafa",
-    tagline: "Everyday essentials & fresh groceries",
-    logo: "/brands/al-wafa-hypermarket.png",
-    accent: "#0B7A3E",
-    accentDark: "#065A2D",
-    tint: "#E7F6EE",
-    rating: "4.9",
-    delivery: "25-40 min",
-    productCount: "800+",
-    categories: ["Fresh Produce", "Dairy", "Pantry", "Bakery", "Snacks"],
-  },
-];
+import { ArrowRight, Gift, ShoppingBag, Sparkles } from "lucide-react";
+import { useMarketingStores } from "../lib/useMarketingPartners";
+import MarketingListingGrid from "../components/MarketingListingCard";
 
 // Featured apparel drop. Showcase only, deliberately not a partner store and
 // not shoppable, so it sits above the store grid rather than becoming a card.
@@ -61,21 +30,6 @@ const featuredBrand = {
   categories: ["Oud", "Floral", "Fresh", "Unisex"],
   accent: "#111827",
   tint: "#F3F4F6",
-};
-
-const stats = [
-  { value: "2", label: "Partner stores" },
-  { value: "1,300+", label: "Products" },
-  { value: "40 min", label: "Avg. delivery" },
-];
-
-const cardVariants = {
-  hidden: { opacity: 0, y: 40 },
-  visible: (index) => ({
-    opacity: 1,
-    y: 0,
-    transition: { duration: 0.5, delay: index * 0.1, ease: "easeOut" },
-  }),
 };
 
 // Wide featured banner. The ratio steps down on narrow screens because an 8:3
@@ -198,87 +152,21 @@ function FeaturedBrandBand({ brand }) {
   );
 }
 
-// Compact, scalable store card — deliberately mirrors RestaurantCard's shape
-// (image tile + badges, name, footer reveal) rather than the old full panel
-// with an inline product grid per store, so this grid still reads cleanly
-// whether there are 2 partner stores or 50. The full catalog per store lives
-// on the real /shop/s/:id page, not here — the marketing grid always routes
-// to /shop rather than guessing a store's backend id.
-function StoreCard({ store, index }) {
-  return (
-    <Link to="/shop" className="block">
-      <motion.article
-        custom={index}
-        variants={cardVariants}
-        initial="hidden"
-        whileInView="visible"
-        viewport={{ once: true, margin: "-50px" }}
-        className="group relative bg-white border border-brand-border rounded-3xl overflow-hidden transition-all duration-300 hover:-translate-y-2 hover:border-brand-orange/30 hover:shadow-2xl hover:shadow-brand-orange/10"
-      >
-        <div
-          className="relative h-40 sm:h-44 flex items-center justify-center overflow-hidden"
-          style={{
-            background: `linear-gradient(145deg, ${store.tint} 0%, #ffffff 60%, ${store.tint} 100%)`,
-          }}
-        >
-          <div className="w-20 h-20 rounded-2xl bg-white border border-brand-border shadow-sm flex items-center justify-center p-3">
-            <img
-              src={store.logo}
-              alt={`${store.name} logo`}
-              className="max-h-full max-w-full object-contain"
-            />
-          </div>
-
-          <div className="absolute top-4 right-4 flex items-center gap-1 bg-white/95 backdrop-blur-sm text-brand-black text-xs font-black px-2.5 py-1.5 rounded-full shadow-md">
-            <Star className="w-3.5 h-3.5 text-brand-orange fill-brand-orange" strokeWidth={0} />
-            {store.rating}
-          </div>
-
-          <span className="absolute bottom-4 left-4 inline-flex items-center gap-1.5 bg-white/95 backdrop-blur-sm text-brand-dark text-xs font-bold px-3 py-1.5 rounded-full shadow-sm">
-            <Clock className="w-3.5 h-3.5 text-brand-orange" strokeWidth={2.5} />
-            {store.delivery}
-          </span>
-        </div>
-
-        <div className="p-5 sm:p-6">
-          <h3 className="text-lg font-black text-brand-black tracking-tight group-hover:text-brand-orange transition-colors leading-snug mb-1.5">
-            {store.name}
-          </h3>
-          <p className="text-brand-grey text-sm font-medium mb-4">{store.tagline}</p>
-
-          <div className="flex flex-wrap gap-1.5 mb-4">
-            {store.categories.slice(0, 3).map((cat) => (
-              <span
-                key={cat}
-                className="text-[10px] font-bold uppercase tracking-wide px-2.5 py-1 rounded-full border"
-                style={{
-                  color: store.accent,
-                  borderColor: `${store.accent}33`,
-                  backgroundColor: `${store.accent}0D`,
-                }}
-              >
-                {cat}
-              </span>
-            ))}
-          </div>
-
-          <div className="flex items-center justify-between pt-4 border-t border-brand-border">
-            <span className="inline-flex items-center gap-1 text-xs text-brand-grey font-medium">
-              <Package className="w-3.5 h-3.5 text-brand-orange" strokeWidth={2.5} />
-              {store.productCount} items
-            </span>
-            <span className="inline-flex items-center gap-1.5 text-sm font-bold text-brand-orange opacity-0 translate-y-1 group-hover:opacity-100 group-hover:translate-y-0 transition-all duration-300">
-              Shop Now
-              <ArrowRight className="w-4 h-4" strokeWidth={2.5} />
-            </span>
-          </div>
-        </div>
-      </motion.article>
-    </Link>
-  );
-}
-
 const Shop = () => {
+  const navigate = useNavigate();
+  const { partners: stores, total, loading, deliveryFee, minOrder } = useMarketingStores();
+
+  // Counts are real or absent. A dash while the request is in flight beats a
+  // round number that turns out to be wrong a second later.
+  const stats = [
+    { value: loading ? "—" : String(total), label: "Partner stores" },
+    {
+      value: loading ? "—" : Number(deliveryFee) > 0 ? `SAR ${deliveryFee}` : "Free",
+      label: "Delivery",
+    },
+    { value: loading ? "—" : `SAR ${minOrder ?? 0}`, label: "Min. order" },
+  ];
+
   return (
     <section
       id="shop"
@@ -347,11 +235,14 @@ const Shop = () => {
 
         <FeaturedMerchBanner merch={featuredMerch} />
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6 lg:gap-7">
-          {partnerStores.map((store, index) => (
-            <StoreCard key={store.id} store={store} index={index} />
-          ))}
-        </div>
+        <MarketingListingGrid
+          listings={stores}
+          loading={loading}
+          columns="sm:grid-cols-2 lg:grid-cols-3"
+          ctaLabel="Shop Now"
+          onOpen={(store) => navigate(`/shop/s/${store.id}`)}
+          emptyText="No stores are listed yet. New partners appear here the moment they go live."
+        />
 
         <FeaturedBrandBand brand={featuredBrand} />
 

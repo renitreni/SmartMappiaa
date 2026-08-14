@@ -14,19 +14,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { Plus, Trash2, Clock } from 'lucide-react';
 import { Card, Spinner, btnPrimary, btnGhost, inputClass } from './ui';
 import { notifySuccess, notifyError } from '../lib/notify';
-
-// weekday 0 = Sunday, matching Postgres extract(dow) and JS getDay().
-const DAYS = [
-  { id: 0, label: 'Sunday' },
-  { id: 1, label: 'Monday' },
-  { id: 2, label: 'Tuesday' },
-  { id: 3, label: 'Wednesday' },
-  { id: 4, label: 'Thursday' },
-  { id: 5, label: 'Friday' },
-  { id: 6, label: 'Saturday' },
-];
-
-const hhmm = (t) => String(t || '').slice(0, 5);
+import { DAYS, hhmm } from '../lib/storeHours';
 
 export default function StoreHoursEditor({ load, save, setAccepting, disabled = false }) {
   const [windows, setWindows] = useState(null);

@@ -15,6 +15,7 @@ import { api } from '../lib/api';
 import { useAuth } from '../lib/AuthProvider';
 import { fmtSAR, availabilityMeta, TONE_CLASSES } from '../lib/constants';
 import { PortalShell, Card, Spinner, btnPrimary, btnGhost } from '../components/ui';
+import OpeningHoursCard, { ClosedBanner } from '../components/OpeningHours';
 
 function AvailabilityPill({ band }) {
   if (band === 'in_stock') return null; // the common case needs no shouting
@@ -262,14 +263,8 @@ export default function StorePage() {
     <PortalShell title={store.name} subtitle={store.cuisine_type} onBack={() => navigate('/shop')} wide>
       {store.address && <p className="text-sm text-brand-grey mb-4">{store.address}</p>}
 
-      {store.isOpen === false && (
-        <Card className="p-4 mb-4 border-amber-300 bg-amber-50">
-          <p className="font-bold text-brand-dark text-sm">This store is closed right now</p>
-          <p className="text-xs text-brand-grey mt-0.5">
-            You can browse the catalogue, but ordering reopens when the store does.
-          </p>
-        </Card>
-      )}
+      <ClosedBanner merchant={store} noun="store" />
+      <OpeningHoursCard merchant={store} />
 
       <div className="flex gap-2 overflow-x-auto pb-3 mb-4 -mx-1 px-1 sticky top-0 bg-brand-muted/80 backdrop-blur z-10">
         <button

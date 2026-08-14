@@ -20,6 +20,7 @@ import { api } from '../lib/api';
 import { useAuth } from '../lib/AuthProvider';
 import { fmtSAR, FOOD_MIN_ORDER } from '../lib/constants';
 import { notifyMenuUnavailable } from '../lib/notify';
+import { reopensLabel, todayHoursLabel } from '../lib/storeHours';
 import { PortalShell, Card, btnPrimary, inputClass } from '../components/ui';
 
 const listVariants = {
@@ -43,8 +44,11 @@ function RestaurantCard({ restaurant, deliveryFee, onOpen }) {
   const comingSoon = restaurant.hasMenu === false;
   // Closed restaurants stay listed but are not openable — disabled on the
   // button itself, so keyboard and screen-reader users get the same answer
-  // the dimming gives everyone else.
+  // the dimming gives everyone else. They carry their reopening time, so a
+  // customer knows when to come back rather than only that they cannot order.
   const closed = restaurant.isOpen === false;
+  const reopens = reopensLabel(restaurant);
+  const hours = todayHoursLabel(restaurant);
 
   return (
     <motion.button
@@ -76,10 +80,11 @@ function RestaurantCard({ restaurant, deliveryFee, onOpen }) {
         )}
         <div className="absolute inset-0 bg-gradient-to-t from-black/35 via-transparent to-transparent" />
         {closed && (
-          <span className="absolute inset-0 flex items-center justify-center bg-black/45">
+          <span className="absolute inset-0 flex flex-col items-center justify-center gap-1.5 bg-black/45 px-3 text-center">
             <span className="px-3 py-1 rounded-full bg-white text-brand-dark text-xs font-black">
               Closed
             </span>
+            <span className="text-white text-[11px] font-bold">{reopens}</span>
           </span>
         )}
         <span className="absolute top-3 right-3 inline-flex items-center gap-1.5 rounded-full bg-white/95 backdrop-blur px-2.5 py-1 text-[11px] font-black text-brand-orange shadow-sm">
@@ -109,10 +114,15 @@ function RestaurantCard({ restaurant, deliveryFee, onOpen }) {
           )}
         </div>
         <div className="mt-3 flex flex-wrap items-center gap-2 text-[11px] text-brand-grey font-medium">
-          <span className="inline-flex items-center gap-1 rounded-full bg-brand-surface px-2 py-1">
-            <Clock3 className="w-3 h-3 text-brand-orange" />
-            20–35 min
-          </span>
+          {/* The restaurant's own hours, not a guessed ETA. Absent when the
+              response carries no schedule at all — better a missing pill
+              than an invented one. */}
+          {(closed ? reopens : hours) && (
+            <span className="inline-flex items-center gap-1 rounded-full bg-brand-surface px-2 py-1">
+              <Clock3 className="w-3 h-3 text-brand-orange" />
+              {closed ? reopens : hours}
+            </span>
+          )}
           {restaurant.address && (
             <span className="inline-flex items-center gap-1 min-w-0 max-w-full">
               <MapPin className="w-3 h-3 shrink-0 text-brand-orange" />
