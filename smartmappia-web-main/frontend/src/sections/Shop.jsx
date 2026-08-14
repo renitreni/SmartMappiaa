@@ -1,8 +1,16 @@
 // ---------------------------------------------------------------------
 // Homepage store grid. Every card is a live merchant from
 // GET /api/shop/stores — list one in admin and it appears here, delist it
-// and it is gone. The two banners below are the only hand-written content
-// left in this section, and neither claims to be a listed store.
+// and it is gone.
+//
+// A brand that trades with us belongs in that grid, which means it belongs
+// in the merchants table. Zeyt'S Parfum Bar used to sit under the grid as a
+// hand-written "featured brand" band; it is a store, so it is onboarded in
+// Admin > Ecommerce like every other store and appears here on its own.
+//
+// The merch banner below is the only hand-written content left, and it is a
+// product drop rather than a merchant — nothing about it claims to be a
+// listed store you can order from.
 // ---------------------------------------------------------------------
 import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
@@ -19,17 +27,6 @@ const featuredMerch = {
   eyebrow: "Featured merch",
   headline: "Zumba Riyadh apparel is available now.",
   blurb: "Tees, hoodies and mugs by ZIN Archie. Wear your passion, live the groove.",
-};
-
-// Featured brand band, shown under the store grid. Same reason as the merch
-// banner: a brand showcase, not a grocery store with a product catalogue.
-const featuredBrand = {
-  name: "Zeyt'S Parfum Bar",
-  logo: "/brands/zeyts-parfum-bar.jpg",
-  tagline: "Signature scents, blended to order at the bar",
-  categories: ["Oud", "Floral", "Fresh", "Unisex"],
-  accent: "#111827",
-  tint: "#F3F4F6",
 };
 
 // Wide featured banner. The ratio steps down on narrow screens because an 8:3
@@ -71,82 +68,6 @@ function FeaturedMerchBanner({ merch }) {
           onError={() => setFailed(true)}
           className="absolute inset-0 w-full h-full object-contain p-4 sm:p-6"
         />
-      </div>
-    </motion.div>
-  );
-}
-
-// Featured brand band. Mirrors the store-card language (logo box, chips, CTA)
-// without a product grid, so no prices are implied for a brand whose catalogue
-// we do not carry yet.
-function FeaturedBrandBand({ brand }) {
-  const [logoFailed, setLogoFailed] = useState(false);
-
-  return (
-    <motion.div
-      initial={{ opacity: 0, y: 20 }}
-      whileInView={{ opacity: 1, y: 0 }}
-      viewport={{ once: true }}
-      transition={{ duration: 0.5 }}
-      className="mt-12 rounded-3xl border border-brand-border bg-white overflow-hidden shadow-sm"
-    >
-      <div
-        className="px-6 md:px-8 py-8 md:py-10 flex flex-col lg:flex-row lg:items-center gap-6"
-        style={{
-          background: `linear-gradient(135deg, ${brand.tint} 0%, #ffffff 55%, ${brand.tint} 100%)`,
-        }}
-      >
-        <div className="w-20 h-20 md:w-28 md:h-28 rounded-2xl bg-white border border-brand-border flex items-center justify-center p-3 shrink-0">
-          {logoFailed ? (
-            <Sparkles className="w-8 h-8 text-brand-grey/40" strokeWidth={2} />
-          ) : (
-            <img
-              src={brand.logo}
-              alt={`${brand.name} logo`}
-              loading="lazy"
-              onError={() => setLogoFailed(true)}
-              className="max-h-full max-w-full object-contain"
-            />
-          )}
-        </div>
-
-        <div className="min-w-0 flex-1">
-          <span className="inline-flex items-center gap-2 text-[11px] font-bold tracking-widest uppercase text-brand-orange">
-            <Sparkles className="w-3.5 h-3.5" strokeWidth={2.5} />
-            New on Smart Mappia
-          </span>
-          <h3 className="text-2xl md:text-3xl font-black text-brand-black tracking-tight mt-1">
-            {brand.name}
-          </h3>
-          <p className="text-brand-grey text-sm font-medium mt-1">{brand.tagline}</p>
-          <div className="flex flex-wrap gap-2 mt-4">
-            {brand.categories.map((category) => (
-              <span
-                key={category}
-                className="text-[10px] font-bold uppercase tracking-wide px-2.5 py-1 rounded-full border"
-                style={{
-                  color: brand.accent,
-                  borderColor: `${brand.accent}33`,
-                  backgroundColor: `${brand.accent}0D`,
-                }}
-              >
-                {category}
-              </span>
-            ))}
-          </div>
-        </div>
-
-        <Link
-          to="/shop"
-          className="shrink-0 inline-flex items-center justify-center gap-2 text-white font-black text-sm px-7 py-3.5 rounded-xl transition-all duration-300 hover:scale-[1.02] active:scale-95 shadow-lg w-full lg:w-auto"
-          style={{
-            backgroundColor: brand.accent,
-            boxShadow: `0 10px 24px -12px ${brand.accent}88`,
-          }}
-        >
-          Explore {brand.name.split(" ")[0]}
-          <ArrowRight className="w-4 h-4" strokeWidth={2.5} />
-        </Link>
       </div>
     </motion.div>
   );
@@ -243,8 +164,6 @@ const Shop = () => {
           onOpen={(store) => navigate(`/shop/s/${store.id}`)}
           emptyText="No stores are listed yet. New partners appear here the moment they go live."
         />
-
-        <FeaturedBrandBand brand={featuredBrand} />
 
         <motion.div
           initial={{ opacity: 0, y: 30 }}
