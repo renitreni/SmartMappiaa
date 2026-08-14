@@ -12,16 +12,38 @@ import { fmtSAR, SHOP_MIN_ORDER } from '../lib/constants';
 import { PortalShell, Card, Badge, btnPrimary, inputClass } from '../components/ui';
 
 function StoreCard({ store, deliveryFee }) {
+  // A closed store stays on the grid — it is listed and will trade again —
+  // but nothing about it is actionable. Rendered as a div rather than a Link
+  // so there is no navigable target at all, not merely a suppressed click.
+  const closed = store.isOpen === false;
+  const Wrapper = closed ? 'div' : Link;
+  const wrapperProps = closed
+    ? { 'aria-disabled': true }
+    : { to: `/shop/s/${store.id}` };
+
   return (
-    <Link
-      to={`/shop/s/${store.id}`}
-      className="block bg-white border border-brand-border rounded-2xl shadow-sm overflow-hidden hover:border-brand-orange/40 hover:shadow-md transition-all"
+    <Wrapper
+      {...wrapperProps}
+      className={`block bg-white border border-brand-border rounded-2xl shadow-sm overflow-hidden transition-all ${
+        closed ? 'opacity-60 cursor-not-allowed' : 'hover:border-brand-orange/40 hover:shadow-md'
+      }`}
     >
-      <div className="h-28 bg-gradient-to-br from-brand-orange/15 to-brand-red/10 flex items-center justify-center">
+      <div className="h-28 bg-gradient-to-br from-brand-orange/15 to-brand-red/10 flex items-center justify-center relative">
         {store.logo_url ? (
-          <img src={store.logo_url} alt={store.name} className="h-full w-full object-cover" />
+          <img
+            src={store.logo_url}
+            alt={store.name}
+            className={`h-full w-full object-cover ${closed ? 'grayscale' : ''}`}
+          />
         ) : (
           <ShoppingBag className="w-8 h-8 text-brand-orange/50" />
+        )}
+        {closed && (
+          <span className="absolute inset-0 flex items-center justify-center bg-black/45">
+            <span className="px-3 py-1 rounded-full bg-white text-brand-dark text-xs font-black">
+              Closed
+            </span>
+          </span>
         )}
       </div>
       <div className="p-4">
@@ -44,7 +66,7 @@ function StoreCard({ store, deliveryFee }) {
           <p className="text-xs text-brand-grey mt-2 line-clamp-1">{store.address}</p>
         )}
       </div>
-    </Link>
+    </Wrapper>
   );
 }
 
@@ -97,7 +119,12 @@ export default function StoreHomePage() {
     return () => clearTimeout(debounce.current);
   }, [query]);
 
-  const stores = data?.stores || [];
+  // Closed stores stay on the grid but sink below the ones that can actually
+  // take an order. The backend's featured/name ordering is preserved within
+  // each group.
+  const stores = [...(data?.stores || [])].sort(
+    (a, b) => (a.isOpen === false ? 1 : 0) - (b.isOpen === false ? 1 : 0)
+  );
 
   return (
     <PortalShell

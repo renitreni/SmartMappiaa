@@ -140,6 +140,7 @@ async function listMerchants(req, res) {
         lng: m.lng,
         isActive: m.is_active,
         status: m.status,
+        acceptingOrders: m.accepting_orders !== false,
         creditLimit: Number(m.credit_limit),
         creditUsed: round2(Number(m.credit_used)),
         isFeatured: m.is_featured,
@@ -177,7 +178,7 @@ async function loadMerchant(id) {
 
 const ADMIN_MERCHANT_SELECT =
   'id, name, cuisine_type, description, logo_url, address, street, building_number, lat, lng, ' +
-  'is_active, status, credit_limit, credit_used, is_featured, badge, owner_id, created_at';
+  'is_active, status, accepting_orders, credit_limit, credit_used, is_featured, badge, owner_id, created_at';
 
 async function createMerchant(req, res) {
   try {

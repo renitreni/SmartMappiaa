@@ -17,6 +17,14 @@ function toNumber(value, fallback) {
 }
 
 const config = {
+  // The platform's operating timezone. Merchant opening hours (0038) are
+  // stored as wall-clock times and evaluated against this, so a store that
+  // says it opens at 09:00 means 09:00 in Saudi regardless of where the
+  // server or the customer happens to be. Saudi has no DST.
+  platform: {
+    timezone: process.env.PLATFORM_TIMEZONE || 'Asia/Riyadh',
+  },
+
   // When true, uploading a proof auto-verifies the booking. TESTING ONLY.
   autoVerifyTestMode: toBool(process.env.AUTO_VERIFY_STCPAY_TEST_MODE, false),
 

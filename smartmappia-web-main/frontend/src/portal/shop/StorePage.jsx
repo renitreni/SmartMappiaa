@@ -28,8 +28,10 @@ function AvailabilityPill({ band }) {
   );
 }
 
-function ProductCard({ product, onAdd, busy }) {
-  const soldOut = product.availability === 'out' || !product.isAvailable;
+function ProductCard({ product, onAdd, busy, closed = false }) {
+  // Closed is a store-level state, sold out is a product one — both disable
+  // the button, and the backend rejects either way if a client tries anyway.
+  const soldOut = product.availability === 'out' || !product.isAvailable || closed;
   const hasVariants = (product.variants || []).length > 0;
   // With variants the card shows the cheapest option as a "from" price.
   const displayPrice = hasVariants
@@ -260,6 +262,15 @@ export default function StorePage() {
     <PortalShell title={store.name} subtitle={store.cuisine_type} onBack={() => navigate('/shop')} wide>
       {store.address && <p className="text-sm text-brand-grey mb-4">{store.address}</p>}
 
+      {store.isOpen === false && (
+        <Card className="p-4 mb-4 border-amber-300 bg-amber-50">
+          <p className="font-bold text-brand-dark text-sm">This store is closed right now</p>
+          <p className="text-xs text-brand-grey mt-0.5">
+            You can browse the catalogue, but ordering reopens when the store does.
+          </p>
+        </Card>
+      )}
+
       <div className="flex gap-2 overflow-x-auto pb-3 mb-4 -mx-1 px-1 sticky top-0 bg-brand-muted/80 backdrop-blur z-10">
         <button
           onClick={() => setActiveCat('all')}
@@ -294,7 +305,13 @@ export default function StorePage() {
       ) : (
         <div className="grid gap-3 sm:grid-cols-2 pb-24">
           {visible.map((p) => (
-            <ProductCard key={p.id} product={p} onAdd={handleAdd} busy={busyId === p.id} />
+            <ProductCard
+              key={p.id}
+              product={p}
+              onAdd={handleAdd}
+              busy={busyId === p.id}
+              closed={store.isOpen === false}
+            />
           ))}
         </div>
       )}

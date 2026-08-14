@@ -41,22 +41,33 @@ const cardVariants = {
 
 function RestaurantCard({ restaurant, deliveryFee, onOpen }) {
   const comingSoon = restaurant.hasMenu === false;
+  // Closed restaurants stay listed but are not openable — disabled on the
+  // button itself, so keyboard and screen-reader users get the same answer
+  // the dimming gives everyone else.
+  const closed = restaurant.isOpen === false;
 
   return (
     <motion.button
       type="button"
       variants={cardVariants}
-      onClick={() => onOpen(restaurant)}
-      whileHover={{ y: -3 }}
-      whileTap={{ scale: 0.985 }}
-      className="group w-full text-left bg-white border border-brand-border rounded-3xl shadow-sm overflow-hidden hover:border-brand-orange/35 hover:shadow-[0_14px_32px_-14px_rgba(255,126,33,0.4)] transition-all cursor-pointer"
+      disabled={closed}
+      onClick={() => { if (!closed) onOpen(restaurant); }}
+      whileHover={closed ? undefined : { y: -3 }}
+      whileTap={closed ? undefined : { scale: 0.985 }}
+      className={`group w-full text-left bg-white border border-brand-border rounded-3xl shadow-sm overflow-hidden transition-all ${
+        closed
+          ? 'opacity-60 cursor-not-allowed'
+          : 'hover:border-brand-orange/35 hover:shadow-[0_14px_32px_-14px_rgba(255,126,33,0.4)] cursor-pointer'
+      }`}
     >
       <div className="relative h-36 sm:h-40 bg-gradient-to-br from-brand-orange/15 to-brand-red/10 overflow-hidden">
         {restaurant.logo_url ? (
           <img
             src={restaurant.logo_url}
             alt=""
-            className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-105"
+            className={`h-full w-full object-cover transition-transform duration-500 ${
+              closed ? 'grayscale' : 'group-hover:scale-105'
+            }`}
           />
         ) : (
           <div className="h-full w-full flex items-center justify-center">
@@ -64,6 +75,13 @@ function RestaurantCard({ restaurant, deliveryFee, onOpen }) {
           </div>
         )}
         <div className="absolute inset-0 bg-gradient-to-t from-black/35 via-transparent to-transparent" />
+        {closed && (
+          <span className="absolute inset-0 flex items-center justify-center bg-black/45">
+            <span className="px-3 py-1 rounded-full bg-white text-brand-dark text-xs font-black">
+              Closed
+            </span>
+          </span>
+        )}
         <span className="absolute top-3 right-3 inline-flex items-center gap-1.5 rounded-full bg-white/95 backdrop-blur px-2.5 py-1 text-[11px] font-black text-brand-orange shadow-sm">
           <Bike className="w-3.5 h-3.5" />
           {fmtSAR(deliveryFee)}
@@ -159,7 +177,15 @@ export default function FoodHomePage() {
     return () => clearTimeout(t);
   }, [search, cuisine]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const restaurants = useMemo(() => data?.restaurants || [], [data]);
+  // Closed restaurants stay on the grid but sink below the ones that can
+  // actually take an order, preserving the backend order within each group.
+  const restaurants = useMemo(
+    () =>
+      [...(data?.restaurants || [])].sort(
+        (a, b) => (a.isOpen === false ? 1 : 0) - (b.isOpen === false ? 1 : 0)
+      ),
+    [data]
+  );
 
   function openRestaurant(restaurant) {
     if (restaurant.hasMenu === false) {

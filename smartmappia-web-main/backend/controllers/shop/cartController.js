@@ -20,6 +20,7 @@ const { config } = require('../../lib/config');
 const { vatFor } = require('../../lib/vat');
 const { logShopEvent } = require('../../lib/foodEvents');
 const { round2, resolveUnitPricing, availabilityBand, availableUnits } = require('../../lib/shopMoney');
+const { merchantOpenState, CLOSED_RESPONSE } = require('../../lib/storeHours');
 
 const MAX_QTY = 50;
 
@@ -161,7 +162,7 @@ async function addCartItem(req, res) {
       .from('products')
       .select(
         'id, merchant_id, name, price, net_price, is_available, track_stock, stock_quantity, ' +
-          'merchants ( vertical, is_active, status )'
+          'merchants ( vertical, is_active, status, accepting_orders )'
       )
       .eq('id', product_id)
       .maybeSingle();
@@ -177,6 +178,12 @@ async function addCartItem(req, res) {
     if (!store || store.vertical !== 'shop' || !store.is_active || store.status !== 'active') {
       return res.status(409).json({ error: 'This store is not accepting orders right now' });
     }
+    // Closed is separate from unavailable: the store is listed and will trade
+    // again later. Enforced here as well as at checkout so a cart cannot be
+    // built up against a closed store and pushed through the moment it opens
+    // at prices that moved.
+    const openState = await merchantOpenState(product.merchant_id, store.accepting_orders);
+    if (!openState.open) return res.status(409).json(CLOSED_RESPONSE);
 
     // Variant handling: a product WITH available variants requires one; a
     // product without them rejects any variant the client sends. Belongs to

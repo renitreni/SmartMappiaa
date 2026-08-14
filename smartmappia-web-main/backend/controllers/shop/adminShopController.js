@@ -41,7 +41,7 @@ const { resolveOwnerProfile } = require('../../lib/merchantOwner');
 
 const STORE_SELECT =
   'id, name, vertical, cuisine_type, description, logo_url, address, street, building_number, lat, lng, is_active, status, ' +
-  'credit_limit, credit_used, is_featured, badge, owner_id, created_at';
+  'accepting_orders, credit_limit, credit_used, is_featured, badge, owner_id, created_at';
 
 // Admin sees net_price. Nobody else does.
 const ADMIN_PRODUCT_SELECT =

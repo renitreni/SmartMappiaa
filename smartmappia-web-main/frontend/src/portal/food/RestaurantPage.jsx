@@ -137,8 +137,10 @@ function SizeSegment({ sizes, value, onChange, disabled }) {
   );
 }
 
-function ItemCard({ item, onAdd, busy }) {
-  const unavailable = !item.is_available;
+function ItemCard({ item, onAdd, busy, closed = false }) {
+  // Closed is a restaurant-level state, unavailable a per-item one — both
+  // disable the button, and the backend rejects either way regardless.
+  const unavailable = !item.is_available || closed;
   const sizes = enabledSizes(item);
   const hasSizes = sizes.length > 0;
   const isDrink = hasSizes || item.item_type === 'drink_dessert_addon';
@@ -415,6 +417,11 @@ export default function RestaurantPage() {
                     {data.restaurant.description}
                   </p>
                 )}
+                {data.restaurant.isOpen === false && (
+                  <p className="mt-2 inline-flex items-center gap-1.5 rounded-full bg-amber-100 text-amber-800 text-[11px] font-black px-2.5 py-1">
+                    Closed right now — browse the menu, ordering reopens later
+                  </p>
+                )}
                 <div className="mt-3 flex flex-wrap items-center gap-2">
                   <span className="inline-flex items-center gap-1.5 rounded-full bg-brand-warm text-brand-orange text-[11px] font-black px-2.5 py-1">
                     <Bike className="w-3.5 h-3.5" />
@@ -475,6 +482,7 @@ export default function RestaurantPage() {
                   item={item}
                   onAdd={addToCart}
                   busy={addingId === item.id}
+                  closed={data.restaurant.isOpen === false}
                 />
               ))}
             </motion.div>

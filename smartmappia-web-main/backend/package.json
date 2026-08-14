@@ -18,6 +18,7 @@
     "seed:aling-marias": "node scripts/seed-aling-marias.js",
     "check:migrations": "node scripts/check-migrations.js",
     "check:shop": "node scripts/check-shop.js",
+    "check:hours": "node scripts/check-store-hours.js",
     "seed:shop": "node scripts/seed-shop.js",
     "seed:demo": "node scripts/demo/seed-demo.js",
     "seed:pay": "node scripts/demo/seed-pay.js",

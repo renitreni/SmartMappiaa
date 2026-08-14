@@ -13,6 +13,7 @@ const { supabase } = require('../../lib/supabase');
 const { config } = require('../../lib/config');
 const { round2 } = require('../../lib/foodMoney');
 const { vatFor } = require('../../lib/vat');
+const { merchantOpenState, CLOSED_RESPONSE } = require('../../lib/storeHours');
 const { logFoodEvent } = require('../../lib/foodEvents');
 const { hasEnabledSizes, findSizeOption } = require('../../lib/foodSizes');
 
@@ -116,7 +117,10 @@ async function addCartItem(req, res) {
     // Server reads the item + restaurant state itself.
     const { data: item, error: itemErr } = await supabase
       .from('menu_items')
-      .select('id, merchant_id, name, price, is_available, size_options, merchants ( is_active, status )')
+      .select(
+        'id, merchant_id, name, price, is_available, size_options, ' +
+          'merchants ( is_active, status, accepting_orders )'
+      )
       .eq('id', menu_item_id)
       .maybeSingle();
     if (itemErr) {
@@ -129,6 +133,13 @@ async function addCartItem(req, res) {
     }
     if (!item.merchants || !item.merchants.is_active || item.merchants.status !== 'active') {
       return res.status(409).json({ error: 'This restaurant is not accepting orders right now' });
+    }
+    // Closed is separate from unavailable: the restaurant is listed and will
+    // trade again later. Enforced here as well as at checkout so a cart
+    // cannot be built against a closed restaurant.
+    const openState = await merchantOpenState(item.merchant_id, item.merchants.accepting_orders);
+    if (!openState.open) {
+      return res.status(409).json({ ...CLOSED_RESPONSE, error: 'This restaurant is closed right now' });
     }
 
     // Size handling: a sized item requires a valid ENABLED size; a size-less

@@ -18,6 +18,14 @@ const {
   reviewDriverDocument,
 } = require('../controllers/adminController');
 const food = require('../controllers/food/adminFoodController');
+const hours = require('../controllers/merchantHoursController');
+
+// Opening-hours payloads. The windows themselves are validated in
+// lib/merchantHours.js — this only keeps the shape sane before it gets there.
+const HOURS_BODY = {
+  hours: { type: 'array', itemType: 'object', maxItems: 50, required: true },
+};
+const ACCEPTING_BODY = { accepting_orders: { type: 'boolean', required: true } };
 
 // Every admin route requires an authenticated admin (Supabase JWT, role admin).
 router.use(requireAdmin);
@@ -281,6 +289,16 @@ router.post(
   }),
   shop.replenishCredit
 );
+// --- Opening hours + "closed now" (shared by both verticals, 0038) ---
+// Same handlers for /food/merchants/:id and /shop/stores/:id: merchant_hours
+// is one table and the id identifies the vertical on its own.
+router.get('/food/merchants/:id/hours', hours.adminGetHours);
+router.put('/food/merchants/:id/hours', validateBody(HOURS_BODY), hours.adminSetHours);
+router.patch('/food/merchants/:id/accepting-orders', validateBody(ACCEPTING_BODY), hours.adminSetAccepting);
+router.get('/shop/stores/:id/hours', hours.adminGetHours);
+router.put('/shop/stores/:id/hours', validateBody(HOURS_BODY), hours.adminSetHours);
+router.patch('/shop/stores/:id/accepting-orders', validateBody(ACCEPTING_BODY), hours.adminSetAccepting);
+
 router.post(
   '/shop/stores/:id/image/signed-url',
   validateBody({

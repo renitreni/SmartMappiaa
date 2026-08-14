@@ -4,6 +4,7 @@ const { requireMerchantVertical } = require('../middleware/auth');
 const { validateBody } = require('../lib/validate');
 const merchant = require('../controllers/merchantController');
 const merchantOrders = require('../controllers/merchantOrdersController');
+const hours = require('../controllers/merchantHoursController');
 
 const BUSINESS_FIELDS = {
   name: { type: 'string', required: true, maxLength: 120 },
@@ -78,6 +79,23 @@ router.post(
   }),
   merchant.confirmMenuItemImageUpload
 );
+// --- Opening hours + "closed now" (0038) ---
+// The merchant id comes from the session, never the request, so a restaurant
+// can only ever change its own. Kept OUT of the profile PATCH whitelist
+// above: accepting_orders sits next to is_active on merchants, and that
+// whitelist exists to stop a merchant listing itself.
+router.get('/hours', hours.ownerGetHours);
+router.put(
+  '/hours',
+  validateBody({ hours: { type: 'array', itemType: 'object', maxItems: 50, required: true } }),
+  hours.ownerSetHours
+);
+router.patch(
+  '/accepting-orders',
+  validateBody({ accepting_orders: { type: 'boolean', required: true } }),
+  hours.ownerSetAccepting
+);
+
 router.get('/analytics', merchant.getAnalytics);
 
 router.get('/menu', merchant.getMenu);
