@@ -167,5 +167,15 @@ router.patch(
   validateBody({ status: { type: 'string', required: true, enum: ['packing', 'ready'] } }),
   orders.advanceStatus
 );
+// Withdraw an order the store already accepted. `reason` is REQUIRED here
+// where the admin route leaves it optional: the customer is shown this
+// sentence verbatim, and "cancelled, no reason given" is the message this
+// endpoint exists to avoid.
+router.post(
+  '/orders/:code/cancel',
+  merchantOrderLimiter,
+  validateBody({ reason: { type: 'string', required: true, maxLength: 300 } }),
+  orders.cancelOrder
+);
 
 module.exports = router;

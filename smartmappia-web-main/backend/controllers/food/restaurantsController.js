@@ -11,6 +11,7 @@ const { supabase } = require('../../lib/supabase');
 const { config } = require('../../lib/config');
 const { logFoodEvent } = require('../../lib/foodEvents');
 const { publicHoursState, groupHoursByMerchant } = require('../../lib/storeHours');
+const { deliveryTerms } = require('../../lib/deliveryPricing');
 
 const PUBLIC_MERCHANT_FIELDS =
   'id, name, cuisine_type, description, logo_url, address, lat, lng, service_radius_km, is_featured, badge, accepting_orders';
@@ -135,7 +136,11 @@ async function listRestaurants(req, res) {
         };
       }),
       cuisines: [...new Set((cuisines || []).map((c) => c.cuisine_type).filter(Boolean))].sort(),
+      // deliveryFee is the BASE, and stays for older bundles. `delivery`
+      // carries the surcharge terms so the card can say "from" rather than
+      // presenting a floor as the final price.
       deliveryFee: config.food.deliveryFeeSar,
+      delivery: deliveryTerms(config.food.deliveryFeeSar),
       minOrder: config.food.minOrderSar,
     });
   } catch (err) {
@@ -210,6 +215,7 @@ async function getRestaurant(req, res) {
       categories: categories || [],
       items: items || [],
       deliveryFee: config.food.deliveryFeeSar,
+      delivery: deliveryTerms(config.food.deliveryFeeSar),
       minOrder: config.food.minOrderSar,
     });
   } catch (err) {

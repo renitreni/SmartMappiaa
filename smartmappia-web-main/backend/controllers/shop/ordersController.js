@@ -51,7 +51,7 @@ const ORDER_SELECT =
   'vat_amount, vat_rate, total, distance_km, delivery_address, delivery_lat, delivery_lng, ' +
   'delivery_street, delivery_building, ' +
   'contact_phone, payment_status, payment_method, created_at, accepted_at, packed_at, ' +
-  'ready_at, delivered_at, reject_reason';
+  'ready_at, delivered_at, reject_reason, cancelled_by, cancelled_at';
 
 // Terminal states — nothing left to estimate, and no Routes call worth
 // spending on a dead page. Mirrors food's getOrder.

@@ -104,9 +104,13 @@ export function MarketingListingCard({ listing, index, ctaLabel, onOpen }) {
                 {hours}
               </span>
             )}
-            <span className="text-[10px] font-bold text-white/90 bg-black/40 backdrop-blur-sm px-2.5 py-1 rounded-full shrink-0">
-              {listing.fee}
-            </span>
+            {/* Absent when the fee is unknown. It used to fall back to
+                "Free delivery", which we do not offer. */}
+            {listing.fee && (
+              <span className="text-[10px] font-bold text-white/90 bg-black/40 backdrop-blur-sm px-2.5 py-1 rounded-full shrink-0">
+                {listing.fee}
+              </span>
+            )}
           </div>
         )}
       </div>
@@ -182,6 +186,7 @@ function SkeletonCard() {
 export default function MarketingListingGrid({
   listings,
   loading,
+  failed = false,
   columns = 'sm:grid-cols-2 xl:grid-cols-4',
   ctaLabel,
   onOpen,
@@ -193,6 +198,22 @@ export default function MarketingListingGrid({
         {[0, 1, 2, 3].map((i) => (
           <SkeletonCard key={i} />
         ))}
+      </div>
+    );
+  }
+
+  // A failed request is NOT an empty grid. Rendering emptyText here told
+  // visitors there were no partners whenever the API was unreachable or the
+  // vertical was switched off at the backend (SHOP_ENABLED) — a statement
+  // about the business made from a network error, and the reason a listed
+  // store "not appearing" took as long as it did to diagnose.
+  if (failed) {
+    return (
+      <div className="rounded-3xl border border-dashed border-brand-border bg-white/60 px-6 py-14 text-center">
+        <p className="text-brand-dark text-sm font-bold">Listings could not be loaded right now</p>
+        <p className="text-brand-grey text-sm font-medium mt-1">
+          This is a problem on our side, not an empty catalogue. Please try again shortly.
+        </p>
       </div>
     );
   }

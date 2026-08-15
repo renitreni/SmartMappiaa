@@ -41,7 +41,8 @@ const ORDER_SELECT =
   'id, order_code, customer_id, merchant_id, status, subtotal, delivery_fee, delivery_surcharge, ' +
   'platform_margin_total, vat_amount, vat_rate, total, distance_km, delivery_address, delivery_lat, delivery_lng, ' +
   'delivery_street, delivery_building, ' +
-  'contact_phone, payment_status, payment_method, created_at, accepted_at, ready_at, delivered_at, reject_reason';
+  'contact_phone, payment_status, payment_method, created_at, accepted_at, ready_at, delivered_at, ' +
+  'reject_reason, cancelled_by, cancelled_at';
 
 // Statuses during which the customer may still edit their contact number.
 const CONTACT_EDITABLE_STATUSES = ['pending', 'accepted', 'preparing', 'ready', 'out_for_delivery'];

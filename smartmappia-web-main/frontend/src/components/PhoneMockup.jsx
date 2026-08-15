@@ -119,8 +119,10 @@ function FoodScreen() {
         </AnimatePresence>
         <div className="absolute inset-0 bg-linear-to-t from-brand-black/45 via-transparent to-transparent pointer-events-none" />
         <div className="absolute inset-0 p-4 flex flex-col justify-end pointer-events-none">
+          {/* Illustrative, like the rest of this mockup — but it still has to
+              be a claim we would honour. We do not deliver free. */}
           <span className="text-[10px] font-bold uppercase tracking-wider text-white bg-brand-orange px-2 py-0.5 rounded-full mb-1.5 w-fit shadow-sm">
-            Free delivery
+            Fast delivery
           </span>
           <p className="text-sm font-black leading-tight text-white drop-shadow">
             {flash.name}: {flash.tagline}

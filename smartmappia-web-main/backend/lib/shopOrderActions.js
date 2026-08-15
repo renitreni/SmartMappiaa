@@ -18,6 +18,7 @@ const { supabase } = require('./supabase');
 const { config } = require('./config');
 const { round2, creditAfterCharge } = require('./shopMoney');
 const { releaseShopStock } = require('./stock');
+const { reverseOrderMargin } = require('./merchantCredit');
 const { logShopEvent } = require('./foodEvents');
 const { logAudit } = require('./audit');
 const { logNotification } = require('./notifications');
@@ -212,7 +213,13 @@ async function rejectOrderCore({ orderCode, actorId, actorRole, reason }) {
     action: auditAction('shop_order_rejected', actorRole),
     resourceType: 'shop_order',
     resourceId: order.order_code,
-    meta: { reason: reason || null, stock_released: release.released },
+    meta: {
+      reason: reason || null,
+      stock_released: release.released,
+      // A customer can pay before the store ever sees the order, so a
+      // rejection owes a refund just as a cancel does.
+      refund_due: order.payment_status === 'paid',
+    },
   });
   pushShopOrderStatus(order.order_code, { status: 'rejected', rejectReason: reason || null });
   pushMerchantFeed(order.merchant_id, 'order_update', { orderCode: order.order_code, status: 'rejected' });
@@ -224,7 +231,14 @@ async function rejectOrderCore({ orderCode, actorId, actorRole, reason }) {
     shopOrderId: order.id,
   });
 
-  return { httpStatus: 200, body: { orderCode: order.order_code, status: 'rejected' } };
+  return {
+    httpStatus: 200,
+    body: {
+      orderCode: order.order_code,
+      status: 'rejected',
+      refundDue: order.payment_status === 'paid',
+    },
+  };
 }
 
 // The status ladder. Each step declares which statuses it may follow, so an
@@ -304,18 +318,53 @@ async function advanceOrderStatusCore({ orderCode, status, actorId, actorRole })
   return { httpStatus: 200, body: { orderCode: order.order_code, status } };
 }
 
-// Cancel (admin/support, or the expiry sweeper). Releases stock. Refunding
-// a paid order is a separate admin action — cancelling does not move money.
-async function cancelOrderCore({ orderCode, actorId, actorRole, reason }) {
+// Cancel — admin/support, the expiry sweeper, or (since the store gained its
+// own cancel button) the merchant itself.
+//
+// Refunding a paid order stays a separate, deliberate admin action: the money
+// went out by card or STC Pay and comes back the same way, by hand. What this
+// DOES guarantee is that the refund cannot be forgotten — the order lands in
+// the admin refund queue (status cancelled + payment_status paid), and the
+// caller is told refundDue so the customer can be told too.
+//
+// `cancelledBy` is 'merchant' | 'admin' | 'customer' | 'system' (0040). The
+// customer's tracking page shows a different message for a store cancelling
+// than for support cancelling, so the actor has to be on the row.
+//
+// `allowedStatuses`, when passed, restricts which statuses this caller may
+// cancel from. The merchant route uses it to stop at handover: once a rider
+// is carrying the order, cancelling is support's call.
+async function cancelOrderCore({
+  orderCode,
+  actorId,
+  actorRole,
+  reason,
+  cancelledBy = 'admin',
+  allowedStatuses = null,
+}) {
   const order = await loadOrderByCode(orderCode);
   if (!order) return { httpStatus: 404, body: { error: 'Order not found' } };
   if (['delivered', 'cancelled', 'rejected'].includes(order.status)) {
     return { httpStatus: 409, body: { error: `Order is already ${order.status}` } };
   }
+  if (allowedStatuses && !allowedStatuses.includes(order.status)) {
+    return {
+      httpStatus: 409,
+      body: {
+        error: `An order that is ${order.status} can only be cancelled by support.`,
+        failure_reason: 'cancel_window_passed',
+      },
+    };
+  }
 
   const { data: rows } = await supabase
     .from('shop_orders')
-    .update({ status: 'cancelled', reject_reason: reason || null })
+    .update({
+      status: 'cancelled',
+      reject_reason: reason || null,
+      cancelled_by: cancelledBy,
+      cancelled_at: new Date().toISOString(),
+    })
     .eq('id', order.id)
     .neq('status', 'cancelled')
     .select('order_code');
@@ -324,6 +373,19 @@ async function cancelOrderCore({ orderCode, actorId, actorRole, reason }) {
   }
 
   const release = await releaseShopStock(order.id);
+
+  // Accepting charged the platform markup to the store's credit; cancelling
+  // gives it back. Only for an order that WAS accepted — a pending one was
+  // never charged. Best-effort by design: the cancel already happened.
+  const creditReversal = order.accepted_at
+    ? await reverseOrderMargin({
+        merchantId: order.merchant_id,
+        margin: order.platform_margin_total,
+        shopOrderId: order.id,
+        orderCode: order.order_code,
+        actorId,
+      })
+    : { reversed: false, amount: 0 };
 
   // Withdraw any offer still on a rider's screen. Without this the offer
   // stays 'pending' and unexpired: a rider tapping Accept a few seconds
@@ -344,24 +406,45 @@ async function cancelOrderCore({ orderCode, actorId, actorRole, reason }) {
     console.error('cancelOrderCore release delivery error:', err.message || err);
   }
 
+  const refundDue = order.payment_status === 'paid';
+
   logAudit({
     actorId,
     action: auditAction('shop_order_cancelled', actorRole),
     resourceType: 'shop_order',
     resourceId: order.order_code,
-    meta: { reason: reason || null, stock_released: release.released, was: order.status },
+    meta: {
+      reason: reason || null,
+      stock_released: release.released,
+      was: order.status,
+      cancelled_by: cancelledBy,
+      margin_reversed: creditReversal.reversed ? creditReversal.amount : 0,
+      refund_due: refundDue,
+    },
   });
   pushShopOrderStatus(order.order_code, { status: 'cancelled' });
   pushMerchantFeed(order.merchant_id, 'order_update', { orderCode: order.order_code, status: 'cancelled' });
   pingShopAdmin(order.order_code);
   logNotification({
     userId: order.customer_id,
-    type: 'shop_order_cancelled',
+    // A store cancelling is a different message from support cancelling —
+    // the customer is owed an explanation and, if they paid, a refund.
+    type: cancelledBy === 'merchant' ? 'shop_order_cancelled_by_store' : 'shop_order_cancelled',
     code: order.order_code,
     shopOrderId: order.id,
   });
 
-  return { httpStatus: 200, body: { orderCode: order.order_code, status: 'cancelled' } };
+  return {
+    httpStatus: 200,
+    body: {
+      orderCode: order.order_code,
+      status: 'cancelled',
+      // The order now sits in the admin refund queue. Surfaced here so the
+      // person who just cancelled it is told the money still has to move.
+      refundDue,
+      marginReversed: creditReversal.reversed ? creditReversal.amount : 0,
+    },
+  };
 }
 
 module.exports = {

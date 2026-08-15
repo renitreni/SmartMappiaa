@@ -25,6 +25,7 @@
 // ---------------------------------------------------------------------
 import { useEffect, useState } from 'react';
 import { api } from '../portal/lib/api';
+import { BADGE_LABELS, deliveryFeeFromLabel } from '../portal/lib/constants';
 
 // Delivery ETA is not a per-merchant column, so the only place a figure like
 // this belongs is the section's platform-wide stat strip. Cards show the
@@ -37,17 +38,10 @@ export const MARKETING_ETA_SHORT = '15 min';
 // because the first twelve listings happen to have no logo uploaded.
 export const MAX_GRID_CARDS = 12;
 
-// merchants.badge is snake_case, constrained by the DB to these four values
-// (0015_merchant_homepage_presentation.sql), echoed by the route whitelist in
-// backend/routes/admin.js and the admin dropdown in portal/admin/FoodAdmin.jsx.
-// The card's tagStyles map in sections/Restaurants.jsx is keyed by the labels
-// below. Keep all four lists in step — an unmapped value renders no badge.
-export const BADGE_LABELS = {
-  top_rated: 'Top Rated',
-  popular: 'Popular',
-  new: 'New',
-  trending: 'Trending',
-};
+// Re-exported, not redefined: the labels now live in portal/lib/constants.js
+// so the storefront rows and the marketing cards read one map. The card's
+// tagStyles in components/MarketingListingCard.jsx is keyed by these labels.
+export { BADGE_LABELS };
 
 // Map an API merchant onto the shape the marketing cards consume. Fields
 // with no database source are either a platform-wide default or, where they
@@ -56,14 +50,18 @@ export const BADGE_LABELS = {
 //
 // The open/closed fields pass through untouched: the backend owns that
 // decision and the platform timezone with it (portal/lib/storeHours.js).
-export function mapMerchantToCard(merchant, deliveryFee) {
-  const fee = Number(deliveryFee);
+export function mapMerchantToCard(merchant, delivery) {
   return {
     id: merchant.id,
     name: merchant.name,
     rating: merchant.rating ?? null,
     reviews: merchant.reviewCount > 0 ? String(merchant.reviewCount) : null,
-    fee: Number.isFinite(fee) && fee > 0 ? `SAR ${fee} delivery` : 'Free delivery',
+    // "From SAR 10", or NOTHING when we do not know. This used to fall back
+    // to the literal string "Free delivery", which was both untrue and shown
+    // most often when the request had failed and we knew nothing at all.
+    // It is also a floor, not a price — a delivery past the free radius costs
+    // more (backend lib/deliveryPricing.js).
+    fee: deliveryFeeFromLabel(delivery),
     tag: BADGE_LABELS[merchant.badge] || null,
     logo: merchant.logo_url || null,
     tagline: merchant.description || merchant.cuisine_type || '',
@@ -78,10 +76,10 @@ export function mapMerchantToCard(merchant, deliveryFee) {
   };
 }
 
-export function toMarketingCards(list, deliveryFee) {
+export function toMarketingCards(list, delivery) {
   return (list || [])
     .filter((m) => m && m.name)
-    .map((m) => mapMerchantToCard(m, deliveryFee))
+    .map((m) => mapMerchantToCard(m, delivery))
     // Closed listings sink below the ones that can actually take an order,
     // matching both storefront grids. Without this, a homepage loaded at
     // 02:00 can be twelve non-clickable cards while open partners sit below
@@ -125,9 +123,14 @@ function useListedMerchants(load, pick) {
     // headline count has to be the real number of partners.
     total: 0,
     loading: true,
+    // `failed` is the difference between "no partners" and "we could not
+    // ask". It used to be set here and read nowhere, so a shop vertical
+    // switched off at the API (SHOP_ENABLED) rendered as an empty grid
+    // saying no stores were listed — indistinguishable from the truth, and
+    // the reason that took so long to diagnose.
     failed: false,
-    deliveryFee: null,
-    minOrder: null,
+    // The surcharge terms, not a bare number: the card needs to say "from".
+    delivery: null,
   });
 
   useEffect(() => {
@@ -139,13 +142,15 @@ function useListedMerchants(load, pick) {
         return;
       }
       const listed = (pick(data) || []).filter((m) => m && m.name);
+      // `?? data.deliveryFee` keeps a cached bundle working against an API
+      // that predates the terms object; deliveryFeeFromLabel takes either.
+      const delivery = data.delivery ?? data.deliveryFee ?? null;
       setState({
-        partners: toMarketingCards(listed, data.deliveryFee),
+        partners: toMarketingCards(listed, delivery),
         total: listed.length,
         loading: false,
         failed: false,
-        deliveryFee: data.deliveryFee ?? null,
-        minOrder: data.minOrder ?? null,
+        delivery,
       });
     });
     return () => {

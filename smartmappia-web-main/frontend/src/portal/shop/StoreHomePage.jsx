@@ -4,94 +4,13 @@
 // Public page (ordering itself requires sign-in).
 // ---------------------------------------------------------------------
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
-import { Search, ShoppingBag, Bike, ReceiptText, RefreshCw, Clock3 } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+import { Search, ShoppingBag, ReceiptText, RefreshCw } from 'lucide-react';
 import { api } from '../lib/api';
 import { useAuth } from '../lib/AuthProvider';
-import { fmtSAR, SHOP_MIN_ORDER } from '../lib/constants';
-import { reopensLabel, todayHoursLabel } from '../lib/storeHours';
-import { PortalShell, Card, Badge, btnPrimary, inputClass } from '../components/ui';
-
-function StoreCard({ store, deliveryFee }) {
-  // A closed store stays on the grid — it is listed and will trade again —
-  // but nothing about it is actionable. Rendered as a div rather than a Link
-  // so there is no navigable target at all, not merely a suppressed click.
-  // It carries its reopening time, so "closed" is an answer, not a dead end.
-  const closed = store.isOpen === false;
-  const reopens = reopensLabel(store);
-  const hours = todayHoursLabel(store);
-  const Wrapper = closed ? 'div' : Link;
-  const wrapperProps = closed
-    ? { 'aria-disabled': true }
-    : { to: `/shop/s/${store.id}` };
-
-  return (
-    <Wrapper
-      {...wrapperProps}
-      className={`block bg-white border border-brand-border rounded-2xl shadow-sm overflow-hidden transition-all ${
-        closed ? 'opacity-60 cursor-not-allowed' : 'hover:border-brand-orange/40 hover:shadow-md'
-      }`}
-    >
-      <div className="h-28 bg-gradient-to-br from-brand-orange/15 to-brand-red/10 flex items-center justify-center relative">
-        {store.logo_url ? (
-          <img
-            src={store.logo_url}
-            alt={store.name}
-            className={`h-full w-full object-cover ${closed ? 'grayscale' : ''}`}
-          />
-        ) : (
-          <ShoppingBag className="w-8 h-8 text-brand-orange/50" />
-        )}
-        {closed && (
-          <span className="absolute inset-0 flex flex-col items-center justify-center gap-1.5 bg-black/45 px-3 text-center">
-            <span className="px-3 py-1 rounded-full bg-white text-brand-dark text-xs font-black">
-              Closed
-            </span>
-            <span className="text-white text-[11px] font-bold">{reopens}</span>
-          </span>
-        )}
-      </div>
-      <div className="p-4">
-        <div className="flex items-start justify-between gap-2">
-          <p className="font-black text-brand-black leading-tight">{store.name}</p>
-          {store.badge && <Badge tone="amber">{store.badge.replace(/_/g, ' ')}</Badge>}
-        </div>
-        {store.cuisine_type && <p className="text-sm text-brand-grey mt-0.5">{store.cuisine_type}</p>}
-        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mt-3 text-xs text-brand-grey">
-          <span className="inline-flex items-center gap-1">
-            <Bike className="w-3.5 h-3.5" /> {fmtSAR(deliveryFee)}
-          </span>
-          {(closed ? reopens : hours) && (
-            <span className="inline-flex items-center gap-1">
-              <Clock3 className="w-3.5 h-3.5" /> {closed ? reopens : hours}
-            </span>
-          )}
-          {store.rating != null && (
-            <span className="font-bold text-brand-dark">
-              {store.rating.toFixed(1)} ({store.reviewCount})
-            </span>
-          )}
-        </div>
-        {store.address && (
-          <p className="text-xs text-brand-grey mt-2 line-clamp-1">{store.address}</p>
-        )}
-      </div>
-    </Wrapper>
-  );
-}
-
-function SkeletonCard() {
-  return (
-    <div className="bg-white border border-brand-border rounded-2xl overflow-hidden animate-pulse">
-      <div className="h-28 bg-brand-surface" />
-      <div className="p-4 space-y-2">
-        <div className="h-4 bg-brand-surface rounded w-2/3" />
-        <div className="h-3 bg-brand-surface rounded w-1/3" />
-        <div className="h-3 bg-brand-surface rounded w-1/2" />
-      </div>
-    </div>
-  );
-}
+import { deliveryFeeFromLabel, deliveryFeeNote } from '../lib/constants';
+import ListingRow, { ListingRowSkeleton } from '../components/ListingRow';
+import { PortalShell, Card, btnPrimary, inputClass } from '../components/ui';
 
 export default function StoreHomePage() {
   const { session } = useAuth();
@@ -135,6 +54,12 @@ export default function StoreHomePage() {
   const stores = [...(data?.stores || [])].sort(
     (a, b) => (a.isOpen === false ? 1 : 0) - (b.isOpen === false ? 1 : 0)
   );
+
+  // `?? data?.deliveryFee` keeps a cached bundle working against an API that
+  // predates the terms object; both helpers accept either shape.
+  const deliveryTerms = data?.delivery ?? data?.deliveryFee ?? null;
+  const deliveryLabel = deliveryFeeFromLabel(deliveryTerms);
+  const deliveryNote = deliveryFeeNote(deliveryTerms);
 
   return (
     <PortalShell
@@ -187,14 +112,19 @@ export default function StoreHomePage() {
         </div>
       )}
 
-      <p className="text-xs text-brand-grey mb-4">
-        Minimum order {fmtSAR(data?.minOrder ?? SHOP_MIN_ORDER)} · delivery{' '}
-        {fmtSAR(data?.deliveryFee ?? 0)} within 15 km
-      </p>
+      {/* The delivery rule, not the minimum order: the minimum is something
+          you meet in the cart, which states it with a live shortfall, and
+          the radius was hardcoded here while the real one lives in config. */}
+      {deliveryNote && <p className="text-xs text-brand-grey mb-4">{deliveryNote}</p>}
 
       {error && (
         <Card className="p-5 text-center">
-          <p className="text-sm text-red-700 font-medium mb-3">{error}</p>
+          <p className="font-bold text-brand-black mb-1">Stores could not be loaded</p>
+          {/* The server's own sentence, not ours. "The shop is not open yet"
+              is what /api/shop returns when the vertical is switched off
+              (SHOP_ENABLED) — which is a very different problem from an empty
+              catalogue, and used to be indistinguishable from one. */}
+          <p className="text-sm text-brand-grey mb-3">{error}</p>
           <button onClick={() => setQ((v) => v)} className={btnPrimary}>
             <RefreshCw className="w-4 h-4" /> Try again
           </button>
@@ -202,9 +132,9 @@ export default function StoreHomePage() {
       )}
 
       {loading && !error && (
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+        <div className="grid gap-3 sm:grid-cols-2">
           {[0, 1, 2, 3, 4, 5].map((i) => (
-            <SkeletonCard key={i} />
+            <ListingRowSkeleton key={i} />
           ))}
         </div>
       )}
@@ -220,9 +150,15 @@ export default function StoreHomePage() {
       )}
 
       {!loading && !error && stores.length > 0 && (
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+        <div className="grid gap-3 sm:grid-cols-2">
           {stores.map((s) => (
-            <StoreCard key={s.id} store={s} deliveryFee={data.deliveryFee} />
+            <ListingRow
+              key={s.id}
+              merchant={s}
+              deliveryLabel={deliveryLabel}
+              fallbackIcon={ShoppingBag}
+              to={`/shop/s/${s.id}`}
+            />
           ))}
         </div>
       )}

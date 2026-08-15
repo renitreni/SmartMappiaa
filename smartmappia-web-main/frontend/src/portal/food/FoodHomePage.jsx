@@ -6,147 +6,13 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import {
-  Search,
-  UtensilsCrossed,
-  Bike,
-  ReceiptText,
-  RefreshCw,
-  MapPin,
-  Clock3,
-  Sparkles,
-} from 'lucide-react';
+import { Search, UtensilsCrossed, ReceiptText, RefreshCw, Sparkles } from 'lucide-react';
 import { api } from '../lib/api';
 import { useAuth } from '../lib/AuthProvider';
-import { fmtSAR, FOOD_MIN_ORDER } from '../lib/constants';
+import { deliveryFeeFromLabel, deliveryFeeNote } from '../lib/constants';
 import { notifyMenuUnavailable } from '../lib/notify';
-import { reopensLabel, todayHoursLabel } from '../lib/storeHours';
+import ListingRow, { ListingRowSkeleton } from '../components/ListingRow';
 import { PortalShell, Card, btnPrimary, inputClass } from '../components/ui';
-
-const listVariants = {
-  hidden: { opacity: 0 },
-  show: {
-    opacity: 1,
-    transition: { staggerChildren: 0.05, delayChildren: 0.04 },
-  },
-};
-
-const cardVariants = {
-  hidden: { opacity: 0, y: 16 },
-  show: {
-    opacity: 1,
-    y: 0,
-    transition: { type: 'spring', stiffness: 400, damping: 28 },
-  },
-};
-
-function RestaurantCard({ restaurant, deliveryFee, onOpen }) {
-  const comingSoon = restaurant.hasMenu === false;
-  // Closed restaurants stay listed but are not openable — disabled on the
-  // button itself, so keyboard and screen-reader users get the same answer
-  // the dimming gives everyone else. They carry their reopening time, so a
-  // customer knows when to come back rather than only that they cannot order.
-  const closed = restaurant.isOpen === false;
-  const reopens = reopensLabel(restaurant);
-  const hours = todayHoursLabel(restaurant);
-
-  return (
-    <motion.button
-      type="button"
-      variants={cardVariants}
-      disabled={closed}
-      onClick={() => { if (!closed) onOpen(restaurant); }}
-      whileHover={closed ? undefined : { y: -3 }}
-      whileTap={closed ? undefined : { scale: 0.985 }}
-      className={`group w-full text-left bg-white border border-brand-border rounded-3xl shadow-sm overflow-hidden transition-all ${
-        closed
-          ? 'opacity-60 cursor-not-allowed'
-          : 'hover:border-brand-orange/35 hover:shadow-[0_14px_32px_-14px_rgba(255,126,33,0.4)] cursor-pointer'
-      }`}
-    >
-      <div className="relative h-36 sm:h-40 bg-gradient-to-br from-brand-orange/15 to-brand-red/10 overflow-hidden">
-        {restaurant.logo_url ? (
-          <img
-            src={restaurant.logo_url}
-            alt=""
-            className={`h-full w-full object-cover transition-transform duration-500 ${
-              closed ? 'grayscale' : 'group-hover:scale-105'
-            }`}
-          />
-        ) : (
-          <div className="h-full w-full flex items-center justify-center">
-            <UtensilsCrossed className="w-12 h-12 text-brand-orange/45" strokeWidth={1.6} />
-          </div>
-        )}
-        <div className="absolute inset-0 bg-gradient-to-t from-black/35 via-transparent to-transparent" />
-        {closed && (
-          <span className="absolute inset-0 flex flex-col items-center justify-center gap-1.5 bg-black/45 px-3 text-center">
-            <span className="px-3 py-1 rounded-full bg-white text-brand-dark text-xs font-black">
-              Closed
-            </span>
-            <span className="text-white text-[11px] font-bold">{reopens}</span>
-          </span>
-        )}
-        <span className="absolute top-3 right-3 inline-flex items-center gap-1.5 rounded-full bg-white/95 backdrop-blur px-2.5 py-1 text-[11px] font-black text-brand-orange shadow-sm">
-          <Bike className="w-3.5 h-3.5" />
-          {fmtSAR(deliveryFee)}
-        </span>
-        {comingSoon && (
-          <span className="absolute bottom-3 left-3 inline-flex items-center gap-1 rounded-full bg-brand-black/85 text-white px-2.5 py-1 text-[10px] font-black uppercase tracking-wider">
-            <Sparkles className="w-3 h-3 text-brand-orange" />
-            Menu soon
-          </span>
-        )}
-        {restaurant.badge === 'new' && !comingSoon && (
-          <span className="absolute bottom-3 left-3 rounded-full bg-green-500 text-white px-2.5 py-1 text-[10px] font-black uppercase tracking-wider shadow-sm">
-            New
-          </span>
-        )}
-      </div>
-
-      <div className="p-4 sm:p-5">
-        <div className="min-w-0">
-          <p className="font-black text-brand-black text-[15px] sm:text-base truncate tracking-tight">
-            {restaurant.name}
-          </p>
-          {restaurant.cuisine_type && (
-            <p className="text-xs text-brand-grey font-semibold mt-0.5">{restaurant.cuisine_type}</p>
-          )}
-        </div>
-        <div className="mt-3 flex flex-wrap items-center gap-2 text-[11px] text-brand-grey font-medium">
-          {/* The restaurant's own hours, not a guessed ETA. Absent when the
-              response carries no schedule at all — better a missing pill
-              than an invented one. */}
-          {(closed ? reopens : hours) && (
-            <span className="inline-flex items-center gap-1 rounded-full bg-brand-surface px-2 py-1">
-              <Clock3 className="w-3 h-3 text-brand-orange" />
-              {closed ? reopens : hours}
-            </span>
-          )}
-          {restaurant.address && (
-            <span className="inline-flex items-center gap-1 min-w-0 max-w-full">
-              <MapPin className="w-3 h-3 shrink-0 text-brand-orange" />
-              <span className="truncate">{restaurant.address}</span>
-            </span>
-          )}
-        </div>
-      </div>
-    </motion.button>
-  );
-}
-
-function SkeletonCard() {
-  return (
-    <div className="bg-white border border-brand-border rounded-3xl overflow-hidden animate-pulse">
-      <div className="h-36 sm:h-40 bg-brand-surface" />
-      <div className="p-4 space-y-2">
-        <div className="h-4 bg-brand-surface rounded w-2/3" />
-        <div className="h-3 bg-brand-surface rounded w-1/3" />
-        <div className="h-3 bg-brand-surface rounded w-1/2 mt-2" />
-      </div>
-    </div>
-  );
-}
 
 export default function FoodHomePage() {
   const navigate = useNavigate();
@@ -197,6 +63,12 @@ export default function FoodHomePage() {
     [data]
   );
 
+  // `?? data?.deliveryFee` keeps a cached bundle working against an API that
+  // predates the terms object; both helpers accept either shape.
+  const deliveryTerms = data?.delivery ?? data?.deliveryFee ?? null;
+  const deliveryLabel = deliveryFeeFromLabel(deliveryTerms);
+  const deliveryNote = deliveryFeeNote(deliveryTerms);
+
   function openRestaurant(restaurant) {
     if (restaurant.hasMenu === false) {
       notifyMenuUnavailable(restaurant.name);
@@ -209,7 +81,9 @@ export default function FoodHomePage() {
     <PortalShell
       wide
       title="Food Delivery"
-      subtitle={`Minimum order ${fmtSAR(FOOD_MIN_ORDER)}`}
+      // No minimum-order subtitle. It is a rule you meet in the cart, which
+      // states it with a live shortfall — up here it was a barrier printed
+      // before anyone had seen a single dish.
       onBack={() => navigate('/')}
       right={
         session && (
@@ -278,6 +152,10 @@ export default function FoodHomePage() {
         )}
       </motion.div>
 
+      {/* The delivery rule in one line, so the "From" on every row below has
+          something to point at. Absent until the terms arrive. */}
+      {deliveryNote && <p className="text-xs text-brand-grey mb-4">{deliveryNote}</p>}
+
       {error && (
         <Card className="p-6 text-center rounded-3xl">
           <p className="text-brand-dark font-bold mb-1">Could not load restaurants</p>
@@ -289,9 +167,9 @@ export default function FoodHomePage() {
       )}
 
       {loading && !error && (
-        <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
+        <div className="grid gap-3 sm:grid-cols-2">
           {[...Array(6)].map((_, i) => (
-            <SkeletonCard key={i} />
+            <ListingRowSkeleton key={i} />
           ))}
         </div>
       )}
@@ -309,21 +187,28 @@ export default function FoodHomePage() {
       )}
 
       {!loading && !error && restaurants.length > 0 && (
-        <motion.div
-          variants={listVariants}
-          initial="hidden"
-          animate="show"
-          className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4"
-        >
+        <div className="grid gap-3 sm:grid-cols-2">
           {restaurants.map((r) => (
-            <RestaurantCard
+            <ListingRow
               key={r.id}
-              restaurant={r}
-              deliveryFee={data.deliveryFee}
-              onOpen={openRestaurant}
+              merchant={r}
+              deliveryLabel={deliveryLabel}
+              fallbackIcon={UtensilsCrossed}
+              onClick={() => openRestaurant(r)}
+              // A restaurant with an empty menu stays listed and stays
+              // openable — openRestaurant explains rather than opening a
+              // blank page — but it says so up front.
+              note={
+                r.hasMenu === false ? (
+                  <span className="inline-flex items-center gap-1 rounded-full bg-brand-black/85 text-white px-2 py-0.5 text-[10px] font-black uppercase tracking-wider">
+                    <Sparkles className="w-3 h-3 text-brand-orange" />
+                    Menu soon
+                  </span>
+                ) : null
+              }
             />
           ))}
-        </motion.div>
+        </div>
       )}
     </PortalShell>
   );

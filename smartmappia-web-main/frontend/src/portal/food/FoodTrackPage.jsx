@@ -24,6 +24,7 @@ import {
 } from 'lucide-react';
 import { api } from '../lib/api';
 import { formatAddressDetail } from '../lib/address';
+import { notifyMerchantCancelled } from '../lib/notify';
 import { useAuth } from '../lib/AuthProvider';
 import { useBroadcast } from '../lib/useBroadcast';
 import { realtimeEnabled } from '../lib/supabaseClient';
@@ -287,6 +288,23 @@ export default function FoodTrackPage() {
   const order = data?.order;
   const failed = order && (order.status === 'cancelled' || order.status === 'rejected');
   const statusMeta = order ? foodStatusMeta(order.status) : null;
+
+  // The restaurant withdrew an order it had already accepted. Announced once —
+  // the ref, not the status, is what stops the poll re-firing the modal — and
+  // the banner below survives dismissing it.
+  const cancelAnnounced = useRef(false);
+  useEffect(() => {
+    if (!order || order.status !== 'cancelled' || order.cancelled_by !== 'merchant') return;
+    if (cancelAnnounced.current) return;
+    cancelAnnounced.current = true;
+    notifyMerchantCancelled({
+      noun: 'restaurant',
+      reason: order.reject_reason,
+      // Only when money was actually taken. Cash was never collected.
+      refundLabel: order.payment_status === 'paid' ? fmtSAR(order.total) : null,
+    });
+  }, [order]);
+
   const payMeta = order ? foodPaymentMeta(order.payment_status) : null;
 
   // ETA hero + progress driven off the fulfillment ladder. The rider's own
@@ -352,12 +370,20 @@ export default function FoodTrackPage() {
                   <XCircle className="w-5 h-5 text-red-600 shrink-0 mt-0.5" />
                   <div className="text-sm">
                     <p className="font-bold text-red-700">
-                      {order.status === 'rejected' ? 'The restaurant rejected this order.' : 'This order was cancelled.'}
+                      {order.status === 'rejected'
+                        ? 'The restaurant rejected this order.'
+                        : order.cancelled_by === 'merchant'
+                          ? 'The restaurant cancelled this order.'
+                          : 'This order was cancelled.'}
                     </p>
                     {order.reject_reason && <p className="text-red-600 mt-0.5">{order.reject_reason}</p>}
                     {order.payment_status === 'paid' && (
+                      // "up to 14 days" was the old wording and did not match
+                      // the stated policy (a few hours, up to one working day)
+                      // that the admin refund route and the queue run on.
                       <p className="text-red-600 mt-0.5">
-                        Your payment will be refunded — refunds take a few hours up to 14 days.
+                        Your payment of {fmtSAR(order.total)} will be refunded — usually within a
+                        few hours, and up to one working day.
                       </p>
                     )}
                     {order.payment_status === 'refunded' && (

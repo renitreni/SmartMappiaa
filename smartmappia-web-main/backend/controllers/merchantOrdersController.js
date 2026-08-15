@@ -13,6 +13,7 @@ const {
   acceptOrderCore,
   rejectOrderCore,
   advanceOrderStatusCore,
+  cancelOrderCore,
 } = require('../lib/foodOrderActions');
 
 // GET /api/merchant/orders — this restaurant's own orders only. Never
@@ -155,4 +156,37 @@ async function advanceStatus(req, res) {
   }
 }
 
-module.exports = { listOrders, acceptOrder, rejectOrder, advanceStatus };
+// Cancel an order the restaurant has ALREADY accepted — the "sorry, we can
+// no longer make this" case. Rejecting only works while an order is pending,
+// so before this there was no way for a restaurant to withdraw once it had
+// said yes, and support had to be called.
+//
+// MERCHANT_CANCELLABLE stops at 'ready'. Once a rider is carrying the food
+// (out_for_delivery) the restaurant is no longer the one who can cancel it —
+// the same boundary that stops merchant advanceStatus at 'ready'.
+const MERCHANT_CANCELLABLE = ['accepted', 'preparing', 'ready'];
+
+async function cancelOrder(req, res) {
+  try {
+    const merchant = await requireOwnedMerchant(req, res);
+    if (!merchant) return;
+    if (!(await assertOwnedOrder(req, res, merchant))) return;
+
+    const { httpStatus, body } = await cancelOrderCore({
+      orderCode: req.params.code,
+      actorId: req.merchantOwnerId,
+      actorRole: 'merchant',
+      // Required by the route schema, unlike the admin one: the customer is
+      // shown this sentence verbatim.
+      reason: (req.body && req.body.reason) || null,
+      cancelledBy: 'merchant',
+      allowedStatuses: MERCHANT_CANCELLABLE,
+    });
+    return res.status(httpStatus).json(body);
+  } catch (err) {
+    console.error('merchant cancelOrder error:', err);
+    return res.status(500).json({ error: 'Unexpected server error' });
+  }
+}
+
+module.exports = { listOrders, acceptOrder, rejectOrder, advanceStatus, cancelOrder };

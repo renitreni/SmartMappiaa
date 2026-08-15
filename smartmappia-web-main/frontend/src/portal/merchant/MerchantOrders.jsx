@@ -15,9 +15,16 @@ import { useBroadcast } from '../lib/useBroadcast';
 import { realtimeEnabled } from '../lib/supabaseClient';
 import { fmtSAR, foodStatusMeta, foodPaymentMeta } from '../lib/constants';
 import { downloadFoodInvoice } from '../lib/invoice';
+import { promptCancelReason } from '../lib/notify';
 import { announceNewOrder } from '../lib/orderAlert';
 import { Card, Badge, Spinner, btnPrimary, btnGhost } from '../components/ui';
 import SoundToggle from '../components/SoundToggle';
+
+// Statuses the restaurant may still withdraw from. Mirrors
+// MERCHANT_CANCELLABLE in backend/controllers/merchantOrdersController.js —
+// the server is the enforcement, this only decides whether to draw the
+// button rather than let the merchant discover a 409.
+const MERCHANT_CANCELLABLE = ['accepted', 'preparing', 'ready'];
 
 // downloadFoodInvoice() expects the snake_case shape used elsewhere in this
 // codebase for orders/bookings; the merchant list API returns camelCase —
@@ -198,6 +205,23 @@ export default function MerchantOrders({ merchant }) {
                   onClick={() => run(o.orderCode, () => api.merchantOrderStatus(o.orderCode, next.status))}
                   className={btnGhost + ' !py-2 !px-3.5 !text-xs'}>
                   {next.label} <ChevronRight className="w-3.5 h-3.5" />
+                </button>
+              )}
+              {/* Withdraw an order already accepted. Stops at 'ready' — once
+                  a rider is carrying the food it is support's call, which is
+                  the same boundary the status ladder stops at. */}
+              {MERCHANT_CANCELLABLE.includes(o.status) && (
+                <button type="button" disabled={busy}
+                  onClick={async () => {
+                    const reason = await promptCancelReason({
+                      orderCode: o.orderCode,
+                      refundWarning: o.paymentStatus === 'paid',
+                    });
+                    if (!reason) return;
+                    run(o.orderCode, () => api.merchantCancelOrder(o.orderCode, reason));
+                  }}
+                  className={btnGhost + ' !py-2 !px-3.5 !text-xs !text-red-600 !border-red-200'}>
+                  <X className="w-3.5 h-3.5" /> Cancel order
                 </button>
               )}
               {o.status !== 'pending' && o.status !== 'rejected' && (

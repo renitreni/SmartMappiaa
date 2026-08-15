@@ -25,6 +25,7 @@ const {
   acceptOrderCore,
   rejectOrderCore,
   advanceOrderStatusCore,
+  cancelOrderCore,
 } = require('../../lib/foodOrderActions');
 const {
   buildMerchantImagePath,
@@ -59,7 +60,7 @@ async function getOverview(req, res) {
     const todayStart = new Date();
     todayStart.setHours(0, 0, 0, 0);
 
-    const [orders, todayOrders, merchants, pendingPayments] = await Promise.all([
+    const [orders, todayOrders, merchants, pendingPayments, refundsOwed] = await Promise.all([
       supabase.from('orders').select('status, platform_margin_total, total', { count: 'exact' }),
       supabase.from('orders').select('id', { count: 'exact', head: true })
         .gte('created_at', todayStart.toISOString()),
@@ -68,6 +69,10 @@ async function getOverview(req, res) {
       supabase.from('merchants').select('status, credit_used, credit_limit').eq('vertical', 'food'),
       supabase.from('orders').select('id', { count: 'exact', head: true })
         .eq('payment_status', 'awaiting'),
+      // Cancelled or rejected but still paid — money we owe back.
+      supabase.from('orders').select('id', { count: 'exact', head: true })
+        .in('status', ['cancelled', 'rejected'])
+        .eq('payment_status', 'paid'),
     ]);
 
     const rows = orders.data || [];
@@ -89,9 +94,55 @@ async function getOverview(req, res) {
         (m) => Number(m.credit_used) >= Number(m.credit_limit) * 0.8 && m.status !== 'suspended'
       ).length,
       paymentsAwaitingReview: pendingPayments.count || 0,
+      // Money the platform still owes back. Beside paymentsAwaitingReview
+      // because it is the same kind of debt, in the other direction.
+      refundsOwed: refundsOwed.count || 0,
     });
   } catch (err) {
     console.error('food getOverview error:', err);
+    return res.status(500).json({ error: 'Unexpected server error' });
+  }
+}
+
+// GET /api/admin/food/refunds — orders the platform owes money back on.
+//
+// "Owed" is derived, not stored: cancelled or rejected AND still marked paid.
+// That is the exact condition refundPayment enforces, so a second flag column
+// would only be somewhere for the two to disagree. Migration 0040 indexes
+// this predicate directly.
+//
+// Cash never appears here: payment_status only reaches 'paid' when the rider
+// collects at the door, which a cancelled order never reaches.
+async function listRefunds(req, res) {
+  try {
+    const { data, error } = await supabase
+      .from('orders')
+      .select(
+        'order_code, status, payment_status, payment_method, total, reject_reason, ' +
+          'cancelled_by, cancelled_at, created_at, merchants ( name )'
+      )
+      .in('status', ['cancelled', 'rejected'])
+      .eq('payment_status', 'paid')
+      .order('cancelled_at', { ascending: false, nullsFirst: false })
+      .limit(200);
+    if (error) {
+      console.error('admin food listRefunds error:', error);
+      return res.status(500).json({ error: 'Could not load the refund queue' });
+    }
+    return res.json({
+      refunds: (data || []).map((o) => ({
+        orderCode: o.order_code,
+        status: o.status,
+        paymentMethod: o.payment_method,
+        total: Number(o.total),
+        reason: o.reject_reason,
+        cancelledBy: o.cancelled_by,
+        cancelledAt: o.cancelled_at || o.created_at,
+        merchant: o.merchants ? o.merchants.name : null,
+      })),
+    });
+  } catch (err) {
+    console.error('admin food listRefunds error:', err);
     return res.status(500).json({ error: 'Unexpected server error' });
   }
 }
@@ -973,52 +1024,19 @@ async function getOrderPhotos(req, res) {
 // POST /api/admin/food/orders/:code/cancel — customer-support cancellation.
 // If the order was already paid it enters the refund queue (the customer is
 // told refunds take a few hours up to one day; /refund below closes it).
+// Delegates to the SAME core the restaurant's own dashboard uses, so the
+// credit reversal and the refund bookkeeping cannot diverge between the two.
+// It used to be written out here, which is why cancelling never gave the
+// restaurant its platform margin back and never released a held rider.
 async function cancelOrder(req, res) {
-  try {
-    const order = await loadOrderByCode(req.params.code);
-    if (!order) return res.status(404).json({ error: 'Order not found' });
-    if (['delivered', 'cancelled', 'rejected'].includes(order.status)) {
-      return res.status(409).json({ error: `Order is already ${order.status}` });
-    }
-
-    const { data: rows } = await supabase
-      .from('orders')
-      .update({ status: 'cancelled', reject_reason: (req.body && req.body.reason) || null })
-      .eq('id', order.id)
-      .eq('status', order.status)
-      .select('order_code');
-    if (!rows || rows.length === 0) {
-      return res.status(409).json({ error: 'Order changed — please refresh' });
-    }
-
-    // Withdraw any live rider offer for this order.
-    await supabase
-      .from('dispatch_offers')
-      .update({ status: 'cancelled', responded_at: new Date().toISOString() })
-      .eq('order_id', order.id)
-      .eq('status', 'pending');
-
-    logAudit({
-      actorId: req.adminId,
-      action: 'admin_food_order_cancelled',
-      resourceType: 'order',
-      resourceId: order.order_code,
-      meta: { reason: (req.body && req.body.reason) || null, was_paid: order.payment_status === 'paid' },
-    });
-    pushFoodOrderStatus(order.order_code, { status: 'cancelled' });
-    pushMerchantFeed(order.merchant_id, 'order_update', { orderCode: order.order_code, status: 'cancelled' });
-    pingFoodAdmin(order.order_code);
-    logNotification({ userId: order.customer_id, type: 'food_order_cancelled' });
-
-    return res.json({
-      orderCode: order.order_code,
-      status: 'cancelled',
-      refundDue: order.payment_status === 'paid',
-    });
-  } catch (err) {
-    console.error('food cancelOrder error:', err);
-    return res.status(500).json({ error: 'Unexpected server error' });
-  }
+  const { httpStatus, body } = await cancelOrderCore({
+    orderCode: req.params.code,
+    actorId: req.adminId,
+    actorRole: 'admin',
+    reason: (req.body && req.body.reason) || null,
+    cancelledBy: 'admin',
+  });
+  return res.status(httpStatus).json(body);
 }
 
 // POST /api/admin/food/orders/:code/refund — close the refund after the
@@ -1450,6 +1468,7 @@ async function getSettlement(req, res) {
 
 module.exports = {
   getOverview,
+  listRefunds,
   getSettlement,
   listMerchants,
   createMerchant,

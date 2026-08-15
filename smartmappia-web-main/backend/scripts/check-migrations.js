@@ -732,6 +732,48 @@ const CHECKS = [
     sqlFile: '0039_saved_payment_methods.sql',
   },
   {
+    id: '0040',
+    name: 'order cancellation actor (cancelled_by + cancelled_at)',
+    // Both order-action cores write these on every cancel and the admin
+    // refund queue orders by cancelled_at, so a missing column is a 500 on
+    // cancel rather than a degraded feature.
+    run: async () => {
+      const e1 = (await supabase.from('orders').select('cancelled_by, cancelled_at').limit(0)).error;
+      if (e1) return e1.message;
+      const e2 = (
+        await supabase.from('shop_orders').select('cancelled_by, cancelled_at').limit(0)
+      ).error;
+      return e2 ? e2.message : null;
+    },
+    sqlFile: '0040_order_cancellation.sql',
+  },
+  {
+    id: '0040-grant',
+    name: 'cancellation actor is readable by the client roles',
+    // The grant half, split out under grantCheck so it SKIPS without the
+    // anon key instead of failing — 0034 and 0035 call these same helpers
+    // inline and hard-fail on a machine that has no SUPABASE_ANON_KEY.
+    //
+    // Both tables carry a fixed column list since 0019/0029, so a column
+    // added later is unreadable by anon/authenticated until granted back by
+    // name. Neither of these is confidential; both print on the customer's
+    // own tracking page beside reject_reason.
+    grantCheck: true,
+    run: async () => {
+      return (
+        (await assertVisible('orders', 'cancelled_by')) ||
+        (await assertVisible('orders', 'cancelled_at')) ||
+        (await assertVisible('shop_orders', 'cancelled_by')) ||
+        (await assertVisible('shop_orders', 'cancelled_at')) ||
+        // The other direction: prove the grant widened nothing else.
+        (await assertHidden('orders', 'platform_margin_total')) ||
+        (await assertHidden('shop_orders', 'platform_margin_total')) ||
+        null
+      );
+    },
+    sqlFile: '0040_order_cancellation.sql',
+  },
+  {
     id: '0030-priv',
     name: 'write grants revoked from the public client roles (CRITICAL)',
     // The privilege half of 0030. Needs the anon key for the same reason
