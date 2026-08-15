@@ -25,6 +25,7 @@ const companyLinks = [
   { label: "Blog", href: "#" },
   { label: "Partners", href: "#" },
   { label: "FAQ", href: "/#faq" },
+  { label: "Customer Service", href: "/support" },
 ];
 
 const socialLinks = [
@@ -295,7 +296,7 @@ const Footer = () => {
                   rel="noreferrer"
                   className="pt-1 hover:text-brand-orange transition-colors"
                 >
-                  Chat on WhatsApp
+                  WhatsApp {COMPANY.whatsappDisplay}
                 </a>
               </li>
               <li className="flex items-start gap-3 text-sm text-white/55">

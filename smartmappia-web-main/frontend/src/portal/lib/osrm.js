@@ -10,7 +10,9 @@
 // (Filename kept as osrm.js to avoid churn; the routing provider is now Google.)
 // ---------------------------------------------------------------------
 
-const API_BASE = import.meta.env.VITE_API_BASE || 'http://localhost:4000';
+const API_BASE = import.meta.env.DEV
+  ? ''
+  : (import.meta.env.VITE_API_BASE || 'http://127.0.0.1:4000');
 const ROUTE_URL = `${API_BASE}/api/route`;
 
 function valid(p) {

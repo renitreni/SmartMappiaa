@@ -1,4 +1,5 @@
 import React, { useState } from "react";
+import { Link } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 
 const faqs = [
@@ -128,6 +129,16 @@ const FAQ = () => {
             />
           ))}
         </motion.div>
+
+        <p className="text-center text-sm text-brand-grey mt-8 font-medium">
+          Still need help?{" "}
+          <Link
+            to="/support"
+            className="font-bold text-brand-orange hover:underline"
+          >
+            Contact customer service →
+          </Link>
+        </p>
       </div>
     </section>
   );

@@ -21,7 +21,7 @@ import MarketingListingGrid from "../components/MarketingListingCard";
 
 // Featured apparel drop. Showcase only, deliberately not a partner store and
 // not shoppable, so it sits above the store grid rather than becoming a card.
-const featuredMerch = {
+export const featuredMerch = {
   name: "Zumba Riyadh",
   image: "/promo/zumba-riyadh.jpg",
   eyebrow: "Featured merch",
@@ -34,7 +34,7 @@ const featuredMerch = {
 // text baked into it. object-contain over a warm letterbox so nothing is ever
 // cropped, and the whole block self-removes if the asset is missing rather
 // than leaving an empty box the width of the section.
-function FeaturedMerchBanner({ merch }) {
+export function FeaturedMerchBanner({ merch }) {
   const [failed, setFailed] = useState(false);
   if (failed) return null;
 

@@ -9,13 +9,23 @@
 //
 // Deliberately narrower than the Food tab: no merchant CRUD, no menus, no
 // settlement. Orders only.
-//
-// This is also the first admin screen that makes a sound. Merchants and
-// riders have had the chime since the new-order broadcast landed; admins
-// were watching a silently-reloading table.
 // ---------------------------------------------------------------------
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { AlarmClock, ClipboardList, ChevronRight, Store, UtensilsCrossed } from 'lucide-react';
+import {
+  AlarmClock,
+  ClipboardList,
+  ChevronRight,
+  Store,
+  UtensilsCrossed,
+  Clock,
+  ChefHat,
+  Package,
+  Bike,
+  BadgeCheck,
+  Sparkles,
+  Phone,
+  Wallet,
+} from 'lucide-react';
 import { api } from '../lib/api';
 import { useBroadcast } from '../lib/useBroadcast';
 import { realtimeEnabled } from '../lib/supabaseClient';
@@ -24,20 +34,19 @@ import { announceNewOrder, playOrderAlert } from '../lib/orderAlert';
 import { Card, Badge, Spinner, btnPrimary, btnGhost } from '../components/ui';
 import SoundToggle from '../components/SoundToggle';
 
-// Only used until the first response lands — GET /api/admin/food/orders
-// returns the real config.food.preparingReminderMinutes, so the highlight
-// tracks the window the server actually reminds on rather than drifting when
-// FOOD_PREPARING_REMINDER_MINUTES is overridden.
 const DEFAULT_REMINDER_MINUTES = 10;
 
-// The ladder as far as this tab cares. Beyond 'preparing' the kitchen has
-// done its part, so those orders are shown but never flagged.
 const ON_THE_PASS = ['pending', 'accepted', 'preparing', 'ready', 'out_for_delivery'];
 const NOT_STARTED = ['pending', 'accepted'];
 
-// A prepaid order still awaiting payment is blocked on the customer, not the
-// kitchen — same carve-out the sweeper makes, so the UI agrees with what the
-// restaurant actually gets nagged about.
+const STATUS_ICONS = {
+  pending: Clock,
+  accepted: BadgeCheck,
+  preparing: ChefHat,
+  ready: Package,
+  out_for_delivery: Bike,
+};
+
 function blockedOnPayment(o) {
   return o.status === 'pending' && o.paymentStatus === 'awaiting' && o.paymentMethod !== 'cash';
 }
@@ -60,25 +69,51 @@ function humanWait(mins) {
   return `${h}h ${mins % 60}m`;
 }
 
-// pending -> accept it; accepted -> start preparing. The two actions an admin
-// actually wants when a restaurant has gone quiet. Everything further along
-// the ladder stays on the Food tab.
 const NEXT_ACTION = {
   pending: { label: 'Accept for them', run: (code) => api.adminFoodAcceptOrder(code) },
   accepted: { label: 'Start preparing', run: (code) => api.adminFoodOrderStatus(code, 'preparing') },
 };
+
+function StatCard({ icon: Icon, label, value, hint, accent }) {
+  const accents = {
+    amber: 'bg-amber-50 text-amber-700',
+    orange: 'bg-brand-orange/12 text-brand-orange',
+    green: 'bg-emerald-50 text-emerald-600',
+    slate: 'bg-slate-100 text-slate-600',
+  };
+  return (
+    <Card className="p-4 sm:p-5 min-w-0">
+      <span className={`w-10 h-10 rounded-xl flex items-center justify-center ${accents[accent]}`}>
+        <Icon className="w-5 h-5" />
+      </span>
+      <p className="text-xs font-bold text-brand-grey mt-3">{label}</p>
+      <p className="text-xl sm:text-2xl font-black text-brand-black tabular-nums mt-0.5">{value}</p>
+      <p className="text-xs text-brand-grey mt-1">{hint}</p>
+    </Card>
+  );
+}
+
+function EmptyState({ icon: Icon, title, desc }) {
+  return (
+    <Card className="overflow-hidden">
+      <div className="flex flex-col items-center justify-center text-center px-5 py-12 sm:py-16">
+        <div className="w-14 h-14 rounded-2xl bg-brand-warm text-brand-orange flex items-center justify-center mb-4">
+          <Icon className="w-6 h-6" />
+        </div>
+        <p className="font-black text-brand-black">{title}</p>
+        <p className="text-sm text-brand-grey mt-1.5 max-w-sm leading-relaxed">{desc}</p>
+      </div>
+    </Card>
+  );
+}
 
 export default function RestaurantOrders() {
   const [orders, setOrders] = useState(null);
   const [error, setError] = useState('');
   const [busyCode, setBusyCode] = useState(null);
   const [onlyWaiting, setOnlyWaiting] = useState(false);
-  // Elapsed times are rendered from createdAt, so the view needs its own
-  // heartbeat to keep counting between reloads.
   const [now, setNow] = useState(() => Date.now());
   const [reminderMinutes, setReminderMinutes] = useState(DEFAULT_REMINDER_MINUTES);
-  // Order codes already chimed for on this page, so the 30 s heartbeat does
-  // not re-ring the same backlog every tick.
   const seenOverdue = useRef(new Set());
 
   const load = useCallback(async () => {
@@ -105,9 +140,6 @@ export default function RestaurantOrders() {
     'admin-food',
     {
       changed: () => load(),
-      // Server-side reminder just fired. Ring again rather than reusing the
-      // plain order code, which announceNewOrder would have already spent on
-      // the new-order chime.
       preparing_overdue: (payload) => {
         announceNewOrder(`${payload?.orderCode}#${payload?.attempt}`);
         load();
@@ -116,18 +148,12 @@ export default function RestaurantOrders() {
     realtimeEnabled
   );
 
-  // Polling fallback for when Realtime is off or the socket drops, same as
-  // every other broadcast consumer in the portal.
   useEffect(() => {
     if (connected) return undefined;
     const id = setInterval(load, 20000);
     return () => clearInterval(id);
   }, [connected, load]);
 
-  // Ring for anything that is already overdue when it first appears, so an
-  // admin opening the tab mid-shift is not met with silence. ONE ring per
-  // batch, not per order — a quiet shift can surface a dozen at once and
-  // twelve overlapping chimes is noise, not an alert.
   useEffect(() => {
     if (!orders) return;
     const fresh = orders.filter(
@@ -145,7 +171,7 @@ export default function RestaurantOrders() {
       await load();
     } catch (err) {
       setError(err.message);
-      await load(); // e.g. a 403 credit block — show the true state
+      await load();
     } finally {
       setBusyCode(null);
     }
@@ -162,10 +188,8 @@ export default function RestaurantOrders() {
       byRestaurant.get(name).push(o);
     }
     for (const list of byRestaurant.values()) {
-      // Oldest first inside a restaurant — the longest wait is the one to fix.
       list.sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
     }
-    // Restaurants with overdue orders float to the top, then the busiest.
     return [...byRestaurant.entries()].sort((a, b) => {
       const aLate = a[1].filter((o) => isOverdue(o, now, reminderMinutes)).length;
       const bLate = b[1].filter((o) => isOverdue(o, now, reminderMinutes)).length;
@@ -174,79 +198,147 @@ export default function RestaurantOrders() {
     });
   }, [orders, onlyWaiting, now, reminderMinutes]);
 
+  const liveCount = (orders || []).length;
   const overdueCount = (orders || []).filter((o) => isOverdue(o, now, reminderMinutes)).length;
+  const kitchenCount = new Set((orders || []).map((o) => o.merchantName || 'Unknown restaurant')).size;
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-4 sm:space-y-5 min-w-0">
       {error && (
         <div className="p-3 rounded-xl bg-red-50 border border-red-200 text-red-700 text-sm font-medium">
           {error}
         </div>
       )}
 
-      <div className="flex gap-2 flex-wrap items-center">
-        <button
-          type="button"
-          onClick={() => setOnlyWaiting((v) => !v)}
-          className={`px-4 py-2 rounded-xl text-sm font-bold border transition-colors cursor-pointer ${
-            onlyWaiting
-              ? 'bg-brand-black text-white border-brand-black'
-              : 'bg-white text-brand-grey border-brand-border'
-          }`}
-        >
-          {onlyWaiting ? 'Showing waiting only' : 'Show waiting only'}
-          {overdueCount > 0 && (
-            <span className="ml-2 px-1.5 py-0.5 rounded-md bg-orange-500 text-white text-xs tabular-nums">
-              {overdueCount}
-            </span>
-          )}
-        </button>
-        <span className="ml-auto"><SoundToggle /></span>
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+        <StatCard
+          icon={UtensilsCrossed}
+          label="Live orders"
+          value={orders === null ? '—' : liveCount}
+          hint="On the kitchen pass right now"
+          accent="orange"
+        />
+        <StatCard
+          icon={AlarmClock}
+          label="Waiting too long"
+          value={orders === null ? '—' : overdueCount}
+          hint={`Not cooking after ${reminderMinutes} minutes`}
+          accent="amber"
+        />
+        <StatCard
+          icon={Store}
+          label="Kitchens busy"
+          value={orders === null ? '—' : kitchenCount}
+          hint="Restaurants with live orders"
+          accent="slate"
+        />
+      </div>
+
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+        <div className="flex gap-2 overflow-x-auto overscroll-x-contain snap-x snap-mandatory pb-1 -mx-3 px-3 sm:-mx-5 sm:px-5 md:-mx-6 md:px-6 lg:-mx-8 lg:px-8 xl:mx-0 xl:px-0 flex-1 no-scrollbar">
+          <button
+            type="button"
+            onClick={() => setOnlyWaiting(false)}
+            className={`snap-start shrink-0 inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-sm font-bold border cursor-pointer ${
+              !onlyWaiting
+                ? 'bg-brand-black text-white border-brand-black'
+                : 'bg-white text-brand-grey border-brand-border'
+            }`}
+          >
+            <ClipboardList className="w-4 h-4" />
+            All live
+            {orders !== null && (
+              <span className={`text-[11px] tabular-nums px-1.5 py-0.5 rounded-md ${!onlyWaiting ? 'bg-white/15' : 'bg-brand-surface'}`}>
+                {liveCount}
+              </span>
+            )}
+          </button>
+          <button
+            type="button"
+            onClick={() => setOnlyWaiting(true)}
+            className={`snap-start shrink-0 inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-sm font-bold border cursor-pointer ${
+              onlyWaiting
+                ? 'bg-brand-black text-white border-brand-black'
+                : 'bg-white text-brand-grey border-brand-border'
+            }`}
+          >
+            <AlarmClock className="w-4 h-4" />
+            Waiting
+            {overdueCount > 0 && (
+              <span className="text-[11px] tabular-nums px-1.5 py-0.5 rounded-md bg-orange-500 text-white">
+                {overdueCount}
+              </span>
+            )}
+          </button>
+        </div>
+        <div className="shrink-0 self-start sm:self-auto rounded-xl bg-white border border-brand-border px-3 py-2">
+          <SoundToggle />
+        </div>
       </div>
 
       {overdueCount > 0 && (
-        <Card className="p-4 border-orange-300 bg-orange-50">
+        <Card className="p-4 border-orange-200 bg-orange-50 min-w-0">
           <div className="flex items-start gap-3">
-            <AlarmClock className="w-5 h-5 text-orange-600 shrink-0 mt-0.5" />
+            <span className="w-10 h-10 rounded-xl bg-orange-100 text-orange-700 flex items-center justify-center shrink-0">
+              <AlarmClock className="w-5 h-5" />
+            </span>
             <div className="min-w-0">
-              <p className="font-bold text-brand-dark text-sm">
+              <p className="font-bold text-brand-black text-sm">
                 {overdueCount} order{overdueCount === 1 ? '' : 's'} waiting more than {reminderMinutes} minutes
               </p>
-              <p className="text-xs text-brand-grey mt-0.5">
-                The restaurant has been reminded automatically. Call them if it keeps climbing.
+              <p className="text-xs text-brand-grey mt-0.5 leading-relaxed">
+                The restaurant has already been reminded. Call them if the wait keeps climbing.
               </p>
             </div>
           </div>
         </Card>
       )}
 
-      {orders === null && <div className="flex justify-center py-12"><Spinner className="!w-7 !h-7" /></div>}
+      {orders === null && (
+        <div className="flex flex-col items-center justify-center py-16 gap-2">
+          <Spinner className="!w-8 !h-8" />
+          <p className="text-sm text-brand-grey">Loading kitchen orders…</p>
+        </div>
+      )}
 
       {orders !== null && groups.length === 0 && (
-        <Card className="p-8 text-center">
-          <ClipboardList className="w-8 h-8 text-brand-grey/40 mx-auto mb-2" />
-          <p className="text-sm text-brand-grey">
-            {onlyWaiting ? 'No restaurant is behind right now.' : 'No live restaurant orders.'}
-          </p>
-        </Card>
+        <EmptyState
+          icon={onlyWaiting ? Sparkles : ChefHat}
+          title={onlyWaiting ? 'Every kitchen is on time' : 'No live restaurant orders'}
+          desc={
+            onlyWaiting
+              ? `Nothing has sat at pending or accepted for more than ${reminderMinutes} minutes.`
+              : 'When a customer places a food order, it will show up here grouped by restaurant.'
+          }
+        />
       )}
 
       {groups.map(([restaurant, list]) => {
         const late = list.filter((o) => isOverdue(o, now, reminderMinutes)).length;
         return (
-          <Card key={restaurant} className="p-4">
-            <div className="flex items-center justify-between gap-3 flex-wrap mb-3">
-              <div className="flex items-center gap-2 min-w-0">
-                <Store className="w-4 h-4 text-brand-grey shrink-0" />
-                <p className="font-black text-brand-dark truncate">{restaurant}</p>
+          <Card key={restaurant} className="overflow-hidden min-w-0">
+            <div className="px-3 sm:px-4 py-3 border-b border-brand-border flex items-start sm:items-center justify-between gap-3">
+              <div className="flex items-center gap-3 min-w-0">
+                <span className="w-10 h-10 rounded-xl bg-brand-orange/12 text-brand-orange flex items-center justify-center shrink-0">
+                  <Store className="w-5 h-5" />
+                </span>
+                <div className="min-w-0">
+                  <p className="font-black text-brand-black truncate">{restaurant}</p>
+                  <p className="text-xs text-brand-grey">
+                    {list.length} live order{list.length === 1 ? '' : 's'}
+                    {late > 0 ? ` · ${late} waiting too long` : ''}
+                  </p>
+                </div>
               </div>
-              <div className="flex items-center gap-1.5">
-                {late > 0 && <Badge tone="amber">{late} waiting</Badge>}
-                <Badge tone="grey">{list.length} live</Badge>
+              <div className="flex items-center gap-1.5 shrink-0">
+                {late > 0 && (
+                  <Badge tone="amber" className="!px-2 !py-0.5 !text-[10px]">{late} waiting</Badge>
+                )}
+                <Badge tone="grey" className="!px-2 !py-0.5 !text-[10px] hidden sm:inline-flex">{list.length} live</Badge>
               </div>
             </div>
 
-            <div className="space-y-2">
+            <div className="p-2 sm:p-3 space-y-2">
               {list.map((o) => {
                 const status = foodStatusMeta(o.status);
                 const pay = foodPaymentMeta(o.paymentStatus);
@@ -254,37 +346,52 @@ export default function RestaurantOrders() {
                 const mins = waitedMinutes(o, now);
                 const action = NEXT_ACTION[o.status];
                 const busy = busyCode === o.orderCode;
+                const StatusIcon = STATUS_ICONS[o.status] || ClipboardList;
                 return (
                   <div
                     key={o.orderCode}
-                    className={`p-3 rounded-xl border ${
+                    className={`p-3 sm:p-4 rounded-2xl border min-w-0 ${
                       overdue ? 'border-orange-300 bg-orange-50' : 'border-brand-border bg-white'
                     }`}
                   >
-                    <div className="flex items-center justify-between gap-3 flex-wrap">
-                      <div className="min-w-0">
-                        <p className="font-mono font-bold text-brand-dark">{o.orderCode}</p>
-                        <p className="text-xs text-brand-grey truncate">
-                          {o.customerName || 'Customer'} · {new Date(o.createdAt).toLocaleString()}
-                        </p>
-                      </div>
-                      <div className="flex items-center gap-1.5 flex-wrap">
-                        {overdue && (
-                          <Badge tone="amber">
-                            <AlarmClock className="w-3 h-3 inline mr-1 -mt-0.5" />
-                            Waiting {humanWait(mins)}
-                          </Badge>
-                        )}
-                        <Badge tone={status.tone}>{status.label}</Badge>
-                        <Badge tone={pay.tone}>{pay.label}</Badge>
-                        {o.paymentMethod === 'cash' && <Badge tone="grey">Cash</Badge>}
-                        <span className="font-black text-brand-orange tabular-nums ml-1">{fmtSAR(o.total)}</span>
+                    <div className="flex items-start gap-3">
+                      <span className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${
+                        overdue ? 'bg-orange-100 text-orange-700' : 'bg-brand-muted text-brand-dark'
+                      }`}>
+                        <StatusIcon className="w-5 h-5" />
+                      </span>
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="min-w-0">
+                            <p className="font-bold text-brand-black truncate">{o.customerName || 'Customer'}</p>
+                            <p className="font-mono text-xs font-bold text-brand-grey mt-0.5">{o.orderCode}</p>
+                          </div>
+                          <p className="font-black text-brand-orange tabular-nums text-sm shrink-0">{fmtSAR(o.total)}</p>
+                        </div>
+                        <div className="flex items-center gap-1.5 flex-wrap mt-2">
+                          {overdue ? (
+                            <Badge tone="amber" className="!px-2 !py-0.5 !text-[10px]">
+                              <AlarmClock className="w-3 h-3" /> Waiting {humanWait(mins)}
+                            </Badge>
+                          ) : (
+                            <Badge tone="grey" className="!px-2 !py-0.5 !text-[10px]">
+                              <Clock className="w-3 h-3" /> {humanWait(mins)}
+                            </Badge>
+                          )}
+                          <Badge tone={status.tone} className="!px-2 !py-0.5 !text-[10px]">{status.label}</Badge>
+                          <Badge tone={pay.tone} className="!px-2 !py-0.5 !text-[10px]">{pay.label}</Badge>
+                          {o.paymentMethod === 'cash' && (
+                            <Badge tone="grey" className="!px-2 !py-0.5 !text-[10px]">
+                              <Wallet className="w-3 h-3" /> Cash
+                            </Badge>
+                          )}
+                        </div>
                       </div>
                     </div>
 
                     {(o.items || []).length > 0 && (
-                      <p className="text-xs text-brand-grey mt-2 truncate">
-                        <UtensilsCrossed className="w-3 h-3 inline mr-1 -mt-0.5" />
+                      <p className="text-xs text-brand-grey mt-3 leading-relaxed line-clamp-3 sm:line-clamp-none">
+                        <UtensilsCrossed className="w-3.5 h-3.5 inline mr-1 -mt-0.5 text-brand-orange" />
                         {o.items
                           .map((i) => `${i.quantity} × ${i.name_snapshot}${i.size_snapshot ? ` (${i.size_snapshot})` : ''}`)
                           .join(', ')}
@@ -292,18 +399,19 @@ export default function RestaurantOrders() {
                     )}
 
                     {blockedOnPayment(o) && (
-                      <p className="text-xs text-brand-grey mt-2">
-                        Waiting on the customer&apos;s payment — the kitchen is not being reminded for this one.
+                      <p className="text-xs text-brand-grey mt-2 flex items-start gap-1.5">
+                        <Phone className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+                        Waiting on the customer’s payment — the kitchen is not being reminded for this one.
                       </p>
                     )}
 
                     {action && (
-                      <div className="mt-2 flex justify-end">
+                      <div className="mt-3 flex sm:justify-end">
                         <button
                           type="button"
                           disabled={busy}
                           onClick={() => run(o.orderCode, () => action.run(o.orderCode))}
-                          className={overdue ? btnPrimary : btnGhost}
+                          className={`${overdue ? btnPrimary : btnGhost} w-full sm:w-auto !py-2.5 !px-4 !text-sm`}
                         >
                           {busy ? <Spinner className="!w-4 !h-4" /> : (
                             <>

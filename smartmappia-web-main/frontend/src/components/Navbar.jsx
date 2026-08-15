@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { Link } from "react-router-dom";
+import { Link, useLocation } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Home,
@@ -7,6 +7,7 @@ import {
   Sparkles,
   Lightbulb,
   HelpCircle,
+  Headphones,
   LogOut,
   LayoutDashboard,
   UserCircle,
@@ -25,6 +26,7 @@ const menuLinks = [
   { name: "Services",     to: "/services",      Icon: Sparkles },
   { name: "How It Works", to: "/#how-it-works", Icon: Lightbulb },
   { name: "FAQ",          to: "/#faq",          Icon: HelpCircle },
+  { name: "Support",      to: "/support",       Icon: Headphones },
 ];
 
 function AuthActions({ mobile = false, onNavigate }) {
@@ -160,6 +162,7 @@ const Navbar = () => {
   const [isOpen, setIsOpen] = useState(false);
   const [scrolled, setScrolled] = useState(false);
   const [hoveredLink, setHoveredLink] = useState(null);
+  const location = useLocation();
 
   // Navbar is the one component every marketing page shares, so this is
   // where cross-page anchor links (e.g. "About" from /services) get their
@@ -211,31 +214,39 @@ const Navbar = () => {
           </span>
         </Link>
 
-        <ul className="hidden lg:flex items-center gap-0.5 text-sm font-semibold">
-          {menuLinks.map((link, index) => (
-            <li key={index}>
-              <Link
-                to={link.to}
-                onMouseEnter={() => setHoveredLink(index)}
-                onMouseLeave={() => setHoveredLink(null)}
-                className="relative flex items-center whitespace-nowrap px-3 py-2 rounded-full
-                           text-brand-grey hover:text-brand-orange
-                           transition-colors duration-150"
-              >
-                {hoveredLink === index && (
-                  <motion.span
-                    layoutId="nav-pill"
-                    className="absolute inset-0 bg-orange-50 rounded-full"
-                    transition={{ type: "spring", stiffness: 380, damping: 32 }}
-                  />
-                )}
-                <span className="relative z-10">{link.name}</span>
-              </Link>
-            </li>
-          ))}
-        </ul>
+        <div className="hidden lg:flex items-center gap-1 ml-auto mr-0">
+          <ul className="flex items-center gap-0.5 text-sm font-semibold">
+            {menuLinks.map((link, index) => {
+              const active = link.to === location.pathname;
+              return (
+              <li key={index}>
+                <Link
+                  to={link.to}
+                  onMouseEnter={() => setHoveredLink(index)}
+                  onMouseLeave={() => setHoveredLink(null)}
+                  className={`relative flex items-center whitespace-nowrap px-2.5 py-2 rounded-full
+                             transition-colors duration-150 ${
+                               active
+                                 ? "text-brand-orange"
+                                 : "text-brand-grey hover:text-brand-orange"
+                             }`}
+                >
+                  {(hoveredLink === index || active) && (
+                    <motion.span
+                      layoutId="nav-pill"
+                      className="absolute inset-0 bg-orange-50 rounded-full"
+                      transition={{ type: "spring", stiffness: 380, damping: 32 }}
+                    />
+                  )}
+                  <span className="relative z-10">{link.name}</span>
+                </Link>
+              </li>
+              );
+            })}
+          </ul>
 
-        <div className="hidden lg:flex">
+          <span className="w-px h-6 bg-brand-border mx-2" aria-hidden="true" />
+
           <AuthActions />
         </div>
 
@@ -293,15 +304,21 @@ const Navbar = () => {
 
               <div className="pt-28 px-6">
                 <ul className="flex flex-col gap-0.5">
-                  {menuLinks.map((link, index) => (
+                  {menuLinks.map((link, index) => {
+                    const active = link.to === location.pathname;
+                    return (
                     <li key={index}>
                       <Link
                         to={link.to}
                         onClick={() => setIsOpen(false)}
-                        className="flex items-center gap-3 px-4 py-3 rounded-2xl
-                                   text-brand-grey hover:text-brand-orange
+                        className={`flex items-center gap-3 px-4 py-3 rounded-2xl
+                                   hover:text-brand-orange
                                    hover:bg-orange-50 transition-all duration-150
-                                   font-semibold text-base group"
+                                   font-semibold text-base group ${
+                                     active
+                                       ? "text-brand-orange bg-orange-50"
+                                       : "text-brand-grey"
+                                   }`}
                       >
                         <link.Icon className="w-5 h-5 text-brand-orange shrink-0" strokeWidth={2} />
                         <span>{link.name}</span>
@@ -312,7 +329,8 @@ const Navbar = () => {
                         </span>
                       </Link>
                     </li>
-                  ))}
+                    );
+                  })}
                 </ul>
               </div>
 

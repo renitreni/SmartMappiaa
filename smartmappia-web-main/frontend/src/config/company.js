@@ -11,9 +11,9 @@ export const COMPANY = {
 
   email: 'customerservice@smartmappia.com',
 
-  phoneDisplay: '0561766883',
+  phoneDisplay: '+966 56 176 6883',
   phoneTel: '+966561766883',
-  whatsappDisplay: '0561766883',
+  whatsappDisplay: '+966 56 176 6883',
   whatsappUrl: 'https://wa.me/966561766883',
 
   address: {

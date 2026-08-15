@@ -6,7 +6,9 @@
 import { supabase } from './supabaseClient';
 import { notifyError } from './notify';
 
-const API_BASE = import.meta.env.VITE_API_BASE || 'http://localhost:4000';
+const API_BASE = import.meta.env.DEV
+  ? ''
+  : (import.meta.env.VITE_API_BASE || 'http://127.0.0.1:4000');
 
 async function authHeader() {
   if (!supabase) return {};

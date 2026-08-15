@@ -35,6 +35,11 @@ import {
   Coins,
   Download,
   Clock,
+  Search,
+  Inbox,
+  Sparkles,
+  Banknote,
+  Receipt,
 } from 'lucide-react';
 import { api } from '../lib/api';
 import { toCsv, downloadCsv } from '../lib/csv';
@@ -47,6 +52,7 @@ import SharedImageUploadField from '../components/ImageUploadField';
 import StoreHoursEditor from '../components/StoreHoursEditor';
 import LocationPicker from '../components/LocationPicker';
 import PasswordInput from '../components/PasswordInput';
+import DatePicker from '../../components/DatePicker';
 
 // Owner passwords are chosen by the admin and handed over in person — keep this
 // in step with MIN_PASSWORD_LENGTH in backend/lib/validate.js.
@@ -84,15 +90,34 @@ const NEXT_STATUS = {
   out_for_delivery: { status: 'delivered', label: 'Mark delivered' },
 };
 
-function Stat({ label, value, accent = false }) {
-  return (
-    <Card className="p-4">
+function Stat({ label, value, accent = false, icon: Icon, hint, onClick }) {
+  const inner = (
+    <>
+      {Icon && (
+        <span className={`w-9 h-9 rounded-xl flex items-center justify-center mb-2 ${
+          accent ? 'bg-brand-orange/12 text-brand-orange' : 'bg-brand-muted text-brand-dark'
+        }`}>
+          <Icon className="w-4 h-4" />
+        </span>
+      )}
       <p className="text-[11px] font-bold text-brand-grey uppercase tracking-wider">{label}</p>
-      <p className={`text-xl font-black tabular-nums mt-1 ${accent ? 'text-brand-orange' : 'text-brand-black'}`}>
+      <p className={`text-lg sm:text-xl font-black tabular-nums mt-1 break-words ${accent ? 'text-brand-orange' : 'text-brand-black'}`}>
         {value}
       </p>
-    </Card>
+      {hint && <p className="text-[11px] text-brand-grey mt-1">{hint}</p>}
+    </>
   );
+  const cls = 'p-4 min-w-0 text-left w-full h-full';
+  if (onClick) {
+    return (
+      <Card className="overflow-hidden min-w-0">
+        <button type="button" onClick={onClick} className={`${cls} cursor-pointer hover:bg-brand-muted/40`}>
+          {inner}
+        </button>
+      </Card>
+    );
+  }
+  return <Card className={cls}>{inner}</Card>;
 }
 
 // --- Restaurant create/edit form ------------------------------------------
@@ -147,7 +172,7 @@ function RestaurantForm({ initial, onSave, onCancel, busy, merchantId }) {
       <Field label="Restaurant name">
         <input value={form.name} onChange={set('name')} className={inputClass} required placeholder="e.g. Shawarma House" />
       </Field>
-      <div className="grid grid-cols-2 gap-3">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         <Field label="Cuisine type">
           <input value={form.cuisine_type || ''} onChange={set('cuisine_type')} className={inputClass} placeholder="e.g. Lebanese" />
         </Field>
@@ -310,7 +335,7 @@ function ItemForm({ initial, categories, onSave, onCancel, busy, merchantId }) {
       <Field label="Item name">
         <input value={form.name} onChange={set('name')} className={inputClass} required />
       </Field>
-      <div className="grid grid-cols-2 gap-3">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         <Field label="List price (SAR) — shown to the customer">
           <input type="number" min="0.01" step="0.01" value={form.price} onChange={set('price')} className={inputClass} required />
         </Field>
@@ -325,7 +350,7 @@ function ItemForm({ initial, categories, onSave, onCancel, busy, merchantId }) {
           {hint.text}
         </p>
       )}
-      <div className="grid grid-cols-2 gap-3">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         <Field label="Category">
           <select value={form.category_id || ''} onChange={set('category_id')} className={inputClass}>
             <option value="">No category</option>
@@ -612,6 +637,7 @@ function MerchantsSection({ onError }) {
   const [hoursFor, setHoursFor] = useState(null); // merchant whose hours editor is open
   const [ownerForm, setOwnerForm] = useState({ email: '', password: '', full_name: '', phone: '' });
   const [ownerPassword, setOwnerPassword] = useState(''); // re-issue field for a linked owner
+  const [search, setSearch] = useState('');
 
   const load = useCallback(async () => {
     try {
@@ -646,6 +672,16 @@ function MerchantsSection({ onError }) {
   }
 
   if (merchants === null) return <div className="flex justify-center py-12"><Spinner className="!w-7 !h-7" /></div>;
+
+  const visible = merchants.filter((m) => {
+    if (!search.trim()) return true;
+    const q = search.toLowerCase();
+    return (
+      m.name?.toLowerCase().includes(q) ||
+      m.cuisineType?.toLowerCase().includes(q) ||
+      m.address?.toLowerCase().includes(q)
+    );
+  });
 
   if (menuFor) {
     return <MenuEditor merchant={menuFor} onClose={() => setMenuFor(null)} onError={onError} />;
@@ -690,72 +726,100 @@ function MerchantsSection({ onError }) {
           />
         </Card>
       ) : (
-        <button type="button" onClick={() => setEditing('new')} className={btnPrimary + ' w-full !py-3'}>
+        <button type="button" onClick={() => setEditing('new')} className={btnPrimary + ' w-full sm:w-auto !py-3'}>
           <Plus className="w-4 h-4" /> Add restaurant
         </button>
       )}
 
-      <Card className="p-0 overflow-hidden">
-        <div className="px-4 py-3 border-b border-brand-border">
-          <span className="font-black text-brand-black text-sm">Restaurants ({merchants.length})</span>
+      <div className="relative">
+        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-brand-grey" />
+        <input
+          type="search"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder="Search restaurants…"
+          className="w-full pl-9 pr-3 py-2.5 rounded-xl border border-brand-border bg-white text-sm focus:outline-none focus:border-brand-orange"
+        />
+      </div>
+
+      <Card className="p-0 overflow-hidden min-w-0">
+        <div className="px-3 sm:px-4 py-3 border-b border-brand-border flex items-center justify-between gap-2">
+          <div className="min-w-0">
+            <p className="font-black text-brand-black text-sm">Restaurants</p>
+            <p className="text-xs text-brand-grey">List, menus, owners, and credit</p>
+          </div>
+          <span className="text-xs font-bold text-brand-grey tabular-nums shrink-0">
+            {visible.length}
+          </span>
         </div>
-        {merchants.length === 0 && (
-          <p className="p-8 text-center text-sm text-brand-grey">
-            No restaurants yet. When one contacts SmartMappia, add it here and import its menu.
-          </p>
+        {visible.length === 0 && (
+          <div className="flex flex-col items-center justify-center text-center px-5 py-12">
+            <div className="w-14 h-14 rounded-2xl bg-brand-warm text-brand-orange flex items-center justify-center mb-4">
+              {search.trim() ? <Search className="w-6 h-6" /> : <Store className="w-6 h-6" />}
+            </div>
+            <p className="font-black text-brand-black">{search.trim() ? 'No matches' : 'No restaurants yet'}</p>
+            <p className="text-sm text-brand-grey mt-1.5 max-w-xs">
+              {search.trim()
+                ? `Nothing matches “${search.trim()}”.`
+                : 'When a restaurant partners with SmartMappia, add it here and import its menu.'}
+            </p>
+          </div>
         )}
         <div className="divide-y divide-brand-border">
-          {merchants.map((m) => {
+          {visible.map((m) => {
             const pct = Math.min(100, Math.round((m.creditUsed / m.creditLimit) * 100));
             const barColor = pct >= 100 ? 'bg-red-500' : pct >= 80 ? 'bg-amber-500' : 'bg-brand-orange';
             return (
-              <div key={m.id} className="p-4">
-                <div className="flex items-center gap-2 flex-wrap">
-                  <div className="min-w-0 flex-1">
-                    <p className="font-bold text-brand-dark truncate">
-                      {m.name}
-                      <span className="text-xs text-brand-grey font-medium ml-2">{m.cuisineType || ''}</span>
-                    </p>
-                    <p className="text-xs text-brand-grey truncate">{m.address || 'No address'}</p>
-                  </div>
-                  <Badge tone={m.isActive ? 'green' : 'grey'}>{m.isActive ? 'Listed' : 'Unlisted'}</Badge>
-                  {m.status === 'suspended' && <Badge tone="red">Suspended</Badge>}
-                  {/* Closed is not Unlisted: still on the storefront, just not
-                      taking orders right now. */}
-                  {m.acceptingOrders === false && <Badge tone="amber">Closed now</Badge>}
-                  {(m.lat == null || m.lng == null) && <Badge tone="amber">No location pin</Badge>}
-                  {/* Whether this restaurant actually reaches smartmappia.com.
-                      Featuring alone is not enough — a card with no logo is
-                      skipped, which is otherwise invisible from here. */}
-                  {m.isFeatured && <Badge tone="amber">Homepage</Badge>}
-                  {m.isFeatured && !m.logoUrl && (
-                    <Badge tone="red">No logo — hidden on homepage</Badge>
+              <div key={m.id} className="p-3 sm:p-4 min-w-0">
+                <div className="flex items-start gap-3">
+                  {m.logoUrl ? (
+                    <img src={m.logoUrl} alt="" className="w-12 h-12 rounded-xl object-cover shrink-0 bg-brand-surface" />
+                  ) : (
+                    <span className="w-12 h-12 rounded-xl bg-brand-orange/12 text-brand-orange flex items-center justify-center shrink-0">
+                      <Store className="w-5 h-5" />
+                    </span>
                   )}
-                </div>
-
-                <div className="mt-3 flex items-center gap-3">
-                  <div className="flex-1">
-                    <div className="h-2 rounded-full bg-brand-surface overflow-hidden">
-                      <div className={`h-full rounded-full ${barColor}`} style={{ width: `${pct}%` }} />
-                    </div>
-                    <p className="text-[11px] text-brand-grey mt-1 tabular-nums">
-                      Credit {fmtSAR(m.creditUsed)} / {fmtSAR(m.creditLimit)} ({pct}%)
+                  <div className="min-w-0 flex-1">
+                    <p className="font-bold text-brand-black truncate">{m.name}</p>
+                    <p className="text-xs text-brand-grey truncate mt-0.5">
+                      {[m.cuisineType, m.address].filter(Boolean).join(' · ') || 'No address'}
                     </p>
+                    <div className="flex items-center gap-1.5 flex-wrap mt-2">
+                      <Badge tone={m.isActive ? 'green' : 'grey'} className="!px-2 !py-0.5 !text-[10px]">
+                        {m.isActive ? 'Listed' : 'Unlisted'}
+                      </Badge>
+                      {m.status === 'suspended' && <Badge tone="red" className="!px-2 !py-0.5 !text-[10px]">Suspended</Badge>}
+                      {m.acceptingOrders === false && <Badge tone="amber" className="!px-2 !py-0.5 !text-[10px]">Closed now</Badge>}
+                      {(m.lat == null || m.lng == null) && <Badge tone="amber" className="!px-2 !py-0.5 !text-[10px]">No location pin</Badge>}
+                      {m.isFeatured && <Badge tone="amber" className="!px-2 !py-0.5 !text-[10px]">Homepage</Badge>}
+                      {m.isFeatured && !m.logoUrl && (
+                        <Badge tone="red" className="!px-2 !py-0.5 !text-[10px]">No logo — hidden on homepage</Badge>
+                      )}
+                    </div>
                   </div>
                 </div>
 
-                <div className="mt-2 flex gap-1.5 flex-wrap">
+                <div className="mt-3">
+                  <div className="h-2 rounded-full bg-brand-surface overflow-hidden">
+                    <div className={`h-full rounded-full ${barColor}`} style={{ width: `${pct}%` }} />
+                  </div>
+                  <p className="text-[11px] text-brand-grey mt-1.5 tabular-nums">
+                    Credit used {fmtSAR(m.creditUsed)} of {fmtSAR(m.creditLimit)} ({pct}%)
+                  </p>
+                </div>
+
+                <div className="mt-3 grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2">
                   <button type="button" disabled={busyId === m.id} onClick={() => setMenuFor(m)}
-                    className={btnGhost + ' !py-1.5 !px-2.5 !text-xs'}>
+                    className={btnGhost + ' !py-2.5 !px-2 !text-xs justify-center'}>
                     <UtensilsCrossed className="w-3.5 h-3.5" /> Menu
                   </button>
                   <button type="button" disabled={busyId === m.id} onClick={() => setEditing(m)}
-                    className={btnGhost + ' !py-1.5 !px-2.5 !text-xs'}>
+                    className={btnGhost + ' !py-2.5 !px-2 !text-xs justify-center'}>
                     <Pencil className="w-3.5 h-3.5" /> Edit
                   </button>
                   <button type="button" disabled={busyId === m.id}
                     onClick={() => setHoursFor(hoursFor === m.id ? null : m.id)}
-                    className={btnGhost + ' !py-1.5 !px-2.5 !text-xs'}>
+                    className={btnGhost + ' !py-2.5 !px-2 !text-xs justify-center'}>
                     <Clock className="w-3.5 h-3.5" /> Hours
                   </button>
                   <button
@@ -766,30 +830,30 @@ function MerchantsSection({ onError }) {
                       setOwnerForm({ email: '', password: '', full_name: '', phone: '' });
                       setOwnerPassword('');
                     }}
-                    className={btnGhost + ' !py-1.5 !px-2.5 !text-xs'}
+                    className={btnGhost + ' !py-2.5 !px-2 !text-xs justify-center'}
                     title={m.ownerEmail ? `Owner: ${m.ownerEmail}` : 'No owner account yet'}
                   >
                     {m.ownerId ? <UserCheck className="w-3.5 h-3.5 text-green-600" /> : <UserPlus className="w-3.5 h-3.5" />}
-                    {m.ownerId ? 'Owner' : 'Assign owner'}
+                    {m.ownerId ? 'Owner' : 'Assign'}
                   </button>
                   <button
                     type="button"
                     disabled={busyId === m.id}
                     onClick={() => run(m.id, () => api.adminFoodUpdateMerchant(m.id, { is_active: !m.isActive }))}
-                    className={btnGhost + ' !py-1.5 !px-2.5 !text-xs'}
+                    className={btnGhost + ' !py-2.5 !px-2 !text-xs justify-center'}
                     title={m.isActive ? 'Hide from customers' : 'Make visible to customers'}
                   >
                     {m.isActive ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
                     {m.isActive ? 'Unlist' : 'List'}
                   </button>
                   <button type="button" disabled={busyId === m.id} onClick={() => reconcile(m)}
-                    className={btnGhost + ' !py-1.5 !px-2.5 !text-xs'}>
+                    className={btnGhost + ' !py-2.5 !px-2 !text-xs justify-center'}>
                     <Wallet className="w-3.5 h-3.5" /> Reconcile
                   </button>
                   {m.status === 'suspended' ? (
                     <button type="button" disabled={busyId === m.id}
                       onClick={() => run(m.id, () => api.adminFoodReactivate(m.id))}
-                      className={btnGhost + ' !py-1.5 !px-2.5 !text-xs !text-green-700 !border-green-200'}>
+                      className={btnGhost + ' !py-2.5 !px-2 !text-xs justify-center !text-green-700 !border-green-200'}>
                       <ShieldCheck className="w-3.5 h-3.5" /> Reactivate
                     </button>
                   ) : (
@@ -799,7 +863,7 @@ function MerchantsSection({ onError }) {
                         if (reason === null) return;
                         run(m.id, () => api.adminFoodSuspend(m.id, reason || undefined));
                       }}
-                      className={btnGhost + ' !py-1.5 !px-2.5 !text-xs !text-red-600 !border-red-200'}>
+                      className={btnGhost + ' !py-2.5 !px-2 !text-xs justify-center !text-red-600 !border-red-200'}>
                       <ShieldX className="w-3.5 h-3.5" /> Suspend
                     </button>
                   )}
@@ -811,9 +875,9 @@ function MerchantsSection({ onError }) {
                         run(m.id, () => api.adminFoodDeleteMerchant(m.id));
                       }
                     }}
-                    className="p-1.5 rounded-lg text-brand-grey hover:text-red-600 hover:bg-red-50 cursor-pointer"
+                    className={btnGhost + ' !py-2.5 !px-2 !text-xs justify-center !text-red-600 !border-red-200'}
                   >
-                    <Trash2 className="w-3.5 h-3.5" />
+                    <Trash2 className="w-3.5 h-3.5" /> Delete
                   </button>
                 </div>
 
@@ -880,7 +944,7 @@ function MerchantsSection({ onError }) {
                           placeholder={`Owner password (min ${MIN_OWNER_PASSWORD} characters)`}
                           className="!py-2 !text-sm"
                         />
-                        <div className="grid grid-cols-2 gap-2">
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                           <input
                             value={ownerForm.full_name}
                             onChange={(e) => setOwnerForm((f) => ({ ...f, full_name: e.target.value }))}
@@ -982,6 +1046,7 @@ function OrdersSection({ onError }) {
   const [assigning, setAssigning] = useState(null);
   const [driverId, setDriverId] = useState('');
   const [proofView, setProofView] = useState(null); // full-size screenshot lightbox
+  const [search, setSearch] = useState('');
 
   const load = useCallback(async () => {
     try {
@@ -1015,36 +1080,86 @@ function OrdersSection({ onError }) {
     o.paymentStatus === 'awaiting' ||
     o.status === 'pending' ||
     (o.paymentStatus === 'paid' && ['cancelled', 'rejected'].includes(o.status));
+  const matchesSearch = (o) => {
+    if (!search.trim()) return true;
+    const q = search.toLowerCase();
+    return (
+      o.orderCode?.toLowerCase().includes(q) ||
+      o.customerName?.toLowerCase().includes(q) ||
+      o.merchantName?.toLowerCase().includes(q)
+    );
+  };
+  const actionCount = (orders || []).filter(needsAction).length;
+  const liveCount = (orders || []).filter((o) => LIVE.includes(o.status)).length;
   const filtered = (orders || []).filter((o) => {
+    if (!matchesSearch(o)) return false;
     if (filter === 'action') return needsAction(o);
     if (filter === 'live') return LIVE.includes(o.status);
     return true;
   });
 
   return (
-    <div className="space-y-3">
-      <div className="flex gap-2 flex-wrap">
-        {[
-          { id: 'action', label: 'Needs action' },
-          { id: 'live', label: 'Live' },
-          { id: 'all', label: 'All' },
-        ].map((f) => (
-          <button key={f.id} type="button" onClick={() => setFilter(f.id)}
-            className={`px-4 py-2 rounded-xl text-sm font-bold border transition-colors cursor-pointer ${
-              filter === f.id ? 'bg-brand-black text-white border-brand-black' : 'bg-white text-brand-grey border-brand-border'
-            }`}>
-            {f.label}
-          </button>
-        ))}
+    <div className="space-y-3 min-w-0">
+      <div className="flex flex-col gap-3 xl:flex-row xl:items-center">
+        <div className="flex gap-2 overflow-x-auto overscroll-x-contain snap-x snap-mandatory pb-1 -mx-3 px-3 sm:-mx-5 sm:px-5 md:-mx-6 md:px-6 lg:-mx-8 lg:px-8 xl:mx-0 xl:px-0 flex-1 no-scrollbar">
+          {[
+            { id: 'action', label: 'Needs action', short: 'Action', count: actionCount },
+            { id: 'live', label: 'Live', short: 'Live', count: liveCount },
+            { id: 'all', label: 'All', short: 'All', count: orders?.length ?? 0 },
+          ].map((f) => (
+            <button key={f.id} type="button" onClick={() => setFilter(f.id)}
+              className={`snap-start shrink-0 inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-sm font-bold border transition-colors cursor-pointer ${
+                filter === f.id ? 'bg-brand-black text-white border-brand-black' : 'bg-white text-brand-grey border-brand-border'
+              }`}>
+              <span className="sm:hidden">{f.short}</span>
+              <span className="hidden sm:inline">{f.label}</span>
+              <span className={`text-[11px] tabular-nums px-1.5 py-0.5 rounded-md ${filter === f.id ? 'bg-white/15' : 'bg-brand-surface'}`}>
+                {f.count}
+              </span>
+            </button>
+          ))}
+        </div>
+        <div className="relative w-full xl:w-64 shrink-0">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-brand-grey" />
+          <input
+            type="search"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Code, customer, or restaurant…"
+            className="w-full pl-9 pr-3 py-2.5 rounded-xl border border-brand-border bg-white text-sm focus:outline-none focus:border-brand-orange"
+          />
+        </div>
       </div>
 
-      {orders === null && <div className="flex justify-center py-12"><Spinner className="!w-7 !h-7" /></div>}
+      {orders === null && (
+        <div className="flex flex-col items-center justify-center py-12 gap-2">
+          <Spinner className="!w-7 !h-7" />
+          <p className="text-sm text-brand-grey">Loading orders…</p>
+        </div>
+      )}
       {orders !== null && filtered.length === 0 && (
-        <Card className="p-8 text-center">
-          <ClipboardList className="w-8 h-8 text-brand-grey/40 mx-auto mb-2" />
-          <p className="text-sm text-brand-grey">
-            {filter === 'action' ? 'Nothing needs your action right now.' : 'No orders here yet.'}
-          </p>
+        <Card className="overflow-hidden">
+          <div className="flex flex-col items-center justify-center text-center px-5 py-12">
+            <div className="w-14 h-14 rounded-2xl bg-brand-warm text-brand-orange flex items-center justify-center mb-4">
+              {search.trim() ? <Search className="w-6 h-6" /> : filter === 'action' ? <Sparkles className="w-6 h-6" /> : <Inbox className="w-6 h-6" />}
+            </div>
+            <p className="font-black text-brand-black">
+              {search.trim()
+                ? 'No matches'
+                : filter === 'action'
+                  ? 'Nothing needs you right now'
+                  : filter === 'live'
+                    ? 'No live orders'
+                    : 'No orders yet'}
+            </p>
+            <p className="text-sm text-brand-grey mt-1.5 max-w-xs">
+              {search.trim()
+                ? `Nothing matches “${search.trim()}”.`
+                : filter === 'action'
+                  ? 'Payments to verify and new orders to accept will land here.'
+                  : 'Food orders will show up here as customers place them.'}
+            </p>
+          </div>
         </Card>
       )}
 
@@ -1057,24 +1172,25 @@ function OrdersSection({ onError }) {
         const cancellable = !['delivered', 'cancelled', 'rejected'].includes(o.status);
         const busy = busyCode === o.orderCode;
         return (
-          <Card key={o.orderCode} className="p-4">
-            <div className="flex items-center justify-between gap-3 flex-wrap">
+          <Card key={o.orderCode} className="p-3 sm:p-4 min-w-0">
+            <div className="flex items-start justify-between gap-3">
               <div className="min-w-0">
-                <p className="font-mono font-bold text-brand-dark">{o.orderCode}</p>
-                <p className="text-xs text-brand-grey truncate">
-                  {o.merchantName || 'Restaurant'} · {o.customerName || 'Customer'} · {new Date(o.createdAt).toLocaleString()}
+                <p className="font-bold text-brand-black truncate">{o.customerName || 'Customer'}</p>
+                <p className="text-xs text-brand-grey truncate mt-0.5">
+                  {o.merchantName || 'Restaurant'} · <span className="font-mono font-bold">{o.orderCode}</span>
                 </p>
+                <p className="text-[11px] text-brand-grey mt-0.5">{new Date(o.createdAt).toLocaleString()}</p>
               </div>
-              <div className="flex items-center gap-1.5 flex-wrap">
-                <Badge tone={status.tone}>{status.label}</Badge>
-                <Badge tone={pay.tone}>{pay.label}</Badge>
-                {o.paymentMethod === 'cash' && <Badge tone="grey">Cash</Badge>}
-                <span className="font-black text-brand-orange tabular-nums ml-1">{fmtSAR(o.total)}</span>
-              </div>
+              <p className="font-black text-brand-orange tabular-nums text-sm shrink-0">{fmtSAR(o.total)}</p>
+            </div>
+            <div className="flex items-center gap-1.5 flex-wrap mt-2">
+              <Badge tone={status.tone} className="!px-2 !py-0.5 !text-[10px]">{status.label}</Badge>
+              <Badge tone={pay.tone} className="!px-2 !py-0.5 !text-[10px]">{pay.label}</Badge>
+              {o.paymentMethod === 'cash' && <Badge tone="grey" className="!px-2 !py-0.5 !text-[10px]">Cash</Badge>}
             </div>
 
             {(o.items || []).length > 0 && (
-              <p className="text-xs text-brand-grey mt-2 truncate">
+              <p className="text-xs text-brand-grey mt-2 leading-relaxed line-clamp-3">
                 {o.items
                   .map((i) => `${i.quantity} × ${i.name_snapshot}${i.size_snapshot ? ` (${i.size_snapshot})` : ''}`)
                   .join(', ')}
@@ -1148,12 +1264,12 @@ function OrdersSection({ onError }) {
               </p>
             )}
 
-            <div className="mt-3 flex items-center gap-2 flex-wrap">
+            <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-2">
               {o.paymentStatus === 'awaiting' && (
                 <>
                   <button type="button" disabled={busy}
                     onClick={() => run(o.orderCode, () => api.adminFoodVerifyPayment(o.orderCode))}
-                    className={btnPrimary + ' !py-2 !px-3.5 !text-xs'}>
+                    className={btnPrimary + ' !py-2.5 !px-3.5 !text-xs justify-center w-full'}>
                     <Check className="w-3.5 h-3.5" /> Approve payment
                   </button>
                   <button type="button" disabled={busy}
@@ -1162,7 +1278,7 @@ function OrdersSection({ onError }) {
                       if (!reason) return;
                       run(o.orderCode, () => api.adminFoodRejectPayment(o.orderCode, reason));
                     }}
-                    className={btnGhost + ' !py-2 !px-3.5 !text-xs !text-red-600 !border-red-200'}>
+                    className={btnGhost + ' !py-2.5 !px-3.5 !text-xs justify-center w-full !text-red-600 !border-red-200'}>
                     <X className="w-3.5 h-3.5" /> Reject payment
                   </button>
                 </>
@@ -1173,7 +1289,7 @@ function OrdersSection({ onError }) {
                 <>
                   <button type="button" disabled={busy}
                     onClick={() => run(o.orderCode, () => api.adminFoodAcceptOrder(o.orderCode))}
-                    className={btnPrimary + ' !py-2 !px-3.5 !text-xs'}
+                    className={btnPrimary + ' !py-2.5 !px-3.5 !text-xs justify-center w-full'}
                     title="Charges the order margin to the restaurant credit (blocked at 300 SAR)">
                     <Check className="w-3.5 h-3.5" /> Accept order
                   </button>
@@ -1183,7 +1299,7 @@ function OrdersSection({ onError }) {
                       if (reason === null) return;
                       run(o.orderCode, () => api.adminFoodRejectOrder(o.orderCode, reason || undefined));
                     }}
-                    className={btnGhost + ' !py-2 !px-3.5 !text-xs !text-red-600 !border-red-200'}>
+                    className={btnGhost + ' !py-2.5 !px-3.5 !text-xs justify-center w-full !text-red-600 !border-red-200'}>
                     <X className="w-3.5 h-3.5" /> Reject order
                   </button>
                 </>
@@ -1191,19 +1307,18 @@ function OrdersSection({ onError }) {
               {next && (
                 <button type="button" disabled={busy}
                   onClick={() => run(o.orderCode, () => api.adminFoodOrderStatus(o.orderCode, next.status))}
-                  className={btnGhost + ' !py-2 !px-3.5 !text-xs'}>
+                  className={btnGhost + ' !py-2.5 !px-3.5 !text-xs justify-center w-full'}>
                   {next.label} <ChevronRight className="w-3.5 h-3.5" />
                 </button>
               )}
 
               {canAssignRider && assigning !== o.orderCode && (
                 <button type="button" onClick={() => { setAssigning(o.orderCode); setDriverId(''); }}
-                  className={btnGhost + ' !py-2 !px-3.5 !text-xs'}>
+                  className={btnGhost + ' !py-2.5 !px-3.5 !text-xs justify-center w-full'}>
                   <Bike className="w-3.5 h-3.5" /> {o.riderName ? 'Change rider' : 'Assign rider'}
                 </button>
               )}
 
-              {/* Rider proof photos (mandatory pickup + delivery shots) */}
               {(o.hasPickupPhoto || o.hasDeliveryPhoto) && (
                 <button type="button" disabled={busy}
                   onClick={() => run(o.orderCode, async () => {
@@ -1211,7 +1326,7 @@ function OrdersSection({ onError }) {
                     if (photos.pickup) window.open(photos.pickup, '_blank', 'noopener');
                     if (photos.delivery) window.open(photos.delivery, '_blank', 'noopener');
                   })}
-                  className={btnGhost + ' !py-2 !px-3.5 !text-xs'}>
+                  className={btnGhost + ' !py-2.5 !px-3.5 !text-xs justify-center w-full'}>
                   View proof photos
                 </button>
               )}
@@ -1223,7 +1338,7 @@ function OrdersSection({ onError }) {
                     if (reason === null) return;
                     run(o.orderCode, () => api.adminFoodCancelOrder(o.orderCode, reason || undefined));
                   }}
-                  className={btnGhost + ' !py-2 !px-3.5 !text-xs !text-red-600 !border-red-200'}>
+                  className={btnGhost + ' !py-2.5 !px-3.5 !text-xs justify-center w-full !text-red-600 !border-red-200'}>
                   Cancel order
                 </button>
               )}
@@ -1234,7 +1349,7 @@ function OrdersSection({ onError }) {
                       run(o.orderCode, () => api.adminFoodRefund(o.orderCode));
                     }
                   }}
-                  className={btnPrimary + ' !py-2 !px-3.5 !text-xs'}>
+                  className={btnPrimary + ' !py-2.5 !px-3.5 !text-xs justify-center w-full'}>
                   Mark refunded
                 </button>
               )}
@@ -1242,8 +1357,8 @@ function OrdersSection({ onError }) {
             </div>
 
             {assigning === o.orderCode && (
-              <div className="mt-3 flex gap-2 items-center flex-wrap">
-                <select value={driverId} onChange={(e) => setDriverId(e.target.value)} className={inputClass + ' !w-auto flex-1 min-w-[200px] !py-2'}>
+              <div className="mt-3 flex flex-col sm:flex-row gap-2">
+                <select value={driverId} onChange={(e) => setDriverId(e.target.value)} className={inputClass + ' flex-1 min-w-0 !py-2'}>
                   <option value="">Choose an approved driver</option>
                   {drivers.map((d) => (
                     <option key={d.id} value={d.id}>{d.full_name || d.email}</option>
@@ -1273,7 +1388,7 @@ function OrdersSection({ onError }) {
 
       {proofView && (
         <div
-          className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-6"
+          className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-3 sm:p-6"
           onClick={() => setProofView(null)}
         >
           <button
@@ -1376,19 +1491,31 @@ function SettlementSection({ onError }) {
         Online orders are collected by us — we owe the restaurant; cash orders are collected by the rider.
         Only paid orders count; refunds are shown separately.
       </p>
-      <div className="flex flex-wrap items-end gap-3">
-        {/* Changing a date clears the loaded report so Download always
-            re-fetches the CURRENT range (never a stale preview). */}
-        <Field label="From">
-          <input type="date" value={from} onChange={(e) => { setFrom(e.target.value); setData(null); }} className={inputClass + ' !py-2'} />
-        </Field>
-        <Field label="To">
-          <input type="date" value={to} onChange={(e) => { setTo(e.target.value); setData(null); }} className={inputClass + ' !py-2'} />
-        </Field>
-        <button type="button" onClick={loadReport} disabled={loading} className={btnGhost + ' !py-2 !px-3.5 !text-sm'}>
+      <div className="flex flex-col sm:flex-row sm:flex-wrap sm:items-end gap-3">
+        <div className="w-full sm:w-56 min-w-0">
+          <Field label="From">
+            <DatePicker
+              value={from}
+              onChange={(v) => { setFrom(v); setData(null); }}
+              max={to || undefined}
+              drawerTitle="From date"
+            />
+          </Field>
+        </div>
+        <div className="w-full sm:w-56 min-w-0">
+          <Field label="To">
+            <DatePicker
+              value={to}
+              onChange={(v) => { setTo(v); setData(null); }}
+              min={from || undefined}
+              drawerTitle="To date"
+            />
+          </Field>
+        </div>
+        <button type="button" onClick={loadReport} disabled={loading} className={btnGhost + ' !py-2.5 !px-3.5 !text-sm w-full sm:w-auto'}>
           {loading ? <Spinner className="!w-4 !h-4" /> : 'Preview'}
         </button>
-        <button type="button" onClick={download} disabled={loading} className={btnPrimary + ' !py-2 !px-3.5 !text-sm ml-auto'}>
+        <button type="button" onClick={download} disabled={loading} className={btnPrimary + ' !py-2.5 !px-3.5 !text-sm w-full sm:w-auto sm:ml-auto'}>
           <Download className="w-3.5 h-3.5" /> Download CSV
         </button>
       </div>
@@ -1442,17 +1569,24 @@ function SettlementSection({ onError }) {
 export default function FoodAdmin() {
   const [overview, setOverview] = useState(null);
   const [error, setError] = useState(null);
+  const [section, setSection] = useState('restaurants');
   const onError = useCallback((msg) => setError(msg), []);
 
   useEffect(() => {
     api.adminFoodOverview().then(setOverview).catch((e) => setError(e.message));
   }, []);
 
+  const sections = [
+    { id: 'restaurants', label: 'Restaurants', icon: Store },
+    { id: 'orders', label: 'Orders', icon: ClipboardList },
+    { id: 'settlement', label: 'Payouts', icon: Coins },
+  ];
+
   return (
-    <div className="space-y-5">
+    <div className="space-y-4 sm:space-y-5 min-w-0">
       {error && (
         <div className="p-3 rounded-xl bg-red-50 border border-red-200 text-red-700 text-sm font-medium flex items-center justify-between gap-3">
-          <span>{error}</span>
+          <span className="min-w-0">{error}</span>
           <button type="button" onClick={() => setError(null)} className="shrink-0 cursor-pointer"><X className="w-4 h-4" /></button>
         </div>
       )}
@@ -1460,32 +1594,48 @@ export default function FoodAdmin() {
       {!overview ? (
         <div className="flex justify-center py-8"><Spinner className="!w-7 !h-7" /></div>
       ) : (
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
-          <Stat label="Orders today" value={overview.todayOrders} />
-          <Stat label="Total orders" value={overview.totalOrders} />
-          <Stat label="Platform revenue" value={fmtSAR(overview.revenue)} accent />
-          <Stat label="Restaurants" value={overview.merchants} />
-          <Stat label="Suspended" value={overview.suspendedMerchants} />
-          <Stat label="Payments to verify" value={overview.paymentsAwaitingReview} accent />
+        <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-6 gap-3">
+          <Stat label="Orders today" value={overview.todayOrders} icon={ClipboardList} hint="Placed since midnight" />
+          <Stat label="Total orders" value={overview.totalOrders} icon={Receipt} />
+          <Stat label="Platform revenue" value={fmtSAR(overview.revenue)} accent icon={Banknote} />
+          <Stat
+            label="Restaurants"
+            value={overview.merchants}
+            icon={Store}
+            onClick={() => setSection('restaurants')}
+          />
+          <Stat label="Suspended" value={overview.suspendedMerchants} icon={ShieldX} hint="Cannot take orders" />
+          <Stat
+            label="Payments to verify"
+            value={overview.paymentsAwaitingReview}
+            accent
+            icon={Wallet}
+            hint="STC Pay screenshots"
+            onClick={() => setSection('orders')}
+          />
         </div>
       )}
 
-      <div className="grid grid-cols-1 xl:grid-cols-2 gap-5 items-start">
-        <div className="space-y-3">
-          <p className="font-black text-brand-black flex items-center gap-2">
-            <Store className="w-4 h-4 text-brand-orange" /> Restaurants (admin-run)
-          </p>
-          <MerchantsSection onError={onError} />
-        </div>
-        <div className="space-y-3">
-          <p className="font-black text-brand-black flex items-center gap-2">
-            <ClipboardList className="w-4 h-4 text-brand-orange" /> Orders
-          </p>
-          <OrdersSection onError={onError} />
-        </div>
+      <div className="flex gap-2 overflow-x-auto overscroll-x-contain snap-x snap-mandatory pb-1 -mx-3 px-3 sm:-mx-5 sm:px-5 md:-mx-6 md:px-6 lg:-mx-8 lg:px-8 xl:mx-0 xl:px-0 no-scrollbar">
+        {sections.map(({ id, label, icon: Icon }) => (
+          <button
+            key={id}
+            type="button"
+            onClick={() => setSection(id)}
+            className={`snap-start shrink-0 inline-flex items-center gap-2 px-3.5 py-2.5 rounded-xl text-sm font-bold border cursor-pointer ${
+              section === id
+                ? 'bg-brand-orange text-white border-brand-orange'
+                : 'bg-white text-brand-grey border-brand-border hover:text-brand-dark'
+            }`}
+          >
+            <Icon className="w-4 h-4" /> {label}
+          </button>
+        ))}
       </div>
 
-      <SettlementSection onError={onError} />
+      {section === 'restaurants' && <MerchantsSection onError={onError} />}
+      {section === 'orders' && <OrdersSection onError={onError} />}
+      {section === 'settlement' && <SettlementSection onError={onError} />}
     </div>
   );
 }

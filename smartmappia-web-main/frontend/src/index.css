@@ -79,6 +79,14 @@ body {
   animation: admin-pulse 2s ease-in-out infinite;
 }
 
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
 /* Ride map (MapLibre GL) — brand pins (driver, client/pickup, drop-off).
    The .sm-map-pin* rules below are renderer-agnostic HTML/CSS reused from
    the old Leaflet map; the pins are now MapLibre DOM markers. */
