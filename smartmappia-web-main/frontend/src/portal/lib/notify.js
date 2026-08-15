@@ -76,6 +76,16 @@ export function notifySuccess(title, text) {
   });
 }
 
+export function notifyWarning(title, text) {
+  return Swal.fire({
+    icon: 'warning',
+    title,
+    text,
+    confirmButtonColor: '#FF7E21',
+    confirmButtonText: 'OK',
+  });
+}
+
 // requireText: for actions that cannot be undone, make the user type a word
 // before Confirm does anything, so a mis-tap can never trigger it.
 export async function confirmAction({

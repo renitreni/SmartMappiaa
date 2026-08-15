@@ -946,7 +946,7 @@ export default function SignupPage() {
                           className={`${inputWithIconClass} ${showStepErrors && !email.trim() ? 'border-red-300 ring-2 ring-red-100' : ''}`}
                           value={email}
                           onChange={(e) => setEmail(e.target.value)}
-                          placeholder="you@example.com"
+                          placeholder="email"
                           autoComplete="email"
                         />
                       </div>

@@ -230,7 +230,7 @@ if (Capacitor.isNativePlatform()) {
                       className={inputWithIconClass}
                       value={email}
                       onChange={(e) => setEmail(e.target.value)}
-                      placeholder="you@example.com"
+                      placeholder="email"
                       required
                       autoComplete="email"
                     />

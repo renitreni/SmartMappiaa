@@ -38,6 +38,7 @@ import LegalDocPage from './pages/legal/LegalDocPage.jsx'
 import HelpCenterPage from './pages/legal/HelpCenterPage.jsx'
 import AccountDeletionPage from './pages/legal/AccountDeletionPage.jsx'
 import ServicesPage from './pages/ServicesPage.jsx'
+import SupportPage from './pages/SupportPage.jsx'
 import FoodServicePage from './pages/services/FoodServicePage.jsx'
 import ShopServicePage from './pages/services/ShopServicePage.jsx'
 import PickDropServicePage from './pages/services/PickDropServicePage.jsx'
@@ -111,6 +112,7 @@ createRoot(document.getElementById('root')).render(
             <Route path="/privacy-policy" element={<LegalDocPage kind="privacy" />} />
             <Route path="/terms-of-service" element={<LegalDocPage kind="terms" />} />
             <Route path="/help-center" element={<HelpCenterPage />} />
+            <Route path="/support" element={<SupportPage />} />
             <Route path="/account-deletion" element={<AccountDeletionPage />} />
 
             {/* Services hub — public, icon cards linking to the 3 dedicated pages below,

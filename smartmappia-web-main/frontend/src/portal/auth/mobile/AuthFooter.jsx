@@ -10,7 +10,7 @@ export default function AuthFooter() {
       <div className="auth-footer__links">
         <Link to="/privacy-policy">Privacy Policy</Link>
         <Link to="/terms-of-service">Terms of Service</Link>
-        <Link to="/help-center">Help Center</Link>
+        <Link to="/help-center">Customer Service</Link>
       </div>
       <div className="auth-footer__copyright">
         © {new Date().getFullYear()} {COMPANY.name}. All rights reserved.

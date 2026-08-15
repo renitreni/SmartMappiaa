@@ -21,6 +21,16 @@ import {
   RefreshCw,
   Download,
   Clock,
+  Search,
+  Eye,
+  EyeOff,
+  ShieldX,
+  ShieldCheck,
+  Wallet,
+  Banknote,
+  Inbox,
+  Sparkles,
+  UserCheck,
 } from 'lucide-react';
 import { api } from '../lib/api';
 import { useBroadcast } from '../lib/useBroadcast';
@@ -31,6 +41,8 @@ import { Card, Field, Spinner, inputClass, btnPrimary, btnGhost } from '../compo
 import PasswordInput from '../components/PasswordInput';
 import ImageUploadField from '../components/ImageUploadField';
 import StoreHoursEditor from '../components/StoreHoursEditor';
+import CustomDropdown from '../../components/CustomDropdown';
+import DatePicker from '../../components/DatePicker';
 
 // Owner passwords are chosen by the admin and handed over in person — keep this
 // in step with MIN_PASSWORD_LENGTH in backend/lib/validate.js.
@@ -44,15 +56,34 @@ const SECTIONS = [
   { id: 'settlement', label: 'Settlement', icon: Receipt },
 ];
 
-function Stat({ label, value, tone }) {
-  return (
-    <Card className="p-4">
-      <p className="text-xs text-brand-grey font-medium">{label}</p>
-      <p className={`text-2xl font-black mt-1 ${tone === 'red' ? 'text-red-600' : 'text-brand-black'}`}>
+function Stat({ label, value, tone, icon: Icon, hint, onClick }) {
+  const inner = (
+    <>
+      {Icon && (
+        <span className={`w-9 h-9 rounded-xl flex items-center justify-center mb-2 ${
+          tone === 'red' ? 'bg-red-50 text-red-600' : 'bg-brand-muted text-brand-dark'
+        }`}>
+          <Icon className="w-4 h-4" />
+        </span>
+      )}
+      <p className="text-[11px] font-bold text-brand-grey uppercase tracking-wider">{label}</p>
+      <p className={`text-lg sm:text-xl font-black tabular-nums mt-1 break-words ${tone === 'red' ? 'text-red-600' : 'text-brand-black'}`}>
         {value}
       </p>
-    </Card>
+      {hint && <p className="text-[11px] text-brand-grey mt-1">{hint}</p>}
+    </>
   );
+  const cls = 'p-4 min-w-0 text-left w-full h-full';
+  if (onClick) {
+    return (
+      <Card className="overflow-hidden min-w-0">
+        <button type="button" onClick={onClick} className={`${cls} cursor-pointer hover:bg-brand-muted/40`}>
+          {inner}
+        </button>
+      </Card>
+    );
+  }
+  return <Card className={cls}>{inner}</Card>;
 }
 
 function Pill({ tone, children }) {
@@ -89,6 +120,18 @@ function StoresSection({ stores, onChanged, onOpenCatalogue }) {
   const [pwFor, setPwFor] = useState(null); // store whose owner password is being re-issued
   const [newPassword, setNewPassword] = useState('');
   const [busy, setBusy] = useState(false);
+  const [search, setSearch] = useState('');
+
+  const visible = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    if (!q) return stores;
+    return stores.filter(
+      (s) =>
+        s.name?.toLowerCase().includes(q) ||
+        s.cuisine_type?.toLowerCase().includes(q) ||
+        s.address?.toLowerCase().includes(q)
+    );
+  }, [stores, search]);
 
   async function save(e) {
     e.preventDefault();
@@ -168,15 +211,26 @@ function StoresSection({ stores, onChanged, onOpenCatalogue }) {
   }
 
   return (
-    <div className="space-y-4">
-      <div className="flex justify-end">
+    <div className="space-y-4 min-w-0">
+      <div className="flex flex-col sm:flex-row sm:items-center gap-3">
+        <div className="relative flex-1">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-brand-grey" />
+          <input
+            type="search"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search stores…"
+            className="w-full pl-9 pr-3 py-2.5 rounded-xl border border-brand-border bg-white text-sm focus:outline-none focus:border-brand-orange"
+          />
+        </div>
         <button
+          type="button"
           onClick={() => {
             setEditing(null);
             setForm({ name: '', cuisine_type: '', description: '', logo_url: '', address: '' });
             setShowForm((v) => !v);
           }}
-          className={btnPrimary}
+          className={btnPrimary + ' w-full sm:w-auto justify-center'}
         >
           {showForm ? <X className="w-4 h-4" /> : <Plus className="w-4 h-4" />}
           {showForm ? 'Close' : 'Add store'}
@@ -220,17 +274,26 @@ function StoresSection({ stores, onChanged, onOpenCatalogue }) {
         </Card>
       )}
 
-      {stores.length === 0 ? (
-        <Card className="p-10 text-center">
-          <Store className="w-8 h-8 text-brand-grey/40 mx-auto mb-3" />
-          <p className="font-bold text-brand-black">No stores yet</p>
+      {visible.length === 0 ? (
+        <Card className="overflow-hidden">
+          <div className="flex flex-col items-center justify-center text-center px-5 py-12">
+            <div className="w-14 h-14 rounded-2xl bg-brand-warm text-brand-orange flex items-center justify-center mb-4">
+              {search.trim() ? <Search className="w-6 h-6" /> : <Store className="w-6 h-6" />}
+            </div>
+            <p className="font-black text-brand-black">{search.trim() ? 'No matches' : 'No stores yet'}</p>
+            <p className="text-sm text-brand-grey mt-1.5 max-w-xs">
+              {search.trim()
+                ? `Nothing matches “${search.trim()}”.`
+                : 'Add a partner store, import its catalogue, then list it for customers.'}
+            </p>
+          </div>
         </Card>
       ) : (
         <div className="space-y-3">
-          {stores.map((s) => {
+          {visible.map((s) => {
             const credit = s.credit || {};
             return (
-              <Card key={s.id} className="p-4">
+              <Card key={s.id} className="p-4 min-w-0">
                 <div className="flex items-start gap-3">
                   <div className="w-12 h-12 shrink-0 rounded-lg bg-brand-surface overflow-hidden flex items-center justify-center">
                     {s.logo_url ? <img src={s.logo_url} alt="" className="w-full h-full object-cover" /> : <Store className="w-5 h-5 text-brand-grey/40" />}
@@ -247,28 +310,48 @@ function StoresSection({ stores, onChanged, onOpenCatalogue }) {
                       {s.accepting_orders === false && <Pill tone="amber">Closed now</Pill>}
                       {!s.logo_url && <Pill tone="amber">No logo</Pill>}
                       {(s.lat == null || s.lng == null) && <Pill tone="red">No map pin</Pill>}
-                      {s.ownerEmail ? <Pill tone="blue">{s.ownerEmail}</Pill> : <Pill tone="amber">No owner</Pill>}
+                      {s.ownerEmail ? (
+                        <Pill tone="blue">
+                          <span className="max-w-[11rem] truncate inline-block align-bottom">{s.ownerEmail}</span>
+                        </Pill>
+                      ) : (
+                        <Pill tone="amber">No owner</Pill>
+                      )}
                     </div>
-                    <p className="text-xs text-brand-grey mt-2">
-                      Credit {fmtSAR(credit.creditUsed)} of {fmtSAR(credit.creditLimit)}
-                    </p>
+                    <div className="mt-3">
+                      <div className="h-2 rounded-full bg-brand-surface overflow-hidden">
+                        <div
+                          className={`h-full rounded-full ${
+                            (credit.creditUsed / (credit.creditLimit || 1)) >= 1 ? 'bg-red-500'
+                              : (credit.creditUsed / (credit.creditLimit || 1)) >= 0.8 ? 'bg-amber-500' : 'bg-brand-orange'
+                          }`}
+                          style={{ width: `${Math.min(100, Math.round(((credit.creditUsed || 0) / (credit.creditLimit || 1)) * 100))}%` }}
+                        />
+                      </div>
+                      <p className="text-xs text-brand-grey mt-1.5 tabular-nums">
+                        Credit used {fmtSAR(credit.creditUsed)} of {fmtSAR(credit.creditLimit)}
+                      </p>
+                    </div>
                   </div>
                 </div>
 
-                <div className="flex flex-wrap gap-2 mt-3 pt-3 border-t border-brand-border">
-                  <button onClick={() => onOpenCatalogue(s)} className={btnGhost + ' !py-1.5 !px-3 text-sm'}>
+                <div className="mt-3 grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2">
+                  <button type="button" onClick={() => onOpenCatalogue(s)} className={btnGhost + ' !py-2.5 !px-2 !text-xs justify-center'}>
                     <Package className="w-4 h-4" /> Catalogue
                   </button>
-                  <button onClick={() => toggleListed(s)} className={btnGhost + ' !py-1.5 !px-3 text-sm'}>
+                  <button type="button" onClick={() => toggleListed(s)} className={btnGhost + ' !py-2.5 !px-2 !text-xs justify-center'}>
+                    {s.is_active ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                     {s.is_active ? 'Unlist' : 'List'}
                   </button>
                   <button
+                    type="button"
                     onClick={() => setHoursFor(hoursFor === s.id ? null : s.id)}
-                    className={btnGhost + ' !py-1.5 !px-3 text-sm'}
+                    className={btnGhost + ' !py-2.5 !px-2 !text-xs justify-center'}
                   >
                     <Clock className="w-4 h-4" /> Hours
                   </button>
                   <button
+                    type="button"
                     onClick={() => {
                       setEditing(s.id);
                       setForm({
@@ -280,64 +363,69 @@ function StoresSection({ stores, onChanged, onOpenCatalogue }) {
                       });
                       setShowForm(true);
                     }}
-                    className={btnGhost + ' !py-1.5 !px-3 text-sm'}
+                    className={btnGhost + ' !py-2.5 !px-2 !text-xs justify-center'}
                   >
                     <Pencil className="w-4 h-4" /> Edit
                   </button>
                   {!s.ownerEmail ? (
                     <button
+                      type="button"
                       onClick={() => { setOwnerFor(s.id); setOwnerEmail(''); setOwnerPassword(''); }}
-                      className={btnGhost + ' !py-1.5 !px-3 text-sm'}
+                      className={btnGhost + ' !py-2.5 !px-2 !text-xs justify-center'}
                     >
-                      <UserPlus className="w-4 h-4" /> Assign owner
+                      <UserPlus className="w-4 h-4" /> Assign
                     </button>
                   ) : (
                     <button
+                      type="button"
                       onClick={() => { setPwFor(pwFor === s.id ? null : s.id); setNewPassword(''); }}
-                      className={btnGhost + ' !py-1.5 !px-3 text-sm'}
+                      className={btnGhost + ' !py-2.5 !px-2 !text-xs justify-center'}
                       title={`Owner: ${s.ownerEmail}`}
                     >
-                      <UserPlus className="w-4 h-4" /> Owner password
+                      <UserCheck className="w-4 h-4" /> Owner
                     </button>
                   )}
                   {s.status === 'suspended' ? (
                     <button
+                      type="button"
                       onClick={async () => {
                         await api.adminShopReactivate(s.id);
                         onChanged();
                       }}
-                      className={btnGhost + ' !py-1.5 !px-3 text-sm'}
+                      className={btnGhost + ' !py-2.5 !px-2 !text-xs justify-center !text-green-700 !border-green-200'}
                     >
-                      Reactivate
+                      <ShieldCheck className="w-4 h-4" /> Reactivate
                     </button>
                   ) : (
                     <button
+                      type="button"
                       onClick={async () => {
                         if (!(await confirmAction(`Suspend ${s.name}?`, 'It will stop accepting orders.'))) return;
                         await api.adminShopSuspend(s.id, null);
                         onChanged();
                       }}
-                      className={btnGhost + ' !py-1.5 !px-3 text-sm'}
+                      className={btnGhost + ' !py-2.5 !px-2 !text-xs justify-center !text-red-600 !border-red-200'}
                     >
-                      Suspend
+                      <ShieldX className="w-4 h-4" /> Suspend
                     </button>
                   )}
                   {credit.creditUsed > 0 && (
                     <button
+                      type="button"
                       onClick={async () => {
                         if (!(await confirmAction(`Reconcile ${fmtSAR(credit.creditUsed)}?`, 'Records that the store has settled.'))) return;
                         await api.adminShopCredit(s.id, { amount: credit.creditUsed, note: 'Admin reconciliation' });
                         onChanged();
                       }}
-                      className={btnGhost + ' !py-1.5 !px-3 text-sm'}
+                      className={btnGhost + ' !py-2.5 !px-2 !text-xs justify-center'}
                     >
-                      Reconcile credit
+                      <Wallet className="w-4 h-4" /> Reconcile
                     </button>
                   )}
                 </div>
 
                 {hoursFor === s.id && (
-                  <div className="mt-3 pt-3 border-t border-brand-border">
+                  <div className="mt-3 pt-3 border-t border-brand-border overflow-x-auto min-w-0">
                     <StoreHoursEditor
                       load={() => api.adminShopHours(s.id)}
                       save={(hours) => api.adminShopSetHours(s.id, hours)}
@@ -366,9 +454,9 @@ function StoresSection({ stores, onChanged, onOpenCatalogue }) {
                       autoComplete="new-password"
                       placeholder={`Owner password (min ${MIN_OWNER_PASSWORD} characters)`}
                     />
-                    <div className="flex gap-2">
-                      <button disabled={busy} className={btnPrimary}>Link</button>
-                      <button type="button" onClick={() => setOwnerFor(null)} className={btnGhost}>Cancel</button>
+                    <div className="flex flex-col sm:flex-row gap-2">
+                      <button disabled={busy} className={btnPrimary + ' w-full sm:w-auto justify-center'}>Link</button>
+                      <button type="button" onClick={() => setOwnerFor(null)} className={btnGhost + ' w-full sm:w-auto justify-center'}>Cancel</button>
                     </div>
                     <p className="text-xs text-brand-grey">
                       Give the owner this password in person — there is no reset email.
@@ -378,7 +466,7 @@ function StoresSection({ stores, onChanged, onOpenCatalogue }) {
 
                 {pwFor === s.id && (
                   <form onSubmit={resetOwnerPassword} className="mt-3 pt-3 border-t border-brand-border space-y-2">
-                    <p className="text-xs font-bold text-brand-dark">Owner account: {s.ownerEmail}</p>
+                    <p className="text-xs font-bold text-brand-dark break-all">Owner account: {s.ownerEmail}</p>
                     <PasswordInput
                       required
                       value={newPassword}
@@ -386,9 +474,9 @@ function StoresSection({ stores, onChanged, onOpenCatalogue }) {
                       autoComplete="new-password"
                       placeholder={`New password (min ${MIN_OWNER_PASSWORD} characters)`}
                     />
-                    <div className="flex gap-2">
-                      <button disabled={busy} className={btnPrimary}>Set new password</button>
-                      <button type="button" onClick={() => setPwFor(null)} className={btnGhost}>Cancel</button>
+                    <div className="flex flex-col sm:flex-row gap-2">
+                      <button disabled={busy} className={btnPrimary + ' w-full sm:w-auto justify-center'}>Set new password</button>
+                      <button type="button" onClick={() => setPwFor(null)} className={btnGhost + ' w-full sm:w-auto justify-center'}>Cancel</button>
                     </div>
                     <p className="text-xs text-brand-grey">
                       Replaces the owner's password immediately. Their old one stops working.
@@ -469,31 +557,56 @@ function CatalogueSection({ stores, selectedStore, onSelectStore }) {
     }
   }
 
+  if (stores.length === 0) {
+    return (
+      <Card className="overflow-hidden">
+        <div className="flex flex-col items-center justify-center text-center px-5 py-12">
+          <div className="w-14 h-14 rounded-2xl bg-brand-warm text-brand-orange flex items-center justify-center mb-4">
+            <Store className="w-6 h-6" />
+          </div>
+          <p className="font-black text-brand-black">Add a store first</p>
+          <p className="text-sm text-brand-grey mt-1.5 max-w-xs">Catalogue and net prices live on a store. Create one, then come back here.</p>
+        </div>
+      </Card>
+    );
+  }
+
   if (!selectedStore) {
     return (
-      <Card className="p-6">
+      <Card className="p-5">
         <Field label="Choose a store">
-          <select value="" onChange={(e) => onSelectStore(e.target.value)} className={inputClass}>
-            <option value="">Select a store...</option>
-            {stores.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
-          </select>
+          <CustomDropdown
+            value=""
+            onChange={onSelectStore}
+            options={stores.map((s) => ({ value: s.id, label: s.name }))}
+            placeholder="Select a store…"
+            drawerTitle="Choose a store"
+            className="w-full"
+          />
         </Field>
       </Card>
     );
   }
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-4 min-w-0">
       <Card className="p-4">
-        <div className="flex items-center gap-3">
-          <select value={selectedStore} onChange={(e) => onSelectStore(e.target.value)} className={inputClass + ' flex-1'}>
-            {stores.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
-          </select>
-          <button onClick={load} className={btnGhost + ' !py-2 !px-3'}><RefreshCw className="w-4 h-4" /></button>
+        <div className="flex flex-col sm:flex-row sm:items-center gap-3">
+          <CustomDropdown
+            value={selectedStore}
+            onChange={onSelectStore}
+            options={stores.map((s) => ({ value: s.id, label: s.name }))}
+            placeholder="Select a store…"
+            drawerTitle="Choose a store"
+            className="flex-1 min-w-0 w-full"
+          />
+          <button type="button" onClick={load} className={btnGhost + ' !py-2.5 justify-center w-full sm:w-auto'}>
+            <RefreshCw className="w-4 h-4" /> Refresh
+          </button>
         </div>
       </Card>
 
-      <Card className="p-5">
+      <Card className="p-4 sm:p-5">
         <p className="font-black text-brand-black mb-3">Categories</p>
         <form
           onSubmit={async (e) => {
@@ -503,40 +616,46 @@ function CatalogueSection({ stores, selectedStore, onSelectStore }) {
             setCatName('');
             load();
           }}
-          className="flex gap-2 mb-3"
+          className="flex flex-col sm:flex-row gap-2 mb-3"
         >
-          <input value={catName} onChange={(e) => setCatName(e.target.value)} placeholder="New category" className={inputClass + ' flex-1'} />
-          <button className={btnPrimary}><Plus className="w-4 h-4" /></button>
+          <input value={catName} onChange={(e) => setCatName(e.target.value)} placeholder="New category" className={inputClass + ' flex-1 min-w-0'} />
+          <button className={btnPrimary + ' justify-center w-full sm:w-auto'}><Plus className="w-4 h-4" /> Add</button>
         </form>
-        <div className="flex flex-wrap gap-2">
-          {(data?.categories || []).map((c) => (
-            <span key={c.id} className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-brand-surface text-sm font-medium">
-              {c.name}
-              <button
-                onClick={async () => {
-                  if (!(await confirmAction(`Delete "${c.name}"?`))) return;
-                  await api.adminShopDeleteCategory(c.id);
-                  load();
-                }}
-                className="text-brand-grey hover:text-red-600"
-              >
-                <X className="w-3.5 h-3.5" />
-              </button>
-            </span>
-          ))}
-        </div>
+        {(data?.categories || []).length === 0 ? (
+          <p className="text-sm text-brand-grey">No categories yet — add one so products can be grouped.</p>
+        ) : (
+          <div className="flex flex-wrap gap-2">
+            {(data?.categories || []).map((c) => (
+              <span key={c.id} className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-brand-surface text-sm font-medium max-w-full">
+                <span className="truncate">{c.name}</span>
+                <button
+                  type="button"
+                  onClick={async () => {
+                    if (!(await confirmAction(`Delete "${c.name}"?`))) return;
+                    await api.adminShopDeleteCategory(c.id);
+                    load();
+                  }}
+                  className="text-brand-grey hover:text-red-600 shrink-0"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              </span>
+            ))}
+          </div>
+        )}
       </Card>
 
-      <Card className="p-5">
-        <div className="flex items-center justify-between mb-4">
-          <p className="font-black text-brand-black">Products</p>
+      <Card className="p-4 sm:p-5 min-w-0">
+        <div className="flex flex-col sm:flex-row sm:items-center gap-3 mb-4">
+          <p className="font-black text-brand-black flex-1">Products</p>
           <button
+            type="button"
             onClick={() => {
               setForm(emptyProduct);
               setEditingId(null);
               setShowForm((v) => !v);
             }}
-            className={btnPrimary + ' !py-2 !px-3 text-sm'}
+            className={btnPrimary + ' !py-2.5 !px-3 text-sm justify-center w-full sm:w-auto'}
           >
             {showForm ? <X className="w-4 h-4" /> : <Plus className="w-4 h-4" />}
             {showForm ? 'Close' : 'Add product'}
@@ -550,10 +669,17 @@ function CatalogueSection({ stores, selectedStore, onSelectStore }) {
                 <input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} required className={inputClass} />
               </Field>
               <Field label="Category">
-                <select value={form.category_id} onChange={(e) => setForm({ ...form, category_id: e.target.value })} className={inputClass}>
-                  <option value="">Uncategorised</option>
-                  {(data?.categories || []).map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-                </select>
+                <CustomDropdown
+                  value={form.category_id || ''}
+                  onChange={(v) => setForm({ ...form, category_id: v })}
+                  options={[
+                    { value: '', label: 'Uncategorised' },
+                    ...(data?.categories || []).map((c) => ({ value: c.id, label: c.name })),
+                  ]}
+                  placeholder="Uncategorised"
+                  drawerTitle="Category"
+                  className="w-full"
+                />
               </Field>
               <Field label="Brand">
                 <input value={form.brand} onChange={(e) => setForm({ ...form, brand: e.target.value })} className={inputClass} />
@@ -610,13 +736,21 @@ function CatalogueSection({ stores, selectedStore, onSelectStore }) {
 
         {loading ? (
           <div className="flex justify-center py-8"><Spinner /></div>
+        ) : (data?.products || []).length === 0 ? (
+          <div className="flex flex-col items-center justify-center text-center px-4 py-10">
+            <div className="w-14 h-14 rounded-2xl bg-brand-warm text-brand-orange flex items-center justify-center mb-4">
+              <Package className="w-6 h-6" />
+            </div>
+            <p className="font-black text-brand-black">No products yet</p>
+            <p className="text-sm text-brand-grey mt-1.5 max-w-xs">Add a product and set its net price so the platform markup is recorded.</p>
+          </div>
         ) : (
           <div className="space-y-2">
             {(data?.products || []).map((p) => (
-              <div key={p.id} className="flex items-center gap-3 p-3 rounded-xl border border-brand-border">
+              <div key={p.id} className="flex flex-col sm:flex-row sm:items-center gap-3 p-3 rounded-xl border border-brand-border min-w-0">
                 <div className="flex-1 min-w-0">
                   <p className="font-bold text-brand-black truncate">{p.name}</p>
-                  <p className="text-xs text-brand-grey">
+                  <p className="text-xs text-brand-grey break-words">
                     List {fmtSAR(p.price)} · Net {p.net_price != null ? fmtSAR(p.net_price) : 'not set'} ·{' '}
                     <span className="font-bold text-brand-dark">
                       markup {p.net_price != null ? fmtSAR(p.price - p.net_price) : 'fallback'}
@@ -625,10 +759,12 @@ function CatalogueSection({ stores, selectedStore, onSelectStore }) {
                   <p className="text-xs text-brand-grey mt-0.5">
                     Stock {p.stock_quantity}
                     {(p.product_variants || []).length > 0 && ` · ${p.product_variants.length} options`}
+                    {p.is_available === false && ' · Hidden'}
                   </p>
                 </div>
-                <div className="flex gap-1 shrink-0">
+                <div className="grid grid-cols-2 gap-2 sm:flex sm:shrink-0">
                   <button
+                    type="button"
                     onClick={() => {
                       setForm({
                         name: p.name || '', description: p.description || '', brand: p.brand || '',
@@ -640,19 +776,20 @@ function CatalogueSection({ stores, selectedStore, onSelectStore }) {
                       setEditingId(p.id);
                       setShowForm(true);
                     }}
-                    className="p-2 text-brand-grey hover:text-brand-orange"
+                    className={btnGhost + ' !py-2.5 !px-3 !text-xs justify-center'}
                   >
-                    <Pencil className="w-4 h-4" />
+                    <Pencil className="w-4 h-4" /> Edit
                   </button>
                   <button
+                    type="button"
                     onClick={async () => {
                       if (!(await confirmAction(`Delete "${p.name}"?`))) return;
                       await api.adminShopDeleteProduct(p.id);
                       load();
                     }}
-                    className="p-2 text-brand-grey hover:text-red-600"
+                    className={btnGhost + ' !py-2.5 !px-3 !text-xs justify-center !text-red-600 !border-red-200'}
                   >
-                    <Trash2 className="w-4 h-4" />
+                    <Trash2 className="w-4 h-4" /> Delete
                   </button>
                 </div>
               </div>
@@ -669,6 +806,7 @@ function OrdersSection({ onChanged }) {
   const [orders, setOrders] = useState(null);
   const [filter, setFilter] = useState('action');
   const [busy, setBusy] = useState(null);
+  const [search, setSearch] = useState('');
 
   const load = useCallback(async () => {
     try {
@@ -684,16 +822,28 @@ function OrdersSection({ onChanged }) {
     return () => window.clearTimeout(id);
   }, [load]);
 
-  const visible = useMemo(() => {
-    const list = orders || [];
-    if (filter === 'action') {
-      return list.filter((o) => o.status === 'pending' || o.payment_status === 'awaiting');
-    }
-    if (filter === 'live') {
-      return list.filter((o) => !['delivered', 'cancelled', 'rejected'].includes(o.status));
-    }
-    return list;
-  }, [orders, filter]);
+  useBroadcast('admin-shop', { changed: () => load() });
+
+  const LIVE = ['pending', 'accepted', 'packing', 'ready', 'out_for_delivery'];
+  const needsAction = (o) => o.status === 'pending' || o.payment_status === 'awaiting';
+  const q = search.trim().toLowerCase();
+  const matchesSearch = (o) => {
+    if (!q) return true;
+    return (
+      o.order_code?.toLowerCase().includes(q) ||
+      o.merchants?.name?.toLowerCase().includes(q) ||
+      o.profiles?.full_name?.toLowerCase().includes(q) ||
+      o.contact_phone?.includes(search.trim())
+    );
+  };
+  const actionCount = (orders || []).filter(needsAction).length;
+  const liveCount = (orders || []).filter((o) => LIVE.includes(o.status)).length;
+  const visible = (orders || []).filter((o) => {
+    if (!matchesSearch(o)) return false;
+    if (filter === 'action') return needsAction(o);
+    if (filter === 'live') return LIVE.includes(o.status);
+    return true;
+  });
 
   async function act(code, fn) {
     setBusy(code);
@@ -708,101 +858,181 @@ function OrdersSection({ onChanged }) {
     }
   }
 
-  if (!orders) return <div className="flex justify-center py-16"><Spinner className="!w-8 !h-8" /></div>;
+  if (!orders) {
+    return (
+      <div className="flex flex-col items-center justify-center py-12 gap-2">
+        <Spinner className="!w-7 !h-7" />
+        <p className="text-sm text-brand-grey">Loading orders…</p>
+      </div>
+    );
+  }
 
   return (
-    <div className="space-y-4">
-      <div className="flex gap-2">
-        {[
-          { id: 'action', label: 'Needs action' },
-          { id: 'live', label: 'Live' },
-          { id: 'all', label: 'All' },
-        ].map((f) => (
-          <button
-            key={f.id}
-            onClick={() => setFilter(f.id)}
-            className={`px-3.5 py-1.5 rounded-full text-sm font-bold border ${
-              filter === f.id ? 'bg-brand-orange text-white border-brand-orange' : 'bg-white text-brand-grey border-brand-border'
-            }`}
-          >
-            {f.label}
-          </button>
-        ))}
+    <div className="space-y-3 min-w-0">
+      <div className="flex flex-col gap-3 xl:flex-row xl:items-center">
+        <div className="flex gap-2 overflow-x-auto overscroll-x-contain snap-x snap-mandatory pb-1 -mx-3 px-3 sm:-mx-5 sm:px-5 md:-mx-6 md:px-6 lg:-mx-8 lg:px-8 xl:mx-0 xl:px-0 flex-1 no-scrollbar">
+          {[
+            { id: 'action', label: 'Needs action', short: 'Action', count: actionCount },
+            { id: 'live', label: 'Live', short: 'Live', count: liveCount },
+            { id: 'all', label: 'All', short: 'All', count: orders.length },
+          ].map((f) => (
+            <button
+              key={f.id}
+              type="button"
+              onClick={() => setFilter(f.id)}
+              className={`snap-start shrink-0 inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-sm font-bold border cursor-pointer ${
+                filter === f.id ? 'bg-brand-black text-white border-brand-black' : 'bg-white text-brand-grey border-brand-border'
+              }`}
+            >
+              <span className="sm:hidden">{f.short}</span>
+              <span className="hidden sm:inline">{f.label}</span>
+              <span className={`text-[11px] tabular-nums px-1.5 py-0.5 rounded-md ${filter === f.id ? 'bg-white/15' : 'bg-brand-surface'}`}>
+                {f.count}
+              </span>
+            </button>
+          ))}
+        </div>
+        <div className="relative w-full xl:w-64 shrink-0">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-brand-grey" />
+          <input
+            type="search"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Code, customer, or store…"
+            className="w-full pl-9 pr-3 py-2.5 rounded-xl border border-brand-border bg-white text-sm focus:outline-none focus:border-brand-orange"
+          />
+        </div>
       </div>
 
       {visible.length === 0 ? (
-        <Card className="p-10 text-center">
-          <ClipboardList className="w-8 h-8 text-brand-grey/40 mx-auto mb-3" />
-          <p className="font-bold text-brand-black">No orders here</p>
+        <Card className="overflow-hidden">
+          <div className="flex flex-col items-center justify-center text-center px-5 py-12">
+            <div className="w-14 h-14 rounded-2xl bg-brand-warm text-brand-orange flex items-center justify-center mb-4">
+              {search.trim() ? <Search className="w-6 h-6" /> : filter === 'action' ? <Sparkles className="w-6 h-6" /> : <Inbox className="w-6 h-6" />}
+            </div>
+            <p className="font-black text-brand-black">
+              {search.trim()
+                ? 'No matches'
+                : filter === 'action'
+                  ? 'Nothing needs you right now'
+                  : filter === 'live'
+                    ? 'No live orders'
+                    : 'No orders yet'}
+            </p>
+            <p className="text-sm text-brand-grey mt-1.5 max-w-xs">
+              {search.trim()
+                ? `Nothing matches “${search.trim()}”.`
+                : filter === 'action'
+                  ? 'Payments to verify and new orders to accept will land here.'
+                  : 'Shop orders will show up here as customers place them.'}
+            </p>
+          </div>
         </Card>
       ) : (
         <div className="space-y-3">
           {visible.map((o) => {
             const status = shopStatusMeta(o.status);
             const payment = shopPaymentMeta(o.payment_status);
+            const items = o.shop_order_items || [];
+            const customer = o.profiles?.full_name || 'Customer';
+            const phone = o.contact_phone || o.profiles?.mobile_number;
             return (
-              <Card key={o.order_code} className="p-4">
+              <Card key={o.order_code} className="p-3 sm:p-4 min-w-0">
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0">
-                    <p className="font-mono text-xs text-brand-grey">{o.order_code}</p>
-                    <p className="font-bold text-brand-black">{o.merchants?.name}</p>
-                    <div className="flex flex-wrap gap-1.5 mt-2">
-                      <Pill tone={status.tone}>{status.label}</Pill>
-                      <Pill tone={payment.tone}>{payment.label}</Pill>
-                      {o.payment_method === 'cash' && <Pill tone="blue">Cash</Pill>}
-                    </div>
+                    <p className="font-bold text-brand-black truncate">{customer}</p>
+                    <p className="text-xs text-brand-grey truncate mt-0.5">
+                      {o.merchants?.name || 'Store'} · <span className="font-mono font-bold">{o.order_code}</span>
+                    </p>
+                    {o.created_at && (
+                      <p className="text-[11px] text-brand-grey mt-0.5">{new Date(o.created_at).toLocaleString()}</p>
+                    )}
                   </div>
                   <div className="text-right shrink-0">
-                    <p className="font-black text-brand-black">{fmtSAR(o.total)}</p>
-                    <p className="text-xs text-brand-grey">markup {fmtSAR(o.platform_margin_total)}</p>
+                    <p className="font-black text-brand-orange tabular-nums text-sm">{fmtSAR(o.total)}</p>
+                    <p className="text-[11px] text-brand-grey">markup {fmtSAR(o.platform_margin_total)}</p>
                   </div>
                 </div>
+                <div className="flex flex-wrap gap-1.5 mt-2">
+                  <Pill tone={status.tone}>{status.label}</Pill>
+                  <Pill tone={payment.tone}>{payment.label}</Pill>
+                  {o.payment_method === 'cash' && <Pill tone="blue">Cash</Pill>}
+                </div>
+                {items.length > 0 && (
+                  <p className="text-xs text-brand-grey mt-2 leading-relaxed line-clamp-3">
+                    {items
+                      .map((i) => `${i.quantity} × ${i.name_snapshot}${i.variant_label_snapshot ? ` (${i.variant_label_snapshot})` : ''}`)
+                      .join(', ')}
+                  </p>
+                )}
+                {phone && (
+                  <p className="text-xs text-brand-grey mt-1">
+                    Contact: <span className="font-bold text-brand-dark">{phone}</span>
+                  </p>
+                )}
 
-                <div className="flex flex-wrap gap-2 mt-3 pt-3 border-t border-brand-border">
+                <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-2">
                   {o.payment_status === 'awaiting' && o.payment_method !== 'cash' && (
                     <>
-                      <button onClick={() => act(o.order_code, () => api.adminShopVerifyPayment(o.order_code, null))} disabled={busy === o.order_code} className={btnPrimary + ' !py-1.5 !px-3 text-sm'}>
+                      <button
+                        type="button"
+                        onClick={() => act(o.order_code, () => api.adminShopVerifyPayment(o.order_code, null))}
+                        disabled={busy === o.order_code}
+                        className={btnPrimary + ' !py-2.5 !px-3 !text-xs justify-center w-full'}
+                      >
                         <Check className="w-4 h-4" /> Verify payment
                       </button>
-                      <button onClick={() => act(o.order_code, () => api.adminShopRejectPayment(o.order_code, 'Proof not valid'))} className={btnGhost + ' !py-1.5 !px-3 text-sm'}>
-                        Reject payment
+                      <button
+                        type="button"
+                        onClick={() => act(o.order_code, () => api.adminShopRejectPayment(o.order_code, 'Proof not valid'))}
+                        className={btnGhost + ' !py-2.5 !px-3 !text-xs justify-center w-full !text-red-600 !border-red-200'}
+                      >
+                        <X className="w-4 h-4" /> Reject payment
                       </button>
                     </>
                   )}
                   {o.status === 'pending' && (
-                    <button onClick={() => act(o.order_code, () => api.adminShopAcceptOrder(o.order_code))} disabled={busy === o.order_code} className={btnGhost + ' !py-1.5 !px-3 text-sm'}>
+                    <button
+                      type="button"
+                      onClick={() => act(o.order_code, () => api.adminShopAcceptOrder(o.order_code))}
+                      disabled={busy === o.order_code}
+                      className={btnGhost + ' !py-2.5 !px-3 !text-xs justify-center w-full'}
+                    >
                       Accept
                     </button>
                   )}
                   {['accepted', 'packing', 'ready', 'out_for_delivery'].includes(o.status) && (
                     <button
+                      type="button"
                       onClick={() => {
                         const next = { accepted: 'packing', packing: 'ready', ready: 'out_for_delivery', out_for_delivery: 'delivered' }[o.status];
                         act(o.order_code, () => api.adminShopOrderStatus(o.order_code, next));
                       }}
-                      className={btnGhost + ' !py-1.5 !px-3 text-sm'}
+                      className={btnGhost + ' !py-2.5 !px-3 !text-xs justify-center w-full'}
                     >
                       Advance
                     </button>
                   )}
                   {!['delivered', 'cancelled', 'rejected'].includes(o.status) && (
                     <button
+                      type="button"
                       onClick={async () => {
                         if (!(await confirmAction(`Cancel ${o.order_code}?`, 'Reserved stock is released.'))) return;
                         act(o.order_code, () => api.adminShopCancelOrder(o.order_code, 'Admin cancelled'));
                       }}
-                      className={btnGhost + ' !py-1.5 !px-3 text-sm'}
+                      className={btnGhost + ' !py-2.5 !px-3 !text-xs justify-center w-full !text-red-600 !border-red-200'}
                     >
                       Cancel
                     </button>
                   )}
                   {o.payment_status === 'paid' && (
                     <button
+                      type="button"
                       onClick={async () => {
                         if (!(await confirmAction(`Refund ${o.order_code}?`, 'Stock is released back to the store.'))) return;
                         act(o.order_code, () => api.adminShopRefund(o.order_code));
                       }}
-                      className={btnGhost + ' !py-1.5 !px-3 text-sm'}
+                      className={btnGhost + ' !py-2.5 !px-3 !text-xs justify-center w-full'}
                     >
                       Mark refunded
                     </button>
@@ -823,30 +1053,70 @@ function InventorySection({ stores }) {
   const [data, setData] = useState(null);
 
   useEffect(() => {
-    if (!storeId) return;
+    if (!storeId) {
+      setData(null);
+      return;
+    }
     api.adminShopInventory(storeId).then(setData).catch(() => {});
   }, [storeId]);
 
-  return (
-    <div className="space-y-4">
-      <Card className="p-4">
-        <select value={storeId} onChange={(e) => setStoreId(e.target.value)} className={inputClass}>
-          <option value="">Select a store...</option>
-          {stores.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
-        </select>
+  if (stores.length === 0) {
+    return (
+      <Card className="overflow-hidden">
+        <div className="flex flex-col items-center justify-center text-center px-5 py-12">
+          <div className="w-14 h-14 rounded-2xl bg-brand-warm text-brand-orange flex items-center justify-center mb-4">
+            <Boxes className="w-6 h-6" />
+          </div>
+          <p className="font-black text-brand-black">No stores yet</p>
+          <p className="text-sm text-brand-grey mt-1.5 max-w-xs">Add a store before you can check stock levels.</p>
+        </div>
       </Card>
-      {data && (
-        <Card className="p-5">
+    );
+  }
+
+  return (
+    <div className="space-y-4 min-w-0">
+      <Card className="p-4">
+        <Field label="Store">
+          <CustomDropdown
+            value={storeId}
+            onChange={setStoreId}
+            options={stores.map((s) => ({ value: s.id, label: s.name }))}
+            placeholder="Select a store…"
+            drawerTitle="Choose a store"
+            className="w-full"
+          />
+        </Field>
+      </Card>
+      {!storeId ? (
+        <Card className="overflow-hidden">
+          <div className="flex flex-col items-center justify-center text-center px-5 py-12">
+            <div className="w-14 h-14 rounded-2xl bg-brand-warm text-brand-orange flex items-center justify-center mb-4">
+              <Boxes className="w-6 h-6" />
+            </div>
+            <p className="font-black text-brand-black">Choose a store</p>
+            <p className="text-sm text-brand-grey mt-1.5 max-w-xs">Low-stock products for that store will show here.</p>
+          </div>
+        </Card>
+      ) : data && (
+        <Card className="p-4 sm:p-5">
           <p className="font-black text-brand-black mb-3">
-            Low stock ({data.lowStock.length}) — at or below the per-product threshold
+            Low stock ({data.lowStock.length})
           </p>
+          <p className="text-xs text-brand-grey mb-3">Products at or below their per-item warning line.</p>
           {data.lowStock.length === 0 ? (
-            <p className="text-sm text-brand-grey">Everything is above its low-stock line.</p>
+            <div className="flex flex-col items-center justify-center text-center px-4 py-8">
+              <div className="w-14 h-14 rounded-2xl bg-brand-warm text-brand-orange flex items-center justify-center mb-4">
+                <Sparkles className="w-6 h-6" />
+              </div>
+              <p className="font-black text-brand-black">Stock looks healthy</p>
+              <p className="text-sm text-brand-grey mt-1.5">Everything is above its low-stock line.</p>
+            </div>
           ) : (
             <div className="space-y-2">
               {data.lowStock.map((p) => (
-                <div key={p.id} className="flex items-center justify-between p-3 rounded-xl border border-brand-border">
-                  <span className="font-bold text-brand-black">{p.name}</span>
+                <div key={p.id} className="flex flex-col sm:flex-row sm:items-center gap-2 p-3 rounded-xl border border-brand-border min-w-0">
+                  <span className="font-bold text-brand-black truncate flex-1 min-w-0">{p.name}</span>
                   <Pill tone={p.stock_quantity <= 0 ? 'red' : 'amber'}>
                     {p.stock_quantity} left (warn at {p.low_stock_threshold})
                   </Pill>
@@ -896,18 +1166,45 @@ function SettlementSection() {
   }
 
   return (
-    <div className="space-y-4">
-      <Card className="p-4">
-        <div className="flex flex-wrap items-end gap-3">
-          <Field label="From"><input type="date" value={from} onChange={(e) => setFrom(e.target.value)} className={inputClass} /></Field>
-          <Field label="To"><input type="date" value={to} onChange={(e) => setTo(e.target.value)} className={inputClass} /></Field>
-          <button onClick={run} disabled={busy} className={btnPrimary}>
+    <div className="space-y-4 min-w-0">
+      <Card className="p-4 sm:p-5 space-y-4">
+        <div className="flex items-center gap-2">
+          <Receipt className="w-4 h-4 text-brand-orange" />
+          <p className="font-black text-brand-black">Settlement</p>
+        </div>
+        <p className="text-xs text-brand-grey">
+          What we owe each store (their net payout) vs. the markup we keep, over a date range.
+          Online orders are collected by us — we owe the store; cash orders are collected by the rider.
+        </p>
+        <div className="flex flex-col sm:flex-row sm:flex-wrap sm:items-end gap-3">
+          <div className="w-full sm:w-56 min-w-0">
+            <Field label="From">
+              <DatePicker
+                value={from}
+                onChange={(v) => { setFrom(v); setData(null); }}
+                max={to || undefined}
+                drawerTitle="From date"
+              />
+            </Field>
+          </div>
+          <div className="w-full sm:w-56 min-w-0">
+            <Field label="To">
+              <DatePicker
+                value={to}
+                onChange={(v) => { setTo(v); setData(null); }}
+                min={from || undefined}
+                drawerTitle="To date"
+              />
+            </Field>
+          </div>
+          <button type="button" onClick={run} disabled={busy} className={btnPrimary + ' !py-2.5 justify-center w-full sm:w-auto'}>
             {busy ? <Spinner className="!border-white/40 !border-t-white" /> : 'Run report'}
           </button>
           {data && data.orders.length > 0 && (
             <button
+              type="button"
               onClick={() => downloadCsv(`shop-settlement-${from}-to-${to}.csv`, toCsv(data.orders, SETTLEMENT_COLUMNS))}
-              className={btnGhost}
+              className={btnGhost + ' !py-2.5 justify-center w-full sm:w-auto sm:ml-auto'}
             >
               <Download className="w-4 h-4" /> CSV
             </button>
@@ -917,13 +1214,13 @@ function SettlementSection() {
 
       {data && (
         <>
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-            <Stat label="Owed to stores (online)" value={fmtSAR(data.totals.onlineOwedToStore)} />
-            <Stat label="Markup kept (online)" value={fmtSAR(data.totals.onlineMarkupKept)} />
-            <Stat label="Cash collected by riders" value={fmtSAR(data.totals.cashCollectedByRider)} />
-            <Stat label="Cash owed to stores" value={fmtSAR(data.totals.cashStorePayout)} />
-            <Stat label="Markup on cash orders" value={fmtSAR(data.totals.cashMarkup)} />
-            <Stat label="VAT collected" value={fmtSAR(data.totals.vatCollected)} />
+          <div className="grid gap-3 grid-cols-2 sm:grid-cols-3">
+            <Stat label="Owed to stores (online)" value={fmtSAR(data.totals.onlineOwedToStore)} icon={Wallet} />
+            <Stat label="Markup kept (online)" value={fmtSAR(data.totals.onlineMarkupKept)} icon={Banknote} />
+            <Stat label="Cash collected by riders" value={fmtSAR(data.totals.cashCollectedByRider)} icon={Banknote} />
+            <Stat label="Cash owed to stores" value={fmtSAR(data.totals.cashStorePayout)} icon={Wallet} />
+            <Stat label="Markup on cash orders" value={fmtSAR(data.totals.cashMarkup)} icon={Banknote} />
+            <Stat label="VAT collected" value={fmtSAR(data.totals.vatCollected)} icon={Receipt} />
           </div>
           {data.totals.refundedAmount > 0 && (
             <div className="p-3 rounded-xl bg-amber-50 border border-amber-200 text-amber-800 text-sm font-medium">
@@ -969,26 +1266,49 @@ export default function ShopAdmin() {
   if (loading) return <div className="flex justify-center py-20"><Spinner className="!w-8 !h-8" /></div>;
 
   return (
-    <div className="space-y-5">
+    <div className="space-y-4 sm:space-y-5 min-w-0">
       {overview && (
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-          <Stat label="Orders today" value={overview.ordersToday} />
-          <Stat label="Total orders" value={overview.totalOrders} />
-          <Stat label="Platform revenue" value={fmtSAR(overview.platformRevenue)} />
-          <Stat label="Payments to verify" value={overview.paymentsToVerify} tone={overview.paymentsToVerify > 0 ? 'red' : undefined} />
-          <Stat label="Stores" value={overview.stores} />
-          <Stat label="Suspended" value={overview.suspended} tone={overview.suspended > 0 ? 'red' : undefined} />
-          <Stat label="Out of stock" value={overview.outOfStockProducts} tone={overview.outOfStockProducts > 0 ? 'red' : undefined} />
+        <div className="grid gap-3 grid-cols-2 sm:grid-cols-3 xl:grid-cols-4">
+          <Stat label="Orders today" value={overview.ordersToday} icon={ClipboardList} hint="Placed since midnight" />
+          <Stat label="Total orders" value={overview.totalOrders} icon={Receipt} />
+          <Stat label="Platform revenue" value={fmtSAR(overview.platformRevenue)} icon={Banknote} />
+          <Stat
+            label="Payments to verify"
+            value={overview.paymentsToVerify}
+            tone={overview.paymentsToVerify > 0 ? 'red' : undefined}
+            icon={Wallet}
+            hint="STC Pay screenshots"
+            onClick={() => setSection('orders')}
+          />
+          <Stat label="Stores" value={overview.stores} icon={Store} onClick={() => setSection('stores')} />
+          <Stat
+            label="Suspended"
+            value={overview.suspended}
+            tone={overview.suspended > 0 ? 'red' : undefined}
+            icon={ShieldX}
+            hint="Cannot take orders"
+          />
+          <Stat
+            label="Out of stock"
+            value={overview.outOfStockProducts}
+            tone={overview.outOfStockProducts > 0 ? 'red' : undefined}
+            icon={Boxes}
+            hint="Products at zero"
+            onClick={() => setSection('inventory')}
+          />
         </div>
       )}
 
-      <div className="flex gap-2 overflow-x-auto pb-1">
+      <div className="flex gap-2 overflow-x-auto overscroll-x-contain snap-x snap-mandatory pb-1 -mx-3 px-3 sm:-mx-5 sm:px-5 md:-mx-6 md:px-6 lg:-mx-8 lg:px-8 xl:mx-0 xl:px-0 no-scrollbar">
         {SECTIONS.map(({ id, label, icon: Icon }) => (
           <button
             key={id}
+            type="button"
             onClick={() => setSection(id)}
-            className={`shrink-0 inline-flex items-center gap-2 px-3.5 py-2 rounded-xl text-sm font-bold border transition-colors ${
-              section === id ? 'bg-brand-orange text-white border-brand-orange' : 'bg-white text-brand-grey border-brand-border'
+            className={`snap-start shrink-0 inline-flex items-center gap-2 px-3.5 py-2.5 rounded-xl text-sm font-bold border cursor-pointer ${
+              section === id
+                ? 'bg-brand-orange text-white border-brand-orange'
+                : 'bg-white text-brand-grey border-brand-border hover:text-brand-dark'
             }`}
           >
             <Icon className="w-4 h-4" /> {label}

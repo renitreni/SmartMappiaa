@@ -198,7 +198,7 @@ export default function CustomDropdown({
 
         aria-expanded={open}
 
-        onClick={() => setOpen(true)}
+        onClick={() => setOpen((o) => !o)}
 
         className={`${selectTriggerClass} flex items-center justify-between gap-3 ${borderClass} ${
 
