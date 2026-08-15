@@ -4,7 +4,7 @@
 // a service. Add new services here as the platform grows.
 // ---------------------------------------------------------------------
 import { Link } from 'react-router-dom';
-import { Plane, UtensilsCrossed, ReceiptText, ArrowRight, ShieldCheck } from 'lucide-react';
+import { Plane, UtensilsCrossed, ShoppingBag, ReceiptText, ArrowRight, ShieldCheck } from 'lucide-react';
 import { useAuth } from '../lib/AuthProvider';
 import { PortalShell, Card } from '../components/ui';
 
@@ -53,13 +53,20 @@ export default function HomePage() {
     <PortalShell title="Smart Mappia" subtitle={firstName ? `Welcome back, ${firstName}` : 'What do you need today?'}>
       <div className="max-w-2xl mx-auto">
         <h2 className="text-xl font-black text-brand-black mb-4">Choose a service</h2>
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
           <ServiceCard
             to="/book"
             icon={Plane}
             title="Airport Pick & Drop"
             description="Book a ride to or from the airport with a verified driver."
             cta="Book a ride"
+          />
+          <ServiceCard
+            to="/shop"
+            icon={ShoppingBag}
+            title="E-Commerce Shop"
+            description="Browse trending products and daily essentials, delivered to your door."
+            cta="Browse the shop"
           />
           <ServiceCard
             to="/food"
@@ -81,6 +88,12 @@ export default function HomePage() {
             to="/food/orders"
             icon={ReceiptText}
             title="My food orders"
+            subtitle="Track live orders and reorder favorites"
+          />
+          <QuickLink
+            to="/shop/orders"
+            icon={ReceiptText}
+            title="My shop orders"
             subtitle="Track live orders and reorder favorites"
           />
         </div>
