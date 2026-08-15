@@ -16,6 +16,7 @@ const { round2, creditAfterCharge } = require('./foodMoney');
 const { logFoodEvent } = require('./foodEvents');
 const { logAudit } = require('./audit');
 const { logNotification } = require('./notifications');
+const { reverseOrderMargin } = require('./merchantCredit');
 const { pushFoodOrderStatus, pushMerchantFeed, pingFoodAdmin } = require('./realtime');
 
 // Credit summary for a restaurant (used / limit / warning / suspended).
@@ -279,6 +280,131 @@ async function advanceOrderStatusCore({ orderCode, actorId, actorRole, status })
   return { httpStatus: 200, body: { orderCode: order.order_code, status } };
 }
 
+// Cancel — admin/support, or (since the restaurant gained its own cancel
+// button) the merchant itself. Twin of shopOrderActions.cancelOrderCore; the
+// only differences are the table and that food reserves no stock.
+//
+// This lived inline in adminFoodController and could not be shared. Moving it
+// here is what lets the merchant route reuse the credit reversal and the
+// refund bookkeeping rather than growing a second, subtly different copy.
+//
+// Refunding a paid order stays a separate, deliberate admin action — the
+// money went out by card or STC Pay and comes back the same way, by hand.
+// What this guarantees is that it cannot be forgotten: the order lands in the
+// admin refund queue (cancelled + still paid), and refundDue comes back so
+// the customer can be told.
+async function cancelOrderCore({
+  orderCode,
+  actorId,
+  actorRole,
+  reason,
+  cancelledBy = 'admin',
+  // When passed, restricts which statuses this caller may cancel from. The
+  // merchant route stops at handover: once a rider is carrying the order,
+  // cancelling is support's call.
+  allowedStatuses = null,
+}) {
+  const order = await loadOrderByCode(orderCode);
+  if (!order) return { httpStatus: 404, body: { error: 'Order not found' } };
+  if (['delivered', 'cancelled', 'rejected'].includes(order.status)) {
+    return { httpStatus: 409, body: { error: `Order is already ${order.status}` } };
+  }
+  if (allowedStatuses && !allowedStatuses.includes(order.status)) {
+    return {
+      httpStatus: 409,
+      body: {
+        error: `An order that is ${order.status} can only be cancelled by support.`,
+        failure_reason: 'cancel_window_passed',
+      },
+    };
+  }
+
+  const { data: rows } = await supabase
+    .from('orders')
+    .update({
+      status: 'cancelled',
+      reject_reason: reason || null,
+      cancelled_by: cancelledBy,
+      cancelled_at: new Date().toISOString(),
+    })
+    .eq('id', order.id)
+    .eq('status', order.status)
+    .select('order_code');
+  if (!rows || rows.length === 0) {
+    return { httpStatus: 409, body: { error: 'The order status changed — please retry' } };
+  }
+
+  // Withdraw any live rider offer. Without this the offer stays pending and
+  // unexpired: a rider tapping Accept seconds later wins the CAS and claims a
+  // cancelled order, and the customer gets a "rider assigned" push for an
+  // order they were just told was cancelled.
+  await supabase
+    .from('dispatch_offers')
+    .update({ status: 'cancelled', responded_at: new Date().toISOString() })
+    .eq('order_id', order.id)
+    .eq('status', 'pending');
+
+  // Free a rider who was holding it and had not collected yet.
+  try {
+    const { releaseFoodDelivery } = require('./dispatch');
+    await releaseFoodDelivery(order.id, { cause: 'order_cancelled', redispatch: false });
+  } catch (err) {
+    console.error('food cancelOrderCore release delivery error:', err.message || err);
+  }
+
+  // Accepting charged the platform margin to the restaurant's credit;
+  // cancelling gives it back. Only for an order that WAS accepted — a pending
+  // one was never charged. Best-effort: the cancel already happened.
+  const creditReversal = order.accepted_at
+    ? await reverseOrderMargin({
+        merchantId: order.merchant_id,
+        margin: order.platform_margin_total,
+        orderId: order.id,
+        orderCode: order.order_code,
+        actorId,
+      })
+    : { reversed: false, amount: 0 };
+
+  const refundDue = order.payment_status === 'paid';
+
+  logAudit({
+    actorId,
+    action: auditAction('food_order_cancelled', actorRole),
+    resourceType: 'order',
+    resourceId: order.order_code,
+    meta: {
+      reason: reason || null,
+      was: order.status,
+      cancelled_by: cancelledBy,
+      margin_reversed: creditReversal.reversed ? creditReversal.amount : 0,
+      refund_due: refundDue,
+    },
+  });
+  pushFoodOrderStatus(order.order_code, { status: 'cancelled' });
+  pushMerchantFeed(order.merchant_id, 'order_update', {
+    orderCode: order.order_code,
+    status: 'cancelled',
+  });
+  pingFoodAdmin(order.order_code);
+  logNotification({
+    userId: order.customer_id,
+    // A restaurant cancelling is a different message from support cancelling.
+    type: cancelledBy === 'merchant' ? 'food_order_cancelled_by_store' : 'food_order_cancelled',
+    code: order.order_code,
+    orderId: order.id,
+  });
+
+  return {
+    httpStatus: 200,
+    body: {
+      orderCode: order.order_code,
+      status: 'cancelled',
+      refundDue,
+      marginReversed: creditReversal.reversed ? creditReversal.amount : 0,
+    },
+  };
+}
+
 module.exports = {
   creditView,
   loadOrderByCode,
@@ -287,4 +413,5 @@ module.exports = {
   acceptOrderCore,
   rejectOrderCore,
   advanceOrderStatusCore,
+  cancelOrderCore,
 };

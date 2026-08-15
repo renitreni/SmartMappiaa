@@ -10,6 +10,7 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { Phone, MessageCircle, ShoppingBag, MapPin, Clock } from 'lucide-react';
 import { api } from '../lib/api';
 import { formatAddressDetail } from '../lib/address';
+import { notifyMerchantCancelled } from '../lib/notify';
 import { bearingDeg } from '../lib/geo';
 import { useBroadcast } from '../lib/useBroadcast';
 import {
@@ -107,6 +108,26 @@ export default function ShopTrackPage() {
   }, [riderLive?.lat, riderLive?.lng]);
 
   const heading = riderLive?.heading ?? riderHeading;
+
+  // The store withdrew an order it had already accepted. Announced once — the
+  // ref, not the status, is what stops the 8 s poll re-firing the modal — and
+  // then left as a banner below so it survives the dismissal.
+  const cancelAnnounced = useRef(false);
+  // Not named `order`: the render body destructures that name out of `data`
+  // further down, once it is known to be loaded.
+  const loadedOrder = data?.order;
+  useEffect(() => {
+    const o = loadedOrder;
+    if (!o || o.status !== 'cancelled' || o.cancelled_by !== 'merchant') return;
+    if (cancelAnnounced.current) return;
+    cancelAnnounced.current = true;
+    notifyMerchantCancelled({
+      noun: 'store',
+      reason: o.reject_reason,
+      // Only when money was actually taken. Cash was never collected.
+      refundLabel: o.payment_status === 'paid' ? fmtSAR(o.total) : null,
+    });
+  }, [loadedOrder]);
 
   const status = data?.order?.status;
   const realtimeEnabled = !!status && !TERMINAL.includes(status);
@@ -228,6 +249,25 @@ export default function ShopTrackPage() {
         </div>
       )}
 
+      {/* Survives dismissing the modal above — a customer who closes it should
+          still be able to find out what happened and what is owed. */}
+      {order.status === 'cancelled' && (
+        <div className="mb-4 p-3 rounded-xl bg-red-50 border border-red-200 text-red-700 text-sm">
+          <p className="font-bold">
+            {order.cancelled_by === 'merchant'
+              ? 'The store cancelled this order'
+              : 'This order was cancelled'}
+          </p>
+          {order.reject_reason && <p className="mt-1 font-medium">{order.reject_reason}</p>}
+          {order.payment_status === 'paid' && (
+            <p className="mt-1 font-medium">
+              Your payment of {fmtSAR(order.total)} will be refunded — usually within a few hours,
+              and up to one working day.
+            </p>
+          )}
+        </div>
+      )}
+
       {/* ETA hero — the real Google driving time, floored at 45 minutes to
           cover the packing stage a routing API cannot see. Once the rider
           has the order their own live ETA is the honest number. */}
@@ -289,6 +329,29 @@ export default function ShopTrackPage() {
                   <MessageCircle className="w-4 h-4" />
                 </a>
               </div>
+            )}
+          </div>
+        </Card>
+      )}
+
+      {/* Where it is coming FROM. The API has always returned the store's
+          address; only the food tracking page rendered it. */}
+      {store && (
+        <Card className="p-4 mb-4 flex items-center gap-3">
+          <div className="w-11 h-11 rounded-xl bg-gradient-to-br from-brand-orange/15 to-brand-red/10 flex items-center justify-center overflow-hidden shrink-0">
+            {store.logo_url ? (
+              <img src={store.logo_url} alt="" className="w-full h-full object-cover" />
+            ) : (
+              <ShoppingBag className="w-5 h-5 text-brand-orange/60" />
+            )}
+          </div>
+          <div className="min-w-0">
+            <p className="text-xs text-brand-grey">Collecting from</p>
+            <p className="font-bold text-brand-dark truncate">{store.name}</p>
+            {store.address && (
+              <p className="text-xs text-brand-grey truncate flex items-center gap-1">
+                <MapPin className="w-3 h-3 shrink-0" /> {store.address}
+              </p>
             )}
           </div>
         </Card>

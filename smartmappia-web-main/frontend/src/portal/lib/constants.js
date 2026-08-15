@@ -193,6 +193,59 @@ export function fmtSAR(amount) {
   return `SAR ${Number(amount ?? 0).toFixed(2)}`;
 }
 
+// merchants.badge is snake_case, constrained by the DB to these four values
+// (0015_merchant_homepage_presentation.sql) and echoed by the route whitelist
+// in backend/routes/admin.js. Lives here, in the shared constants module,
+// because the portal discovery rows, the marketing cards and the admin
+// dropdown all render it — an unmapped value shows no badge at all, so a
+// second copy is a badge that silently stops appearing on one surface.
+export const BADGE_LABELS = {
+  top_rated: 'Top Rated',
+  popular: 'Popular',
+  new: 'New',
+  trending: 'Trending',
+};
+
+// --- Delivery fee copy -----------------------------------------------
+//
+// The base fee is a FLOOR, never the final price: the server adds
+// surchargePerKm for every km past freeRadiusKm (backend
+// lib/deliveryPricing.js), and no discovery screen knows the customer's
+// address, so no discovery screen can compute the real number.
+//
+// Both helpers return null rather than a fallback string when the terms are
+// missing or zero. That is deliberate and is the bug they exist to fix:
+// "Free delivery" used to be rendered whenever the fee was absent — a
+// commitment we do not make, shown most often exactly when the request had
+// failed and we knew nothing at all. A missing fee must render nothing.
+//
+// `terms` is the `delivery` object the discovery endpoints return; the bare
+// `deliveryFee` number from an older response is accepted too so a cached
+// bundle degrades to "From SAR 10" instead of throwing.
+function deliveryBaseFee(terms) {
+  const fee = Number(terms && typeof terms === 'object' ? terms.baseFee : terms);
+  return Number.isFinite(fee) && fee > 0 ? fee : null;
+}
+
+export function deliveryFeeFromLabel(terms) {
+  const fee = deliveryBaseFee(terms);
+  return fee == null ? null : `From ${fmtSAR(fee)}`;
+}
+
+// The rule in one line, for the page header rather than every card.
+export function deliveryFeeNote(terms) {
+  const fee = deliveryBaseFee(terms);
+  if (fee == null || !terms || typeof terms !== 'object') return null;
+  const { freeRadiusKm, surchargePerKm } = terms;
+  if (!Number.isFinite(Number(freeRadiusKm)) || !Number.isFinite(Number(surchargePerKm))) {
+    return null;
+  }
+  return (
+    `${fmtSAR(fee)} delivery within ${freeRadiusKm} km, ` +
+    `then ${fmtSAR(surchargePerKm)} per km`
+  );
+}
+
 // Human-friendly labels + colors for food order statuses.
 export const FOOD_ORDER_STATUS = {
   pending: { label: 'Pending', tone: 'amber' },

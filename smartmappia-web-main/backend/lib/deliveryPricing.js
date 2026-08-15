@@ -62,4 +62,21 @@ function exceedsMaxRadius(distanceKm) {
   return distance > config.delivery.maxRadiusKm;
 }
 
-module.exports = { surchargeFor, exceedsMaxRadius, round2 };
+// The terms behind a quoted delivery fee, for the storefront to render.
+//
+// Discovery pages have no delivery address — the customer only supplies one
+// at checkout — so the number they can honestly show is a FLOOR, not a fee.
+// Shipping the base fee on its own made every card read as the final price
+// while surchargeFor above was quietly adding per-km on top at checkout.
+// Returning the terms alongside it lets the UI say "from SAR 10" and print
+// the rule, rather than the frontend hardcoding a copy of these numbers.
+function deliveryTerms(baseFeeSar) {
+  return {
+    baseFee: round2(baseFeeSar),
+    freeRadiusKm: config.delivery.freeRadiusKm,
+    surchargePerKm: config.delivery.surchargePerKm,
+    maxRadiusKm: config.delivery.maxRadiusKm,
+  };
+}
+
+module.exports = { surchargeFor, exceedsMaxRadius, round2, deliveryTerms };

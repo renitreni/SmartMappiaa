@@ -188,6 +188,81 @@ export function notifyUnderDevelopment() {
   });
 }
 
+// Merchant-supplied text goes into a Swal `html` body, so it is escaped
+// here. The reason is typed by a store owner and read by a customer — the
+// one string on this screen that neither of them is trusted to author.
+function escapeHtml(value) {
+  return String(value ?? '').replace(
+    /[&<>"']/g,
+    (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]
+  );
+}
+
+/**
+ * The store/restaurant withdrew an order it had already accepted.
+ *
+ * Shown once, as a modal rather than a toast, because it is the end of that
+ * order and the customer has to acknowledge it — and because the refund
+ * sentence is the part they will act on.
+ *
+ * `refundLabel` is passed ONLY when the order was actually paid. A cash
+ * order was never collected, and promising a refund on one is a support
+ * ticket we would have created ourselves.
+ */
+export function notifyMerchantCancelled({ noun = 'store', reason, refundLabel } = {}) {
+  const lines = [
+    `This is because ${escapeHtml(reason) || 'the items are no longer available'}.`,
+    'We apologise for any inconvenience caused.',
+    refundLabel
+      ? `Your payment of <strong>${escapeHtml(refundLabel)}</strong> will be refunded — usually within a few hours, and up to one working day.`
+      : null,
+    `Try ordering again from a different ${escapeHtml(noun)} or at another time.`,
+  ].filter(Boolean);
+
+  return Swal.fire({
+    icon: 'warning',
+    title: `Sorry, the ${escapeHtml(noun)} cancelled your order`,
+    html: lines.join('<br/><br/>'),
+    confirmButtonText: 'OK',
+    confirmButtonColor: '#FF7E21',
+  });
+}
+
+/**
+ * Ask a merchant why they are withdrawing an order they already accepted.
+ *
+ * A Swal input rather than window.prompt (which the reject buttons use)
+ * because this reason is NOT optional: the server rejects an empty one, and
+ * the customer reads it verbatim. Validating in the dialog beats a 400 the
+ * merchant has to interpret.
+ *
+ * Resolves to the trimmed reason, or null if they backed out.
+ */
+export async function promptCancelReason({ orderCode, refundWarning } = {}) {
+  const { value } = await Swal.fire({
+    icon: 'warning',
+    title: `Cancel order ${orderCode || ''}`.trim() + '?',
+    html: [
+      'The customer is told immediately and sees the reason you type below.',
+      refundWarning
+        ? 'This order is <strong>already paid</strong> — it will go into the refund queue for the platform to return the money.'
+        : null,
+    ]
+      .filter(Boolean)
+      .join('<br/><br/>'),
+    input: 'text',
+    inputPlaceholder: 'e.g. most items are no longer available',
+    inputAttributes: { maxlength: 300 },
+    inputValidator: (v) => (String(v || '').trim() ? undefined : 'Please give the customer a reason.'),
+    showCancelButton: true,
+    confirmButtonText: 'Cancel the order',
+    cancelButtonText: 'Keep it',
+    confirmButtonColor: '#dc2626',
+  });
+  const reason = String(value || '').trim();
+  return reason || null;
+}
+
 /** Restaurant listed but menu not ready yet — stay on discovery. */
 export function notifyMenuUnavailable(restaurantName) {
   return Swal.fire({

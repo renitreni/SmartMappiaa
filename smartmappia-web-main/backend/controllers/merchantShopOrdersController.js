@@ -21,6 +21,7 @@ const {
   acceptOrderCore,
   rejectOrderCore,
   advanceOrderStatusCore,
+  cancelOrderCore,
   creditView,
 } = require('../lib/shopOrderActions');
 const { requireOwnedStore } = require('./merchantShopController');
@@ -173,4 +174,36 @@ async function advanceStatus(req, res) {
   }
 }
 
-module.exports = { listOrders, acceptOrder, rejectOrder, advanceStatus };
+// Cancel an order the store has ALREADY accepted — the "most or all items
+// are no longer available" case. Rejecting only works while an order is
+// pending, so before this a store that started packing and found the shelf
+// empty had to call support.
+//
+// Stops at 'ready', the same boundary that stops advanceStatus: once a rider
+// is carrying the goods, cancelling is support's call.
+const MERCHANT_CANCELLABLE = ['accepted', 'packing', 'ready'];
+
+async function cancelOrder(req, res) {
+  try {
+    const store = await requireOwnedStore(req, res);
+    if (!store) return undefined;
+    if (!(await assertOwnedOrder(store.id, req.params.code, res))) return undefined;
+
+    const { httpStatus, body } = await cancelOrderCore({
+      orderCode: req.params.code,
+      actorId: req.merchantOwnerId,
+      actorRole: 'merchant',
+      // Required by the route schema, unlike the admin one: the customer is
+      // shown this sentence verbatim.
+      reason: req.body.reason || null,
+      cancelledBy: 'merchant',
+      allowedStatuses: MERCHANT_CANCELLABLE,
+    });
+    return res.status(httpStatus).json(body);
+  } catch (err) {
+    console.error('merchant shop cancelOrder error:', err);
+    return res.status(500).json({ error: 'Unexpected server error' });
+  }
+}
+
+module.exports = { listOrders, acceptOrder, rejectOrder, advanceStatus, cancelOrder };

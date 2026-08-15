@@ -96,6 +96,10 @@ const ADMIN_CATEGORY_FIELDS = {
 };
 
 router.get('/food/overview', food.getOverview);
+// The refund queue. Nothing here moves money — it is the list of orders
+// that were cancelled or rejected while still marked paid, so a refund
+// owed cannot be lost track of between the cancel and the transfer.
+router.get('/food/refunds', food.listRefunds);
 router.get('/food/merchants', food.listMerchants);
 router.post(
   '/food/merchants',
@@ -231,6 +235,7 @@ router.get('/food/orders/:code/photos', food.getOrderPhotos);
 const shop = require('../controllers/shop/adminShopController');
 
 router.get('/shop/overview', shop.getOverview);
+router.get('/shop/refunds', shop.listRefunds);
 
 // --- Stores ---
 router.get('/shop/stores', shop.listStores);
@@ -248,7 +253,10 @@ router.post(
     lng: { type: 'number', min: -180, max: 180, nullable: true },
     is_active: { type: 'boolean' },
     is_featured: { type: 'boolean' },
-    badge: { type: 'string', maxLength: 40, nullable: true },
+    // The same four values ADMIN_MERCHANT_FIELDS uses. It was a free
+    // 40-char string here while the DB has merchants_badge_chk (0015),
+    // so anything else was a 500 instead of a 400.
+    badge: { type: 'string', enum: ['top_rated', 'popular', 'new', 'trending'], nullable: true },
     credit_limit: { type: 'number', min: 0, max: 1000000 },
     // `vertical` is deliberately absent: the controller pins it to 'shop'
     // so this endpoint can never mint a restaurant.
@@ -269,7 +277,10 @@ router.patch(
     lng: { type: 'number', min: -180, max: 180, nullable: true },
     is_active: { type: 'boolean' },
     is_featured: { type: 'boolean' },
-    badge: { type: 'string', maxLength: 40, nullable: true },
+    // The same four values ADMIN_MERCHANT_FIELDS uses. It was a free
+    // 40-char string here while the DB has merchants_badge_chk (0015),
+    // so anything else was a 500 instead of a 400.
+    badge: { type: 'string', enum: ['top_rated', 'popular', 'new', 'trending'], nullable: true },
     credit_limit: { type: 'number', min: 0, max: 1000000 },
   }),
   shop.updateStore

@@ -290,6 +290,10 @@ export const api = {
   merchantAcceptOrder: (code) => request(`/api/merchant/orders/${code}/accept`, { method: 'POST', silent: true }),
   merchantRejectOrder: (code, reason) => request(`/api/merchant/orders/${code}/reject`, { method: 'POST', body: { reason } }),
   merchantOrderStatus: (code, status) => request(`/api/merchant/orders/${code}/status`, { method: 'PATCH', body: { status } }),
+  // Withdraw an order the restaurant already accepted. `reason` is required
+  // by the server — the customer is shown it verbatim.
+  merchantCancelOrder: (code, reason) =>
+    request(`/api/merchant/orders/${code}/cancel`, { method: 'POST', body: { reason } }),
 
   // --- store owner (ecommerce merchant portal) ---
   // Parallel to the block above. The store owner never sees net_price: it is
@@ -334,6 +338,10 @@ export const api = {
     request(`/api/merchant/shop/orders/${code}/reject`, { method: 'POST', body: { reason } }),
   merchantShopOrderStatus: (code, status) =>
     request(`/api/merchant/shop/orders/${code}/status`, { method: 'PATCH', body: { status } }),
+  // Withdraw an order the store already accepted. `reason` is required by the
+  // server — the customer is shown it verbatim.
+  merchantShopCancelOrder: (code, reason) =>
+    request(`/api/merchant/shop/orders/${code}/cancel`, { method: 'POST', body: { reason } }),
 
   // --- ecommerce: admin ---
   // The only block that sends or receives net_price. Everything else in this
@@ -403,6 +411,8 @@ export const api = {
   adminShopRejectPayment: (code, reason) =>
     request(`/api/admin/shop/orders/${code}/reject-payment`, { method: 'POST', body: { reason } }),
   adminShopRefund: (code) => request(`/api/admin/shop/orders/${code}/refund`, { method: 'POST' }),
+  // The refund queue: cancelled/rejected orders still marked paid.
+  adminShopRefunds: () => request('/api/admin/shop/refunds'),
   adminShopCancelOrder: (code, reason) =>
     request(`/api/admin/shop/orders/${code}/cancel`, { method: 'POST', body: { reason } }),
   adminShopAssignDriver: (code, driver_id) =>
@@ -442,6 +452,7 @@ export const api = {
   adminFoodRejectPayment: (code, reason) => request(`/api/admin/food/orders/${code}/reject-payment`, { method: 'POST', body: { reason } }),
   adminFoodCancelOrder: (code, reason) => request(`/api/admin/food/orders/${code}/cancel`, { method: 'POST', body: { reason } }),
   adminFoodRefund: (code) => request(`/api/admin/food/orders/${code}/refund`, { method: 'POST' }),
+  adminFoodRefunds: () => request('/api/admin/food/refunds'),
   adminFoodOrderPhotos: (code) => request(`/api/admin/food/orders/${code}/photos`),
   adminFoodAssignDriver: (code, driver_id) => request(`/api/admin/food/orders/${code}/assign-driver`, { method: 'POST', body: { driver_id } }),
   // Merchant image upload (logo/menu photo) -> PUBLIC bucket signed URL.

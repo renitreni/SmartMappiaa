@@ -65,18 +65,27 @@ async function loadStore(id) {
 // --- Overview ---------------------------------------------------------
 async function getOverview(req, res) {
   try {
-    const [{ data: orders }, { data: stores }, { count: awaitingPayments }] = await Promise.all([
-      supabase
-        .from('shop_orders')
-        .select('id, status, total, platform_margin_total, payment_status, created_at')
-        .order('created_at', { ascending: false })
-        .limit(2000),
-      supabase.from('merchants').select('status, credit_used, credit_limit').eq('vertical', 'shop'),
-      supabase
-        .from('shop_orders')
-        .select('id', { count: 'exact', head: true })
-        .eq('payment_status', 'awaiting'),
-    ]);
+    const [{ data: orders }, { data: stores }, { count: awaitingPayments }, { count: refundsOwed }] =
+      await Promise.all([
+        supabase
+          .from('shop_orders')
+          .select('id, status, total, platform_margin_total, payment_status, created_at')
+          .order('created_at', { ascending: false })
+          .limit(2000),
+        supabase.from('merchants').select('status, credit_used, credit_limit').eq('vertical', 'shop'),
+        supabase
+          .from('shop_orders')
+          .select('id', { count: 'exact', head: true })
+          .eq('payment_status', 'awaiting'),
+        // Cancelled or rejected but still paid — money we owe back. Counted
+        // here rather than derived from the 2000-row window above, which is
+        // capped and would silently undercount once history outgrows it.
+        supabase
+          .from('shop_orders')
+          .select('id', { count: 'exact', head: true })
+          .in('status', ['cancelled', 'rejected'])
+          .eq('payment_status', 'paid'),
+      ]);
 
     const rows = orders || [];
     const startOfToday = new Date();
@@ -87,7 +96,11 @@ async function getOverview(req, res) {
       .filter((o) => o.status === 'delivered')
       .reduce((s, o) => s + Number(o.platform_margin_total || 0), 0);
 
-    const { data: outOfStock } = await supabase
+    // head: true returns NO rows — only a count. This read `data.length` off
+    // that null, so the tile said 0 out-of-stock products however many there
+    // were, which is the one number on this panel that is meant to prompt
+    // action.
+    const { count: outOfStock } = await supabase
       .from('products')
       .select('id', { count: 'exact', head: true })
       .eq('track_stock', true)
@@ -100,7 +113,10 @@ async function getOverview(req, res) {
       stores: (stores || []).length,
       suspended: (stores || []).filter((s) => s.status === 'suspended').length,
       paymentsToVerify: awaitingPayments || 0,
-      outOfStockProducts: outOfStock ? outOfStock.length : 0,
+      // Money the platform still owes back. Beside paymentsToVerify
+      // because it is the same kind of debt, in the other direction.
+      refundsOwed: refundsOwed || 0,
+      outOfStockProducts: outOfStock || 0,
     });
   } catch (err) {
     console.error('admin shop getOverview error:', err);
@@ -147,6 +163,18 @@ async function listStores(req, res) {
 
 async function createStore(req, res) {
   try {
+    // Location is mandatory, exactly as it is for a restaurant: the pin is
+    // where the rider collects and what the delivery radius is measured from.
+    // This endpoint used to accept a store with no pin at all, and the admin
+    // form had no way to set one — so every store went live unpinned and the
+    // rider's pickup navigation and the customer's tracking map had nothing
+    // to draw.
+    if (!Number.isFinite(req.body.lat) || !Number.isFinite(req.body.lng)) {
+      return res.status(400).json({
+        error: 'Store location is required',
+        failure_reason: 'store_location_required',
+      });
+    }
     const { data, error } = await supabase
       .from('merchants')
       // vertical is set HERE, not taken from the body: the route schema does
@@ -174,6 +202,23 @@ async function createStore(req, res) {
 
 async function updateStore(req, res) {
   try {
+    const current = await loadStore(req.params.id);
+    if (!current) return res.status(404).json({ error: 'Store not found' });
+
+    // A store cannot be LISTED without a pin — same rule as updateMerchant.
+    // Scoped to listing rather than to every edit so the stores that already
+    // exist unpinned can still be renamed, suspended or unlisted; they just
+    // have to be pinned in the request that puts them in front of customers.
+    const nextLat = req.body.lat != null ? req.body.lat : current.lat;
+    const nextLng = req.body.lng != null ? req.body.lng : current.lng;
+    const willBeActive = req.body.is_active != null ? req.body.is_active : current.is_active;
+    if (willBeActive && (!Number.isFinite(nextLat) || !Number.isFinite(nextLng))) {
+      return res.status(400).json({
+        error: 'Set the store location before listing it',
+        failure_reason: 'store_location_required',
+      });
+    }
+
     const { data, error } = await supabase
       .from('merchants')
       .update(req.body)
@@ -698,6 +743,52 @@ async function listOrders(req, res) {
   }
 }
 
+// GET /api/admin/shop/refunds — orders the platform owes money back on.
+//
+// "Owed" is derived, not stored: cancelled or rejected AND still marked paid.
+// That is the exact condition refundPayment enforces, so a second flag column
+// would only be somewhere for the two to disagree. Migration 0040 indexes
+// this predicate directly.
+//
+// Cash never appears here: payment_status only reaches 'paid' when the rider
+// collects at the door, which a cancelled order never reaches.
+const REFUND_QUEUE_SELECT =
+  'order_code, status, payment_status, payment_method, total, reject_reason, ' +
+  'cancelled_by, cancelled_at, created_at, merchants ( name )';
+
+async function listRefunds(req, res) {
+  try {
+    const { data, error } = await supabase
+      .from('shop_orders')
+      .select(REFUND_QUEUE_SELECT)
+      .in('status', ['cancelled', 'rejected'])
+      .eq('payment_status', 'paid')
+      // Newest first on screen; the oldest debt is the one that pages to the
+      // bottom, which is why cancelled_at is surfaced at all.
+      .order('cancelled_at', { ascending: false, nullsFirst: false })
+      .limit(200);
+    if (error) {
+      console.error('admin shop listRefunds error:', error);
+      return res.status(500).json({ error: 'Could not load the refund queue' });
+    }
+    return res.json({
+      refunds: (data || []).map((o) => ({
+        orderCode: o.order_code,
+        status: o.status,
+        paymentMethod: o.payment_method,
+        total: Number(o.total),
+        reason: o.reject_reason,
+        cancelledBy: o.cancelled_by,
+        cancelledAt: o.cancelled_at || o.created_at,
+        store: o.merchants ? o.merchants.name : null,
+      })),
+    });
+  } catch (err) {
+    console.error('admin shop listRefunds error:', err);
+    return res.status(500).json({ error: 'Unexpected server error' });
+  }
+}
+
 // The admin fallback path. Delegates to the SAME core the store portal uses,
 // so the credit gate and the ledger cannot diverge between the two.
 async function acceptOrder(req, res) {
@@ -1019,6 +1110,7 @@ async function getSettlement(req, res) {
 
 module.exports = {
   getOverview,
+  listRefunds,
   listStores,
   createStore,
   updateStore,

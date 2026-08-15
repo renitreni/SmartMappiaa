@@ -9,20 +9,23 @@ import { motion } from "framer-motion";
 import { ArrowRight, Sparkles } from "lucide-react";
 import { notifyMenuUnavailable } from "../portal/lib/notify";
 import { useMarketingPartners, MARKETING_ETA_SHORT } from "../lib/useMarketingPartners";
+import { deliveryFeeFromLabel } from "../portal/lib/constants";
 import MarketingListingGrid from "../components/MarketingListingCard";
 
 const Restaurants = () => {
   const navigate = useNavigate();
-  const { partners, total, loading, deliveryFee } = useMarketingPartners();
+  const { partners, total, loading, failed, delivery } = useMarketingPartners();
 
   // Counts are real or absent. A dash while the request is in flight beats a
-  // round number that turns out to be wrong a second later.
+  // round number that turns out to be wrong a second later — and a dash when
+  // it FAILED beats "0 partner restaurants", which is a claim about the
+  // business rather than about the request.
+  const unknown = loading || failed;
   const stats = [
-    { value: loading ? "—" : String(total), label: "Partner restaurants" },
-    {
-      value: loading ? "—" : Number(deliveryFee) > 0 ? `SAR ${deliveryFee}` : "Free",
-      label: "Delivery",
-    },
+    { value: unknown ? "—" : String(total), label: "Partner restaurants" },
+    // Never "Free": the fee is a floor that rises past the free radius, and
+    // an unknown fee must render nothing rather than a promise.
+    { value: (unknown ? null : deliveryFeeFromLabel(delivery)) ?? "—", label: "Delivery" },
     { value: MARKETING_ETA_SHORT, label: "Avg. delivery" },
   ];
 
@@ -103,6 +106,7 @@ const Restaurants = () => {
         <MarketingListingGrid
           listings={partners}
           loading={loading}
+          failed={failed}
           ctaLabel="Order Now"
           onOpen={openRestaurant}
           emptyText="No restaurants are listed yet. New partners appear here the moment they go live."

@@ -31,10 +31,18 @@ import {
   Inbox,
   Sparkles,
   UserCheck,
+  Undo2,
 } from 'lucide-react';
 import { api } from '../lib/api';
 import { useBroadcast } from '../lib/useBroadcast';
-import { fmtSAR, shopStatusMeta, shopPaymentMeta, TONE_CLASSES } from '../lib/constants';
+import { formatAddressDetail } from '../lib/address';
+import {
+  fmtSAR,
+  shopStatusMeta,
+  shopPaymentMeta,
+  SHOP_PAYMENT_METHODS,
+  TONE_CLASSES,
+} from '../lib/constants';
 import { notifySuccess, notifyError, confirmAction } from '../lib/notify';
 import { toCsv, downloadCsv } from '../lib/csv';
 import { Card, Field, Spinner, inputClass, btnPrimary, btnGhost } from '../components/ui';
@@ -43,6 +51,7 @@ import ImageUploadField from '../components/ImageUploadField';
 import StoreHoursEditor from '../components/StoreHoursEditor';
 import CustomDropdown from '../../components/CustomDropdown';
 import DatePicker from '../../components/DatePicker';
+import MerchantForm from './MerchantForm';
 
 // Owner passwords are chosen by the admin and handed over in person — keep this
 // in step with MIN_PASSWORD_LENGTH in backend/lib/validate.js.
@@ -53,6 +62,7 @@ const SECTIONS = [
   { id: 'catalogue', label: 'Catalogue', icon: Package },
   { id: 'orders', label: 'Orders', icon: ClipboardList },
   { id: 'inventory', label: 'Inventory', icon: Boxes },
+  { id: 'refunds', label: 'Refunds', icon: Undo2 },
   { id: 'settlement', label: 'Settlement', icon: Receipt },
 ];
 
@@ -109,11 +119,11 @@ function markupHint(price, netPrice) {
 }
 
 // --- Stores -----------------------------------------------------------
-function StoresSection({ stores, onChanged, onOpenCatalogue }) {
-  const [showForm, setShowForm] = useState(false);
+function StoresSection({ stores, failed, onChanged, onOpenCatalogue }) {
+  // null | 'new' | store — same shape FoodAdmin uses, so the shared form is
+  // driven identically on both screens.
   const [editing, setEditing] = useState(null);
   const [hoursFor, setHoursFor] = useState(null);
-  const [form, setForm] = useState({ name: '', cuisine_type: '', description: '', logo_url: '', address: '' });
   const [ownerFor, setOwnerFor] = useState(null);
   const [ownerEmail, setOwnerEmail] = useState('');
   const [ownerPassword, setOwnerPassword] = useState('');
@@ -133,16 +143,13 @@ function StoresSection({ stores, onChanged, onOpenCatalogue }) {
     );
   }, [stores, search]);
 
-  async function save(e) {
-    e.preventDefault();
+  async function save(payload) {
     setBusy(true);
     try {
-      if (editing) await api.adminShopUpdateStore(editing, form);
-      else await api.adminShopCreateStore(form);
-      notifySuccess(editing ? 'Store updated' : 'Store created (unlisted)');
-      setShowForm(false);
+      if (editing === 'new') await api.adminShopCreateStore(payload);
+      else await api.adminShopUpdateStore(editing.id, payload);
+      notifySuccess(editing === 'new' ? 'Store created (unlisted)' : 'Store updated');
       setEditing(null);
-      setForm({ name: '', cuisine_type: '', description: '', logo_url: '', address: '' });
       onChanged();
     } catch {
       /* surfaced */
@@ -225,56 +232,79 @@ function StoresSection({ stores, onChanged, onOpenCatalogue }) {
         </div>
         <button
           type="button"
-          onClick={() => {
-            setEditing(null);
-            setForm({ name: '', cuisine_type: '', description: '', logo_url: '', address: '' });
-            setShowForm((v) => !v);
-          }}
+          onClick={() => setEditing((v) => (v ? null : 'new'))}
           className={btnPrimary + ' w-full sm:w-auto justify-center'}
         >
-          {showForm ? <X className="w-4 h-4" /> : <Plus className="w-4 h-4" />}
-          {showForm ? 'Close' : 'Add store'}
+          {editing ? <X className="w-4 h-4" /> : <Plus className="w-4 h-4" />}
+          {editing ? 'Close' : 'Add store'}
         </button>
       </div>
 
-      {showForm && (
+      {editing && (
         <Card className="p-5">
-          <form onSubmit={save} className="space-y-3">
-            <div className="grid gap-3 sm:grid-cols-2">
-              <Field label="Store name">
-                <input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} required className={inputClass} />
-              </Field>
-              <Field label="Category">
-                <input value={form.cuisine_type} onChange={(e) => setForm({ ...form, cuisine_type: e.target.value })} className={inputClass} />
-              </Field>
-              <Field label="Logo">
-                <ImageUploadField
-                  kind="logo"
-                  value={form.logo_url}
-                  onChange={(url) => setForm({ ...form, logo_url: url || '' })}
-                  ready={!!editing}
-                  notReadyHint="Save the store first, then edit it to upload a logo."
-                  getSignedUrl={(body) => api.adminShopStoreImageSignedUrl(editing, body)}
-                />
-              </Field>
-              <Field label="Address">
-                <input value={form.address} onChange={(e) => setForm({ ...form, address: e.target.value })} className={inputClass} />
-              </Field>
-            </div>
-            <Field label="Description">
-              <textarea value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} rows={2} className={inputClass} />
-            </Field>
-            <p className="text-xs text-brand-grey">
-              New stores start unlisted. Import the catalogue and set the net prices, then list it.
-            </p>
-            <button disabled={busy} className={btnPrimary + ' w-full'}>
-              {busy ? <Spinner className="!border-white/40 !border-t-white" /> : 'Save store'}
-            </button>
-          </form>
+          <p className="font-black text-brand-black mb-4">
+            {editing === 'new' ? 'Add store' : `Edit: ${editing.name}`}
+          </p>
+          <MerchantForm
+            noun="Store"
+            categoryLabel="Category"
+            categoryPlaceholder="e.g. Groceries, Household"
+            initial={
+              editing === 'new'
+                ? undefined
+                : {
+                    name: editing.name,
+                    cuisine_type: editing.cuisine_type,
+                    description: editing.description,
+                    address: editing.address,
+                    street: editing.street || '',
+                    building_number: editing.building_number || '',
+                    logo_url: editing.logo_url,
+                    lat: editing.lat,
+                    lng: editing.lng,
+                    is_active: editing.is_active,
+                    is_featured: editing.is_featured,
+                    badge: editing.badge || '',
+                  }
+            }
+            busy={busy}
+            renderLogo={(value, onChange) => (
+              <ImageUploadField
+                kind="logo"
+                value={value}
+                onChange={onChange}
+                ready={editing !== 'new'}
+                notReadyHint="Save the store first, then edit it to upload a logo."
+                getSignedUrl={(body) => api.adminShopStoreImageSignedUrl(editing.id, body)}
+              />
+            )}
+            onCancel={() => setEditing(null)}
+            onSave={save}
+          />
+          <p className="text-xs text-brand-grey mt-3">
+            New stores start unlisted. Import the catalogue and set the net prices, then list it.
+          </p>
         </Card>
       )}
 
-      {visible.length === 0 ? (
+      {failed ? (
+        // Distinct from "no stores yet". Rendering the empty card for a failed
+        // request is what made a broken store list look like an empty one.
+        <Card className="overflow-hidden">
+          <div className="flex flex-col items-center justify-center text-center px-5 py-12">
+            <div className="w-14 h-14 rounded-2xl bg-brand-warm text-brand-orange flex items-center justify-center mb-4">
+              <Store className="w-6 h-6" />
+            </div>
+            <p className="font-black text-brand-black">Stores could not be loaded</p>
+            <p className="text-sm text-brand-grey mt-1.5 max-w-xs">
+              The request failed — this is not an empty catalogue. Try again in a moment.
+            </p>
+            <button onClick={onChanged} className={btnGhost + ' mt-4 inline-flex'}>
+              <RefreshCw className="w-4 h-4" /> Retry
+            </button>
+          </div>
+        </Card>
+      ) : visible.length === 0 ? (
         <Card className="overflow-hidden">
           <div className="flex flex-col items-center justify-center text-center px-5 py-12">
             <div className="w-14 h-14 rounded-2xl bg-brand-warm text-brand-orange flex items-center justify-center mb-4">
@@ -301,6 +331,16 @@ function StoresSection({ stores, onChanged, onOpenCatalogue }) {
                   <div className="flex-1 min-w-0">
                     <p className="font-black text-brand-black truncate">{s.name}</p>
                     <p className="text-xs text-brand-grey">{s.cuisine_type || 'No category'}</p>
+                    {/* Where riders actually go. FoodAdmin has always shown
+                        this; without it an admin could not tell a pinned
+                        store from an unpinned one without opening the form. */}
+                    <p className="text-xs text-brand-grey truncate">
+                      {formatAddressDetail({
+                        street: s.street,
+                        building: s.building_number,
+                        address: s.address,
+                      }) || 'No address'}
+                    </p>
                     <div className="flex flex-wrap gap-1.5 mt-2">
                       <Pill tone={s.is_active ? 'green' : 'grey'}>{s.is_active ? 'Listed' : 'Unlisted'}</Pill>
                       {s.status === 'suspended' && <Pill tone="red">Suspended</Pill>}
@@ -352,17 +392,7 @@ function StoresSection({ stores, onChanged, onOpenCatalogue }) {
                   </button>
                   <button
                     type="button"
-                    onClick={() => {
-                      setEditing(s.id);
-                      setForm({
-                        name: s.name || '',
-                        cuisine_type: s.cuisine_type || '',
-                        description: s.description || '',
-                        logo_url: s.logo_url || '',
-                        address: s.address || '',
-                      });
-                      setShowForm(true);
-                    }}
+                    onClick={() => setEditing(s)}
                     className={btnGhost + ' !py-2.5 !px-2 !text-xs justify-center'}
                   >
                     <Pencil className="w-4 h-4" /> Edit
@@ -947,6 +977,13 @@ function OrdersSection({ onChanged }) {
                     {o.created_at && (
                       <p className="text-[11px] text-brand-grey mt-0.5">{new Date(o.created_at).toLocaleString()}</p>
                     )}
+                    <p className="text-xs text-brand-grey truncate mt-0.5">
+                      {formatAddressDetail({
+                        street: o.delivery_street,
+                        building: o.delivery_building,
+                        address: o.delivery_address,
+                      }) || 'No address'}
+                    </p>
                   </div>
                   <div className="text-right shrink-0">
                     <p className="font-black text-brand-orange tabular-nums text-sm">{fmtSAR(o.total)}</p>
@@ -1146,6 +1183,118 @@ const SETTLEMENT_COLUMNS = [
   { key: 'collectedBy', header: 'collected_by' },
 ];
 
+// --- Refunds owed -----------------------------------------------------
+// Cancelled or rejected orders that are still marked paid. Nothing here
+// discovers anything the Orders tab could not — the point is that it cannot
+// be MISSED. A refund only moves when someone presses the button, so it needs
+// a list of its own rather than living inside a 200-row order feed.
+function RefundsSection({ onChanged }) {
+  const [refunds, setRefunds] = useState(null);
+  const [failed, setFailed] = useState(false);
+  const [busy, setBusy] = useState(null);
+
+  const load = useCallback(async () => {
+    try {
+      setRefunds((await api.adminShopRefunds()).refunds || []);
+      setFailed(false);
+    } catch {
+      setFailed(true);
+      setRefunds([]);
+    }
+  }, []);
+
+  useEffect(() => {
+    const id = window.setTimeout(() => load(), 0);
+    return () => window.clearTimeout(id);
+  }, [load]);
+
+  async function refund(code) {
+    if (!(await confirmAction(`Refund ${code}?`, 'Record this once the money has actually been returned.'))) {
+      return;
+    }
+    setBusy(code);
+    try {
+      await api.adminShopRefund(code);
+      notifySuccess(`${code} marked refunded`);
+      await load();
+      onChanged?.();
+    } catch {
+      /* surfaced */
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  if (refunds === null) {
+    return <div className="flex justify-center py-12"><Spinner className="!w-7 !h-7" /></div>;
+  }
+
+  if (failed) {
+    return (
+      <Card className="p-10 text-center">
+        <p className="font-bold text-brand-black">The refund queue could not be loaded</p>
+        <button onClick={load} className={btnGhost + ' mt-3 inline-flex'}>
+          <RefreshCw className="w-4 h-4" /> Retry
+        </button>
+      </Card>
+    );
+  }
+
+  if (refunds.length === 0) {
+    return (
+      <Card className="p-10 text-center">
+        <Undo2 className="w-8 h-8 text-brand-grey/40 mx-auto mb-3" />
+        <p className="font-bold text-brand-black">No refunds owed</p>
+        <p className="text-sm text-brand-grey mt-1">
+          Cancelled and rejected orders that were already paid appear here until the money is returned.
+        </p>
+      </Card>
+    );
+  }
+
+  return (
+    <div className="space-y-3">
+      <p className="text-xs text-brand-grey">
+        {refunds.length} order{refunds.length === 1 ? '' : 's'} paid for and then cancelled or
+        rejected. Return the money, then mark it refunded here.
+      </p>
+      {refunds.map((r) => (
+        <Card key={r.orderCode} className="p-4">
+          <div className="flex items-start justify-between gap-3">
+            <div className="min-w-0">
+              <p className="font-mono text-xs text-brand-grey">{r.orderCode}</p>
+              <p className="font-bold text-brand-black">{r.store || 'Store'}</p>
+              <div className="flex flex-wrap gap-1.5 mt-2">
+                <Pill tone="red">{r.status === 'rejected' ? 'Rejected' : 'Cancelled'}</Pill>
+                {r.cancelledBy === 'merchant' && <Pill tone="amber">By the store</Pill>}
+                <Pill tone="blue">{SHOP_PAYMENT_METHODS[r.paymentMethod] || r.paymentMethod}</Pill>
+              </div>
+              {r.reason && <p className="text-xs text-brand-grey mt-2">{r.reason}</p>}
+              {r.cancelledAt && (
+                <p className="text-xs text-brand-grey mt-1">
+                  {new Date(r.cancelledAt).toLocaleString()}
+                </p>
+              )}
+            </div>
+            <div className="text-right shrink-0">
+              <p className="font-black text-brand-black">{fmtSAR(r.total)}</p>
+            </div>
+          </div>
+          <div className="mt-3 pt-3 border-t border-brand-border">
+            <button
+              onClick={() => refund(r.orderCode)}
+              disabled={busy === r.orderCode}
+              className={btnPrimary + ' !py-1.5 !px-3 text-sm'}
+            >
+              <Undo2 className="w-4 h-4" /> Mark refunded
+            </button>
+          </div>
+        </Card>
+      ))}
+    </div>
+  );
+}
+
 function SettlementSection() {
   const today = new Date().toISOString().slice(0, 10);
   const monthAgo = new Date(Date.now() - 30 * 86400000).toISOString().slice(0, 10);
@@ -1241,19 +1390,23 @@ export default function ShopAdmin() {
   const [section, setSection] = useState('stores');
   const [overview, setOverview] = useState(null);
   const [stores, setStores] = useState([]);
+  const [storesFailed, setStoresFailed] = useState(false);
   const [selectedStore, setSelectedStore] = useState('');
   const [loading, setLoading] = useState(true);
 
+  // Loaded independently, NOT with one Promise.all under a swallowed catch.
+  // Coupled, a failing overview rejected before setStores ever ran and the
+  // Stores section rendered its "No stores yet" empty card — a claim about
+  // the data made from an unrelated request failing. FoodAdmin has always
+  // loaded each section on its own; this matches it.
   const load = useCallback(async () => {
-    try {
-      const [ov, st] = await Promise.all([api.adminShopOverview(), api.adminShopStores()]);
-      setOverview(ov);
-      setStores(st.stores || []);
-    } catch {
-      /* surfaced */
-    } finally {
-      setLoading(false);
-    }
+    const results = await Promise.allSettled([api.adminShopOverview(), api.adminShopStores()]);
+    if (results[0].status === 'fulfilled') setOverview(results[0].value);
+    if (results[1].status === 'fulfilled') setStores(results[1].value.stores || []);
+    // The stores request is the one whose failure would otherwise be
+    // indistinguishable from an empty catalogue.
+    setStoresFailed(results[1].status === 'rejected');
+    setLoading(false);
   }, []);
 
   useEffect(() => {
@@ -1296,6 +1449,14 @@ export default function ShopAdmin() {
             hint="Products at zero"
             onClick={() => setSection('inventory')}
           />
+          <Stat
+            label="Refunds owed"
+            value={overview.refundsOwed ?? 0}
+            tone={overview.refundsOwed > 0 ? 'red' : undefined}
+            icon={Undo2}
+            hint="Paid, then cancelled"
+            onClick={() => setSection('refunds')}
+          />
         </div>
       )}
 
@@ -1319,6 +1480,7 @@ export default function ShopAdmin() {
       {section === 'stores' && (
         <StoresSection
           stores={stores}
+          failed={storesFailed}
           onChanged={load}
           onOpenCatalogue={(s) => {
             setSelectedStore(s.id);
@@ -1331,6 +1493,7 @@ export default function ShopAdmin() {
       )}
       {section === 'orders' && <OrdersSection onChanged={load} />}
       {section === 'inventory' && <InventorySection stores={stores} />}
+      {section === 'refunds' && <RefundsSection onChanged={load} />}
       {section === 'settlement' && <SettlementSection />}
     </div>
   );

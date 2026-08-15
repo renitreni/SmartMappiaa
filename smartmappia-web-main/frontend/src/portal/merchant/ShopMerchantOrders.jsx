@@ -14,7 +14,7 @@ import { Package, Check, X, Clock, AlertTriangle, RefreshCw } from 'lucide-react
 import { api } from '../lib/api';
 import { fmtSAR, shopStatusMeta, shopPaymentMeta, TONE_CLASSES, SHOP_PAYMENT_METHODS } from '../lib/constants';
 import { formatAddressDetail } from '../lib/address';
-import { notifySuccess } from '../lib/notify';
+import { notifySuccess, promptCancelReason } from '../lib/notify';
 import { Card, Spinner, inputClass, btnPrimary, btnGhost } from '../components/ui';
 import SoundToggle from '../components/SoundToggle';
 
@@ -27,6 +27,12 @@ const FILTERS = [
 const NEEDS_ACTION = ['pending'];
 const LIVE = ['pending', 'accepted', 'packing', 'ready', 'out_for_delivery'];
 
+// Statuses the store may still withdraw from. Mirrors MERCHANT_CANCELLABLE
+// in backend/controllers/merchantShopOrdersController.js — the server is the
+// enforcement, this only decides whether to draw the button rather than let
+// the store discover a 409.
+const MERCHANT_CANCELLABLE = ['accepted', 'packing', 'ready'];
+
 function Pill({ tone, children }) {
   return (
     <span className={`inline-block px-2 py-0.5 rounded-full text-[11px] font-bold border ${TONE_CLASSES[tone]}`}>
@@ -35,7 +41,7 @@ function Pill({ tone, children }) {
   );
 }
 
-function OrderCard({ order, onAccept, onReject, onAdvance, busy }) {
+function OrderCard({ order, onAccept, onReject, onAdvance, onCancel, busy }) {
   const [rejecting, setRejecting] = useState(false);
   const [reason, setReason] = useState('');
   const status = shopStatusMeta(order.status);
@@ -152,6 +158,19 @@ function OrderCard({ order, onAccept, onReject, onAdvance, busy }) {
         </button>
       )}
 
+      {/* Withdraw an order already accepted — the shelf-is-empty case.
+          Stops at 'ready': once a rider is carrying the goods it is
+          support's call, the same boundary the status ladder stops at. */}
+      {MERCHANT_CANCELLABLE.includes(order.status) && (
+        <button
+          onClick={() => onCancel(order)}
+          disabled={busy}
+          className={btnGhost + ' w-full mt-2 !text-red-600 !border-red-200'}
+        >
+          <X className="w-4 h-4" /> Cancel order
+        </button>
+      )}
+
       {order.status === 'ready' && (
         <p className="mt-4 text-xs text-brand-grey text-center font-medium">
           Waiting for a rider to collect. They confirm pickup with a photo.
@@ -235,6 +254,32 @@ export default function ShopMerchantOrders({ onChanged }) {
     }
   }
 
+  async function cancel(order) {
+    const reason = await promptCancelReason({
+      orderCode: order.orderCode,
+      refundWarning: order.paymentStatus === 'paid',
+    });
+    if (!reason) return;
+    setBusyCode(order.orderCode);
+    try {
+      const res = await api.merchantShopCancelOrder(order.orderCode, reason);
+      notifySuccess(
+        `Order ${order.orderCode} cancelled`,
+        // The store's markup goes back on cancel, and the customer's money is
+        // the platform's to return — say both, so neither is a surprise later.
+        res?.refundDue
+          ? 'The customer has been told. The platform will refund their payment.'
+          : 'The customer has been told.'
+      );
+      await load();
+      onChanged?.();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setBusyCode(null);
+    }
+  }
+
   if (!orders && !error) {
     return (
       <div className="flex justify-center py-16">
@@ -309,6 +354,7 @@ export default function ShopMerchantOrders({ onChanged }) {
               key={o.orderCode}
               order={o}
               onAccept={accept}
+              onCancel={cancel}
               onReject={reject}
               onAdvance={advance}
               busy={busyCode === o.orderCode}

@@ -17,6 +17,7 @@ import { Link, useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
 import { ArrowRight, Gift, ShoppingBag, Sparkles } from "lucide-react";
 import { useMarketingStores } from "../lib/useMarketingPartners";
+import { deliveryFeeFromLabel } from "../portal/lib/constants";
 import MarketingListingGrid from "../components/MarketingListingCard";
 
 // Featured apparel drop. Showcase only, deliberately not a partner store and
@@ -75,17 +76,22 @@ export function FeaturedMerchBanner({ merch }) {
 
 const Shop = () => {
   const navigate = useNavigate();
-  const { partners: stores, total, loading, deliveryFee, minOrder } = useMarketingStores();
+  const { partners: stores, total, loading, failed, delivery } = useMarketingStores();
 
   // Counts are real or absent. A dash while the request is in flight beats a
-  // round number that turns out to be wrong a second later.
+  // round number that turns out to be wrong a second later — and a dash when
+  // it FAILED beats "0 partner stores", which is a claim about the business
+  // rather than about the request.
+  //
+  // The minimum order used to be the third stat. It is gone: it is a rule you
+  // meet at checkout, not a reason to shop here, and with the request failing
+  // it read "SAR 0 min. order" — an inviting number that was simply wrong.
+  const unknown = loading || failed;
   const stats = [
-    { value: loading ? "—" : String(total), label: "Partner stores" },
-    {
-      value: loading ? "—" : Number(deliveryFee) > 0 ? `SAR ${deliveryFee}` : "Free",
-      label: "Delivery",
-    },
-    { value: loading ? "—" : `SAR ${minOrder ?? 0}`, label: "Min. order" },
+    { value: unknown ? "—" : String(total), label: "Partner stores" },
+    // Never "Free": the fee is a floor that rises past the free radius, and
+    // an unknown fee must render nothing rather than a promise.
+    { value: (unknown ? null : deliveryFeeFromLabel(delivery)) ?? "—", label: "Delivery" },
   ];
 
   return (
@@ -159,6 +165,7 @@ const Shop = () => {
         <MarketingListingGrid
           listings={stores}
           loading={loading}
+          failed={failed}
           columns="sm:grid-cols-2 lg:grid-cols-3"
           ctaLabel="Shop Now"
           onOpen={(store) => navigate(`/shop/s/${store.id}`)}

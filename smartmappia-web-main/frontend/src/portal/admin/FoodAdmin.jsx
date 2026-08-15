@@ -40,19 +40,21 @@ import {
   Sparkles,
   Banknote,
   Receipt,
+  Undo2,
 } from 'lucide-react';
 import { api } from '../lib/api';
 import { toCsv, downloadCsv } from '../lib/csv';
 import { useBroadcast } from '../lib/useBroadcast';
+import { formatAddressDetail } from '../lib/address';
 import { realtimeEnabled } from '../lib/supabaseClient';
 import { fmtSAR, foodStatusMeta, foodPaymentMeta } from '../lib/constants';
 import { notifySuccess } from '../lib/notify';
 import { Card, Badge, Field, Spinner, btnPrimary, btnGhost, inputClass } from '../components/ui';
 import SharedImageUploadField from '../components/ImageUploadField';
 import StoreHoursEditor from '../components/StoreHoursEditor';
-import LocationPicker from '../components/LocationPicker';
 import PasswordInput from '../components/PasswordInput';
 import DatePicker from '../../components/DatePicker';
+import MerchantForm from './MerchantForm';
 
 // Owner passwords are chosen by the admin and handed over in person — keep this
 // in step with MIN_PASSWORD_LENGTH in backend/lib/validate.js.
@@ -118,132 +120,6 @@ function Stat({ label, value, accent = false, icon: Icon, hint, onClick }) {
     );
   }
   return <Card className={cls}>{inner}</Card>;
-}
-
-// --- Restaurant create/edit form ------------------------------------------
-const EMPTY_RESTAURANT = {
-  name: '', cuisine_type: '', description: '', address: '', street: '', building_number: '',
-  logo_url: '', lat: '', lng: '',
-  is_active: false, is_featured: false, badge: '',
-};
-
-// Marketing badges shown on the public homepage card (must match the DB
-// merchants_badge_chk constraint + the backend route enum).
-const BADGE_OPTIONS = [
-  { value: '', label: 'No badge' },
-  { value: 'top_rated', label: 'Top Rated' },
-  { value: 'popular', label: 'Popular' },
-  { value: 'new', label: 'New' },
-  { value: 'trending', label: 'Trending' },
-];
-
-function RestaurantForm({ initial, onSave, onCancel, busy, merchantId }) {
-  const [form, setForm] = useState({ ...EMPTY_RESTAURANT, ...initial });
-  const [locErr, setLocErr] = useState(null);
-  const set = (k) => (e) => setForm((f) => ({ ...f, [k]: e.target.value }));
-
-  const hasPin = form.lat !== '' && form.lat != null && form.lng !== '' && form.lng != null;
-
-  function submit(e) {
-    e.preventDefault();
-    if (!hasPin) {
-      setLocErr('Pin the restaurant location on the map (search or use current location) so drivers know where to pick up.');
-      return;
-    }
-    setLocErr(null);
-    onSave({
-      name: form.name.trim(),
-      cuisine_type: form.cuisine_type.trim() || null,
-      description: form.description.trim() || null,
-      address: form.address.trim() || null,
-      street: (form.street || '').trim() || null,
-      building_number: (form.building_number || '').trim() || null,
-      logo_url: form.logo_url.trim() || null,
-      lat: form.lat === '' || form.lat == null ? null : Number(form.lat),
-      lng: form.lng === '' || form.lng == null ? null : Number(form.lng),
-      is_active: !!form.is_active,
-      is_featured: !!form.is_featured,
-      badge: form.badge || null,
-    });
-  }
-
-  return (
-    <form onSubmit={submit} className="space-y-3">
-      <Field label="Restaurant name">
-        <input value={form.name} onChange={set('name')} className={inputClass} required placeholder="e.g. Shawarma House" />
-      </Field>
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-        <Field label="Cuisine type">
-          <input value={form.cuisine_type || ''} onChange={set('cuisine_type')} className={inputClass} placeholder="e.g. Lebanese" />
-        </Field>
-        <Field label="Logo / photo">
-          <ImageUploadField
-            merchantId={merchantId}
-            kind="logo"
-            value={form.logo_url || ''}
-            onChange={(url) => setForm((f) => ({ ...f, logo_url: url || '' }))}
-          />
-        </Field>
-      </div>
-      <div>
-        <LocationPicker
-          label="Restaurant location (pickup point for drivers)"
-          placeholder="Search the restaurant's street, district, or name"
-          address={form.address || ''}
-          coords={hasPin ? { lat: Number(form.lat), lng: Number(form.lng) } : null}
-          street={form.street || ''}
-          buildingNumber={form.building_number || ''}
-          onChange={({ address: nextAddress, coords: nextCoords, street: nextStreet, buildingNumber: nextBuilding }) => {
-            setForm((f) => ({
-              ...f,
-              address: nextAddress,
-              street: nextStreet || '',
-              building_number: nextBuilding || '',
-              lat: nextCoords?.lat ?? '',
-              lng: nextCoords?.lng ?? '',
-            }));
-            if (nextCoords?.lat) setLocErr(null);
-          }}
-        />
-        <p className="mt-1 text-xs text-brand-grey">
-          The pin sets the 15 km delivery radius and the driver's pickup navigation. Required.
-        </p>
-        {locErr && <p className="mt-1 text-xs font-bold text-red-600">{locErr}</p>}
-      </div>
-      <Field label="Description">
-        <input value={form.description || ''} onChange={set('description')} className={inputClass} placeholder="Shown to customers" />
-      </Field>
-      <Field label="Homepage badge (optional)">
-        <select value={form.badge || ''} onChange={set('badge')} className={inputClass}>
-          {BADGE_OPTIONS.map((b) => <option key={b.value} value={b.value}>{b.label}</option>)}
-        </select>
-      </Field>
-      <label className="flex items-center gap-2 text-sm font-bold text-brand-dark cursor-pointer">
-        <input
-          type="checkbox"
-          checked={!!form.is_active}
-          onChange={(e) => setForm((f) => ({ ...f, is_active: e.target.checked }))}
-          className="w-4 h-4 accent-[#FF7E21]"
-        />
-        Listed (visible to customers) — keep off until the menu is imported
-      </label>
-      <label className="flex items-center gap-2 text-sm font-bold text-brand-dark cursor-pointer">
-        <input
-          type="checkbox"
-          checked={!!form.is_featured}
-          onChange={(e) => setForm((f) => ({ ...f, is_featured: e.target.checked }))}
-          className="w-4 h-4 accent-[#FF7E21]"
-        />
-        Feature on the homepage — needs a logo, a map pin, and Listed on
-      </label>
-      <div className="flex gap-2 pt-1">
-        <button type="submit" disabled={busy} className={btnPrimary + ' flex-1'}>
-          {busy ? <Spinner className="!border-white/40 !border-t-white" /> : 'Save restaurant'}
-        </button>
-        <button type="button" onClick={onCancel} className={btnGhost}>Cancel</button>
-      </div>
-    </form>
-  );
 }
 
 // --- Menu item form ---------------------------------------------------------
@@ -694,10 +570,13 @@ function MerchantsSection({ onError }) {
           <p className="font-black text-brand-black mb-4">
             {editing === 'new' ? 'Add restaurant' : `Edit: ${editing.name}`}
           </p>
-          <RestaurantForm
+          <MerchantForm
+            noun="Restaurant"
+            categoryLabel="Cuisine type"
+            categoryPlaceholder="e.g. Lebanese"
             initial={
               editing === 'new'
-                ? EMPTY_RESTAURANT
+                ? undefined
                 : {
                     name: editing.name,
                     cuisine_type: editing.cuisineType,
@@ -714,7 +593,14 @@ function MerchantsSection({ onError }) {
                   }
             }
             busy={busyId === 'form'}
-            merchantId={editing === 'new' ? null : editing.id}
+            renderLogo={(value, onChange) => (
+              <ImageUploadField
+                merchantId={editing === 'new' ? null : editing.id}
+                kind="logo"
+                value={value}
+                onChange={onChange}
+              />
+            )}
             onCancel={() => setEditing(null)}
             onSave={(payload) =>
               run('form', async () => {
@@ -1196,6 +1082,16 @@ function OrdersSection({ onError }) {
                   .join(', ')}
               </p>
             )}
+            {/* Where it is going. The API has always sent this and the row
+                never showed it — a support screen that cannot say the
+                delivery address sends someone to the database. */}
+            <p className="text-xs text-brand-grey mt-1 truncate">
+              {formatAddressDetail({
+                street: o.deliveryStreet,
+                building: o.deliveryBuilding,
+                address: o.deliveryAddress,
+              }) || 'No address'}
+            </p>
             {o.customerMobile && (
               <p className="text-xs text-brand-grey mt-1">
                 Contact: <span className="font-bold text-brand-dark">{o.customerMobile}</span>
@@ -1565,6 +1461,95 @@ function SettlementSection({ onError }) {
   );
 }
 
+// --- Refunds owed ---------------------------------------------------------
+// Cancelled or rejected orders that are still marked paid. Nothing here
+// discovers anything the Orders panel could not — the point is that it cannot
+// be MISSED. A refund only moves when someone presses the button, so it needs
+// a list of its own rather than living inside a 200-row order feed.
+function RefundsSection({ onError }) {
+  const [refunds, setRefunds] = useState(null);
+  const [busy, setBusy] = useState(null);
+
+  const load = useCallback(async () => {
+    try {
+      setRefunds((await api.adminFoodRefunds()).refunds || []);
+    } catch (err) {
+      onError(err.message);
+      setRefunds([]);
+    }
+  }, [onError]);
+
+  // Deferred past the first paint rather than called in the effect body, the
+  // same way ShopAdmin's loader does it — the sections above predate that and
+  // still trip react-hooks/set-state-in-effect.
+  useEffect(() => {
+    const id = window.setTimeout(() => load(), 0);
+    return () => window.clearTimeout(id);
+  }, [load]);
+
+  async function refund(code) {
+    if (!window.confirm(`Mark ${code} refunded? Do this once the money has actually been returned.`)) {
+      return;
+    }
+    setBusy(code);
+    try {
+      await api.adminFoodRefund(code);
+      notifySuccess(`${code} marked refunded`);
+      await load();
+    } catch (err) {
+      onError(err.message);
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  if (refunds === null) {
+    return <div className="flex justify-center py-8"><Spinner className="!w-7 !h-7" /></div>;
+  }
+
+  return (
+    <Card className="p-4">
+      <p className="font-black text-brand-black flex items-center gap-2 mb-3">
+        <Undo2 className="w-4 h-4 text-brand-orange" /> Refunds owed ({refunds.length})
+      </p>
+      {refunds.length === 0 ? (
+        <p className="text-sm text-brand-grey">
+          Nothing owed. Paid orders that get cancelled or rejected appear here until the money is
+          returned.
+        </p>
+      ) : (
+        <div className="divide-y divide-brand-border">
+          {refunds.map((r) => (
+            <div key={r.orderCode} className="py-3 flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <p className="font-mono font-bold text-brand-dark text-sm">{r.orderCode}</p>
+                <p className="text-xs text-brand-grey truncate">
+                  {r.merchant || 'Restaurant'} ·{' '}
+                  {r.status === 'rejected' ? 'Rejected' : 'Cancelled'}
+                  {r.cancelledBy === 'merchant' ? ' by the restaurant' : ''}
+                  {r.cancelledAt ? ` · ${new Date(r.cancelledAt).toLocaleString()}` : ''}
+                </p>
+                {r.reason && <p className="text-xs text-brand-grey mt-0.5">{r.reason}</p>}
+              </div>
+              <div className="shrink-0 text-right">
+                <p className="font-black text-brand-orange tabular-nums">{fmtSAR(r.total)}</p>
+                <button
+                  type="button"
+                  disabled={busy === r.orderCode}
+                  onClick={() => refund(r.orderCode)}
+                  className={btnGhost + ' !py-1.5 !px-2.5 !text-xs mt-1'}
+                >
+                  <Undo2 className="w-3.5 h-3.5" /> Mark refunded
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </Card>
+  );
+}
+
 // --- Tab root ------------------------------------------------------------------
 export default function FoodAdmin() {
   const [overview, setOverview] = useState(null);
@@ -1579,6 +1564,7 @@ export default function FoodAdmin() {
   const sections = [
     { id: 'restaurants', label: 'Restaurants', icon: Store },
     { id: 'orders', label: 'Orders', icon: ClipboardList },
+    { id: 'refunds', label: 'Refunds', icon: Undo2 },
     { id: 'settlement', label: 'Payouts', icon: Coins },
   ];
 
@@ -1613,6 +1599,14 @@ export default function FoodAdmin() {
             hint="STC Pay screenshots"
             onClick={() => setSection('orders')}
           />
+          <Stat
+            label="Refunds owed"
+            value={overview.refundsOwed ?? 0}
+            accent
+            icon={Undo2}
+            hint="Paid, then cancelled"
+            onClick={() => setSection('refunds')}
+          />
         </div>
       )}
 
@@ -1635,6 +1629,7 @@ export default function FoodAdmin() {
 
       {section === 'restaurants' && <MerchantsSection onError={onError} />}
       {section === 'orders' && <OrdersSection onError={onError} />}
+      {section === 'refunds' && <RefundsSection onError={onError} />}
       {section === 'settlement' && <SettlementSection onError={onError} />}
     </div>
   );

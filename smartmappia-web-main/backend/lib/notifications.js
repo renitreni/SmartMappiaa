@@ -60,6 +60,12 @@ const COPY = {
   food_order_out_for_delivery: { title: 'Your order was picked up', body: 'Your rider is on the way.' },
   food_order_delivered: { title: 'Order delivered', body: 'Enjoy your meal!' },
   food_order_cancelled: { title: 'Order cancelled', body: 'This order will not be delivered.' },
+  // Separate from the generic cancel: the customer needs to know it was
+  // the restaurant's decision, not ours and not a payment problem.
+  food_order_cancelled_by_store: {
+    title: 'The restaurant cancelled your order',
+    body: 'Open the order to see why. Any payment you made will be refunded.',
+  },
 
   // --- Ecommerce ("shop") ---
   shop_order_placed: { title: 'Order placed', body: 'We have your order. Complete payment to confirm it.' },
@@ -74,6 +80,10 @@ const COPY = {
   shop_order_out_for_delivery: { title: 'Your order was picked up', body: 'Your rider is on the way.' },
   shop_order_delivered: { title: 'Order delivered', body: 'Thanks for shopping with Smart Mappia.' },
   shop_order_cancelled: { title: 'Order cancelled', body: 'This order will not be delivered.' },
+  shop_order_cancelled_by_store: {
+    title: 'The store cancelled your order',
+    body: 'Open the order to see why. Any payment you made will be refunded.',
+  },
   shop_order_expired: {
     title: 'Order expired',
     body: 'We released your items because payment was not completed in time.',
