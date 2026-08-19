@@ -306,7 +306,7 @@ SmartMappiaa/
 ### 1. Clone the repository
 
 ```bash
-cd /Users/renier.trenuela/www/SmartMappiaa
+cd /path/to/SmartMappiaa
 ```
 
 ---
