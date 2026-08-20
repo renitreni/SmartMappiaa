@@ -23,6 +23,7 @@ import {
   Loader2,
 } from 'lucide-react';
 import { api } from '../lib/api';
+import useReturnedCharge from '../lib/useReturnedCharge';
 import { formatAddressDetail } from '../lib/address';
 import { notifyMerchantCancelled } from '../lib/notify';
 import { useAuth } from '../lib/AuthProvider';
@@ -261,6 +262,10 @@ export default function FoodTrackPage() {
       setError(err.message);
     }
   }, [code]);
+
+  // Back from Tap's hosted page: confirm the charge directly rather than
+  // waiting on a webhook that may never arrive. No-op on every other visit.
+  useReturnedCharge(load);
 
   useEffect(() => { load(); }, [load]);
 

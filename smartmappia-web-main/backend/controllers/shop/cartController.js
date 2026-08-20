@@ -90,10 +90,11 @@ async function buildCartSummary(cart) {
 
   const subtotal = round2(items.reduce((sum, i) => sum + i.lineTotal, 0));
   const minOrder = config.shop.minOrderSar;
-  // Mirrors priceShopOrder() in lib/shopMoney.js: VAT on top of goods +
-  // delivery. The minimum-order gate stays on the EX-VAT subtotal.
+  // Mirrors priceShopOrder() in lib/shopMoney.js: VAT on the goods only, the
+  // delivery fee sits outside the taxable base. The minimum-order gate stays
+  // on the EX-VAT subtotal.
   const deliveryFee = round2(config.shop.deliveryFeeSar);
-  const { vatRate, vatAmount } = vatFor(subtotal + deliveryFee);
+  const { vatRate, vatAmount } = vatFor(subtotal);
 
   return {
     cartId: cart.id,

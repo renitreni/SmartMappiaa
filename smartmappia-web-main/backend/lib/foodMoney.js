@@ -9,10 +9,16 @@
 //     3 SAR (drink_dessert_addon)
 //   * delivery fee: flat 10 SAR within 15 km (3-month promo), plus
 //     0.25 SAR per km beyond it; past 50 km checkout is rejected
-//   * VAT: 15% charged ON TOP of (subtotal + delivery_fee) — both the food
-//     and the delivery service are taxable supplies in KSA
-//   * total = subtotal + delivery_fee + vat (the margin is charged to the
-//     MERCHANT's credit on accept, not to the customer)
+//   * VAT: 15% charged ON TOP of the subtotal only. The delivery fee is
+//     outside the taxable base — a customer paying 100 for food and 10 for
+//     delivery is taxed on the 100.
+//   * of the delivery fee, the driver keeps 90% and the platform 10%
+//   * total = subtotal + delivery_fee + vat
+//
+// The margin is NOT a customer-facing line and is NOT billed to the merchant
+// separately. It is collected once, at checkout: it already sits inside the
+// list price, and the merchant is paid subtotal - margin. Accepting an order
+// used to also charge it to merchants.credit_used, which billed it twice.
 //
 // The minimum-order test runs on the EX-VAT subtotal, and the merchant's
 // payout/margin math never sees VAT — it is the platform's liability to
@@ -20,11 +26,9 @@
 // ---------------------------------------------------------------------
 const { config } = require('./config');
 const { vatFor } = require('./vat');
-const { surchargeFor, exceedsMaxRadius } = require('./deliveryPricing');
+const { surchargeFor, exceedsMaxRadius, driverShareOf } = require('./deliveryPricing');
 
-function round2(n) {
-  return Math.round((Number(n) + Number.EPSILON) * 100) / 100;
-}
+const { round2 } = require('./money');
 
 // Margin the platform earns on one unit of an item, by menu_items.item_type.
 // This is the FALLBACK now: only used when an item has no explicit net price.
@@ -48,7 +52,13 @@ function markupPerUnit({ unitPrice, netPrice, itemType }) {
     const markup = round2(Number(unitPrice) - Number(netPrice));
     return markup < 0 ? 0 : markup;
   }
-  return marginForItemType(itemType);
+  // Clamp the flat fallback to the unit price too. The net_price branch
+  // above cannot go negative, but the fallback compared against nothing --
+  // so an item priced below its own flat margin (live: BOTTLED WATER at
+  // 1.99 against a 3.00 drink margin) charged the merchant MORE than the
+  // line earned, driving `subtotal - markup` negative with nothing
+  // downstream rejecting it.
+  return Math.min(marginForItemType(itemType), round2(Number(unitPrice)));
 }
 
 // Price a whole order from trusted inputs (fresh DB menu rows + a distance
@@ -114,10 +124,15 @@ function priceOrder({ items, distanceKm }) {
   const { surcharge: deliverySurcharge } = surchargeFor(distanceKm);
   const deliveryFee = round2(baseDeliveryFee + deliverySurcharge);
 
-  // VAT covers the surcharge automatically: it is inside deliveryFee, and
-  // the extra kilometres are part of the same taxable delivery service.
-  const { vatRate, vatAmount } = vatFor(subtotal + deliveryFee);
+  // Delivery is outside the VAT base, so the surcharge is too — it lives
+  // inside deliveryFee. Only the goods are taxed.
+  const { vatRate, vatAmount } = vatFor(subtotal);
   const total = round2(subtotal + deliveryFee + vatAmount);
+
+  // What the driver earns for this run. Snapshotted onto the order rather
+  // than recomputed later: repricing the split must never restate a delivery
+  // already made, nor a cash balance already owed against it.
+  const { driverFee, driverFeeRate } = driverShareOf(deliveryFee);
 
   return {
     ok: true,
@@ -126,6 +141,8 @@ function priceOrder({ items, distanceKm }) {
     baseDeliveryFee,
     deliverySurcharge,
     deliveryFee,
+    driverFee,
+    driverFeeRate,
     vatRate,
     vatAmount,
     total,

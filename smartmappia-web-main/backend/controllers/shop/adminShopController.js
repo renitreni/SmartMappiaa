@@ -1039,7 +1039,7 @@ async function getSettlement(req, res) {
       const { data, error } = await supabase
         .from('shop_orders')
         .select(
-          'order_code, created_at, subtotal, delivery_fee, platform_margin_total, vat_amount, ' +
+          'order_code, created_at, subtotal, delivery_fee, driver_fee, platform_margin_total, vat_amount, ' +
             'total, payment_method, payment_status, merchants ( name )'
         )
         .gte('created_at', from.toISOString())
@@ -1065,6 +1065,10 @@ async function getSettlement(req, res) {
         storePayout: round2(subtotal - markup),
         platformMarkup: markup,
         deliveryCharge: round2(Number(o.delivery_fee)),
+        // Mirrors the food report (0041): the delivery fee is split, and the
+        // rider's share is read off the row rather than recomputed.
+        driverFee: round2(Number(o.driver_fee || 0)),
+        platformDeliveryShare: round2(Number(o.delivery_fee) - Number(o.driver_fee || 0)),
         vat: round2(Number(o.vat_amount || 0)),
         total: round2(Number(o.total)),
         paymentMethod: o.payment_method,
@@ -1083,10 +1087,13 @@ async function getSettlement(req, res) {
           acc.cashCollectedByRider = round2(acc.cashCollectedByRider + o.total);
           acc.cashStorePayout = round2(acc.cashStorePayout + o.storePayout);
           acc.cashMarkup = round2(acc.cashMarkup + o.platformMarkup);
+          acc.driverKeptFromCash = round2(acc.driverKeptFromCash + o.driverFee);
         } else {
           acc.onlineOwedToStore = round2(acc.onlineOwedToStore + o.storePayout);
           acc.onlineMarkupKept = round2(acc.onlineMarkupKept + o.platformMarkup);
+          acc.driverPayoutOwed = round2(acc.driverPayoutOwed + o.driverFee);
         }
+        acc.platformDeliveryShare = round2(acc.platformDeliveryShare + o.platformDeliveryShare);
         acc.vatCollected = round2(acc.vatCollected + o.vat);
         return acc;
       },
@@ -1096,6 +1103,11 @@ async function getSettlement(req, res) {
         cashCollectedByRider: 0,
         cashStorePayout: 0,
         cashMarkup: 0,
+        // Prepaid: we hold the cash and owe the rider their share. Cash:
+        // they already kept it. Opposite directions — never netted.
+        driverPayoutOwed: 0,
+        driverKeptFromCash: 0,
+        platformDeliveryShare: 0,
         vatCollected: 0,
         refundedAmount: 0,
       }

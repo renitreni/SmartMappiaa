@@ -4,7 +4,7 @@
 // a menu show a SweetAlert instead of opening an empty menu page.
 // ---------------------------------------------------------------------
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { Search, UtensilsCrossed, ReceiptText, RefreshCw, Sparkles } from 'lucide-react';
 import { api } from '../lib/api';
@@ -16,11 +16,12 @@ import { PortalShell, Card, btnPrimary, inputClass } from '../components/ui';
 
 export default function FoodHomePage() {
   const navigate = useNavigate();
+  const [params] = useSearchParams();
   const { session } = useAuth();
   const [data, setData] = useState(null);
   const [error, setError] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [search, setSearch] = useState('');
+  const [search, setSearch] = useState(params.get('q') || '');
   const [cuisine, setCuisine] = useState('');
 
   async function load(q = search, c = cuisine) {
@@ -41,7 +42,9 @@ export default function FoodHomePage() {
 
   const firstRender = useRef(true);
   useEffect(() => {
-    load('', '');
+    // Seeded, not empty: the landing hero hands a term over as ?q=, and the
+    // debounced effect below deliberately skips the first render.
+    load(search, cuisine);
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {

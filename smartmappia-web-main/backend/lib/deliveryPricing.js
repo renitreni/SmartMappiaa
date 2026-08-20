@@ -9,10 +9,11 @@
 // already written to mirror each other line for line, and rides now join
 // them. Three copies of a money rule is three places for it to drift.
 //
-// WHO KEEPS IT: the platform, on every service. For food and shop that is
-// automatic — the surcharge is folded into delivery_fee, which was already
-// platform revenue. For rides it is NOT automatic and must stay outside
-// bookings.fare_amount; see lib/fare.js for why.
+// WHO KEEPS IT: on rides, the platform — and that is NOT automatic, the
+// surcharge must stay outside bookings.fare_amount; see lib/fare.js for why.
+// On food and shop the surcharge is folded into delivery_fee and is split
+// with the driver along with the rest of it (driverShareOf below): they drove
+// the extra kilometres.
 //
 // Pure functions, no I/O. `distanceKm` is null whenever either endpoint
 // has no coordinates, and a null distance always means NO surcharge —
@@ -20,9 +21,7 @@
 // ---------------------------------------------------------------------
 const { config } = require('./config');
 
-function round2(n) {
-  return Math.round((Number(n) + Number.EPSILON) * 100) / 100;
-}
+const { round2 } = require('./money');
 
 // The surcharge for one leg.
 //
@@ -79,4 +78,28 @@ function deliveryTerms(baseFeeSar) {
   };
 }
 
-module.exports = { surchargeFor, exceedsMaxRadius, round2, deliveryTerms };
+// Split a food/shop delivery fee between the driver and the platform.
+//
+// Returns { driverFee, driverFeeRate } — the rate travels with the amount so
+// the caller can snapshot both onto the order. Reading the rate back off the
+// row is what stops a later repricing from restating deliveries already made
+// and cash balances already owed against them.
+//
+// Rides do not use this: their split is a commission on the fare, computed by
+// lib/ledger.js from a different rate, and the ride surcharge is not shared
+// at all.
+function driverShareOf(deliveryFee) {
+  const fee = Number(deliveryFee);
+  if (!Number.isFinite(fee) || fee <= 0) return { driverFee: 0, driverFeeRate: 0 };
+
+  const platformPct = Math.min(1, Math.max(0, Number(config.delivery.platformSharePct) || 0));
+  // 4dp, matching the numeric(5,4) column: round2 would flatten a 12.5%
+  // share to 0.88 and quietly reprice every delivery.
+  const driverFeeRate = Math.round((1 - platformPct) * 10000) / 10000;
+  // Round the driver's side and let the platform take the remainder, so the
+  // two halves always add back to the fee exactly. Rounding both independently
+  // can lose or invent a halala.
+  return { driverFee: round2(fee * driverFeeRate), driverFeeRate };
+}
+
+module.exports = { surchargeFor, exceedsMaxRadius, round2, deliveryTerms, driverShareOf };

@@ -20,6 +20,7 @@ import { api } from '../lib/api';
 import { uploadProofFile } from '../lib/supabaseClient';
 import { AIRPORTS, fareBreakdown, airportDropdownOptions } from '../lib/constants';
 import { PortalShell, Card, Field, inputClass, btnPrimary, btnGhost, Spinner } from '../components/ui';
+import CardNextStepNote from '../components/CardNextStepNote';
 import LocationPicker from '../components/LocationPicker';
 import CustomDropdown from '../../components/CustomDropdown';
 import DateTimePicker from '../../components/DateTimePicker';
@@ -315,6 +316,7 @@ export default function BookPage() {
                     </button>
                   ))}
                 </div>
+                <CardNextStepNote />
               </div>
 
               <FareSummary
@@ -369,7 +371,7 @@ export default function BookPage() {
                   code={booking.bookingCode}
                   amount={instructions.fare?.total ?? instructions.amount}
                   available={instructions.cardAvailable}
-                  charge={api.bookingCardCharge}
+                  charge={(code, body, key) => api.bookingCardCharge(code, body, key)}
                   // A card payment confirms the booking and starts the driver
                   // dispatch immediately, so go straight to tracking.
                   onPaid={() => navigate(`/track/${booking.bookingCode}`)}

@@ -17,12 +17,12 @@ function App() {
 
       <main>
         <Hero />
-        <AboutUs />
         <Services />
         <PromoBanners />
         <VideoShowcase />
         <HowItWorks />
         <SponsoredReel />
+        <AboutUs />
         <FAQ />
         <Footer />
       </main>

@@ -17,6 +17,7 @@ import { api } from '../lib/api';
 import { useAuth } from '../lib/AuthProvider';
 import { fmtSAR } from '../lib/constants';
 import { PortalShell, Card, Field, Spinner, inputClass, btnPrimary } from '../components/ui';
+import CardNextStepNote from '../components/CardNextStepNote';
 import LocationPicker from '../components/LocationPicker';
 import PaymentPanel from '../food/PaymentPanel';
 
@@ -207,6 +208,7 @@ export default function ShopCheckoutPage() {
           );
         })}
       </div>
+      <CardNextStepNote />
 
       {cart && (
         <Card className="p-4 space-y-2 text-sm mb-4">

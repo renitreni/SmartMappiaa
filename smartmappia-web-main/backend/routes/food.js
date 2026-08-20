@@ -26,7 +26,6 @@ const {
   createPayUploadUrl,
   recordPayment,
   createCardCharge,
-  createTapCharge,
   updateOrderContact,
 } = require('../controllers/food/ordersController');
 const { recordEvent } = require('../controllers/food/eventsController');
@@ -71,8 +70,9 @@ router.post(
     delivery_street: { type: 'string', maxLength: 200, nullable: true },
     delivery_building: { type: 'string', maxLength: 100, nullable: true },
     contact_phone: { type: 'string', maxLength: 40, nullable: true },
-    // Food is STC Pay only for now. Tap arrives via the gated
-    // /orders/:code/tap-charge endpoint, never as a checkout method.
+    // Food is STC Pay only at ORDER CREATION. Card is chosen on the payment
+    // step via /orders/:code/charge, never as a checkout method, so an order
+    // can never be created against a gateway that might be unconfigured.
     payment_method: { type: 'string', enum: ['stcpay'] },
   }),
   checkout
@@ -129,9 +129,6 @@ router.post(
   }),
   createCardCharge
 );
-// Superseded by /charge. Kept for one release so a cached frontend bundle
-// gets a readable 503 instead of a 404; delete after the next deploy.
-router.post('/orders/:code/tap-charge', requireAuth, foodPayLimiter, createTapCharge);
 
 // Rate the delivery rider (1-5 stars) after the order is delivered.
 router.post(

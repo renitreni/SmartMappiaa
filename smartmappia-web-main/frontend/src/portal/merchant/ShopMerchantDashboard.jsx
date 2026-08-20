@@ -23,11 +23,12 @@ import { api } from '../lib/api';
 import { useBroadcast } from '../lib/useBroadcast';
 import { fmtSAR, TONE_CLASSES } from '../lib/constants';
 import { notifyError, notifySuccess, confirmAction } from '../lib/notify';
-import { announceNewOrder } from '../lib/orderAlert';
+import { startUrgentAlert, acknowledgeUrgentAlert } from '../lib/alertSound';
 import { Card, Field, Spinner, inputClass, btnPrimary, btnGhost } from '../components/ui';
 import ImageUploadField from '../components/ImageUploadField';
 import StoreHoursEditor from '../components/StoreHoursEditor';
 import MerchantLayout from './MerchantLayout';
+import NewOrderAlertBar from '../components/NewOrderAlertBar';
 import ShopMerchantOrders from './ShopMerchantOrders';
 import LocationPicker from '../components/LocationPicker';
 
@@ -744,17 +745,48 @@ export default function ShopMerchantDashboard() {
 
   // Same per-merchant realtime topic the restaurant dashboard uses — the
   // backend publishes to merchant-<id> for both verticals.
-  useBroadcast(
+  // The parent's load() refetches catalogue + analytics, NOT the order list —
+  // so an open Orders tab used to hear the chime and still show nothing new
+  // until a manual reload. orderPing is what refreshes the tab itself.
+  const [orderPing, setOrderPing] = useState(0);
+  const connected = useBroadcast(
     store ? `merchant-${store.id}` : null,
     {
-      // Sound FIRST, then refresh — see MerchantOrders for the reasoning.
-      // Deduped on the order code so a broadcast reconnect cannot re-chime.
-      new_order: (payload) => { announceNewOrder(payload?.orderCode); load(); },
-      order_update: () => load(),
-      payment_update: () => load(),
+      // Sound FIRST, then refresh — see MerchantDashboard for the reasoning.
+      // Keeps ringing until somebody acknowledges it.
+      new_order: (payload) => {
+        startUrgentAlert(payload?.orderCode);
+        setOrderPing((n) => n + 1);
+        load();
+      },
+      // Acknowledge HERE, not only in the orders tab. The tab is mounted just
+      // when it is open and the dashboard opens on Overview, so an admin
+      // accepting on the merchant's behalf left the chime repeating for two
+      // minutes over work already done. Every order_update emit carries
+      // orderCode, and any order_update means it is no longer waiting on us.
+      order_update: (payload) => {
+        acknowledgeUrgentAlert(payload?.orderCode);
+        setOrderPing((n) => n + 1);
+        load();
+      },
+      payment_update: () => { setOrderPing((n) => n + 1); load(); },
     },
     !!store
   );
+
+  // Realtime is an ACCELERATOR here, not the transport. useBroadcast returns
+  // `connected` precisely so callers can fall back, and the customer tracking
+  // pages already do -- but these dashboards discarded it, so a merchant whose
+  // socket dropped (tablet asleep, Wi-Fi roam, captive portal, Realtime
+  // degraded) stopped receiving orders with a screen that still looked
+  // perfectly healthy. Silence is indistinguishable from "no orders", and the
+  // alarm only rings on events that arrive.
+  useEffect(() => {
+    if (connected) return undefined;
+    const t = setInterval(() => setOrderPing((n) => n + 1), 15000);
+    return () => clearInterval(t);
+  }, [connected]);
+
 
   if (loading) {
     return (
@@ -766,7 +798,12 @@ export default function ShopMerchantDashboard() {
     );
   }
 
-  if (error || !store) {
+  // Only a MISSING STORE is fatal. Every broadcast calls load(), so making
+  // `error` fatal too meant one flaky catalogue or analytics fetch during a
+  // new order tore down the order list AND the alert bar -- leaving the
+  // chime repeating every six seconds with no Silence button and no order
+  // code on screen. A refetch hiccup is a banner, not a dead end.
+  if (!store) {
     return (
       <MerchantLayout activeTab={activeTab} onTabChange={setActiveTab} vertical="shop">
         <Card className="p-8 text-center">
@@ -781,8 +818,25 @@ export default function ShopMerchantDashboard() {
 
   return (
     <MerchantLayout activeTab={activeTab} onTabChange={setActiveTab} vertical="shop">
+      <NewOrderAlertBar onOpenOrders={() => setActiveTab('orders')} />
+      {!connected && (
+        <div
+          role="status"
+          className="mb-4 flex items-center gap-2 p-3 rounded-xl bg-amber-50 border border-amber-300 text-amber-900 text-sm font-bold"
+        >
+          Live updates are offline. Checking for new orders every 15 seconds.
+        </div>
+      )}
+      {error && (
+        <div role="status" className="mb-4 flex flex-wrap items-center gap-2 p-3 rounded-xl bg-amber-50 border border-amber-300 text-amber-900 text-sm font-bold">
+          Could not refresh: {error}
+          <button onClick={load} className="ml-auto px-3 py-1.5 rounded-lg bg-amber-900 text-white text-xs font-bold cursor-pointer hover:bg-amber-800 transition-colors">
+            Retry
+          </button>
+        </div>
+      )}
       {activeTab === 'overview' && <OverviewTab store={store} analytics={analytics} />}
-      {activeTab === 'orders' && <ShopMerchantOrders store={store} onChanged={load} />}
+      {activeTab === 'orders' && <ShopMerchantOrders store={store} onChanged={load} ping={orderPing} />}
       {activeTab === 'products' && (
         <ProductsTab products={products} categories={categories} onSaved={load} onDeleted={load} />
       )}

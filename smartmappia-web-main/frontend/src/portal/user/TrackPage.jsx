@@ -11,6 +11,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { MessageCircle, X, MapPin, Flag, Navigation, Clock, RefreshCw, Car, Heart, Download, Banknote } from 'lucide-react';
 import { api } from '../lib/api';
+import useReturnedCharge from '../lib/useReturnedCharge';
 import { formatAddressDetail } from '../lib/address';
 import { downloadRideInvoice } from '../lib/invoice';
 import { useBroadcast } from '../lib/useBroadcast';
@@ -61,6 +62,10 @@ export default function TrackPage() {
       setLoading(false);
     }
   }, [code]);
+
+  // Back from Tap's hosted page: confirm the charge directly rather than
+  // waiting on a webhook that may never arrive. No-op on every other visit.
+  useReturnedCharge(refetch);
 
   useEffect(() => { refetch(); }, [refetch]);
 

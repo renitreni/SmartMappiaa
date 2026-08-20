@@ -26,6 +26,7 @@ import { AnimatePresence, motion } from 'framer-motion';
 import { useAuth } from '../lib/AuthProvider';
 import { useViewMode } from '../lib/ViewModeProvider';
 import NotificationBell from '../components/NotificationBell';
+import SoundToggle from '../components/SoundToggle';
 
 function ViewSwitchMenu({ onRefresh }) {
   const navigate = useNavigate();
@@ -286,6 +287,7 @@ export default function AdminLayout({ activeTab, onTabChange, onRefresh, childre
             </div>
 
             <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
+              <SoundToggle />
               <div className="rounded-xl bg-white border border-black/5 shadow-sm">
                 <NotificationBell />
               </div>

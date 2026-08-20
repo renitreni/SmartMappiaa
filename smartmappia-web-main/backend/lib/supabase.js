@@ -8,6 +8,7 @@
 // ---------------------------------------------------------------------
 const { createClient } = require('@supabase/supabase-js');
 const WebSocket = require('ws');
+const { fetchWithTimeout } = require('./httpTimeout');
 
 const url = process.env.SUPABASE_URL;
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -21,6 +22,10 @@ if (!url || !serviceRoleKey) {
 
 const supabase = createClient(url, serviceRoleKey, {
   auth: { persistSession: false, autoRefreshToken: false },
+  // 10s on every PostgREST call. Without it a Free-tier stall is unbounded,
+  // and the sweeper's setInterval keeps stacking new runs on top of the hung
+  // one until connection slots are exhausted.
+  global: { fetch: fetchWithTimeout(10000) },
   // Node < 22 has no native WebSocket; `ws` is required for the Realtime client.
   realtime: { transport: WebSocket },
 });

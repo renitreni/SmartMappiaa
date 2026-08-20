@@ -7,19 +7,21 @@
 // ---------------------------------------------------------------------
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useSearchParams, Link } from 'react-router-dom';
-import { MapPin, AlertCircle, ArrowRight, Smartphone, CreditCard, Phone } from 'lucide-react';
+import { MapPin, AlertCircle, ArrowRight, Smartphone, Phone } from 'lucide-react';
 import { api } from '../lib/api';
 import { useAuth } from '../lib/AuthProvider';
 import { fmtSAR, vatLabel, FOOD_RADIUS_KM } from '../lib/constants';
 import { PortalShell, Card, Spinner, inputClass, btnPrimary, btnGhost } from '../components/ui';
 import LocationPicker from '../components/LocationPicker';
 import PaymentPanel from './PaymentPanel';
+import CardNextStepNote from '../components/CardNextStepNote';
 
-// Payment options shown at checkout. Food is STC Pay only for now;
-// card (Tap) ships later — placeholder.
+// How the ORDER is created. Card is deliberately absent: the backend enum
+// (routes/food.js) accepts stcpay only, because an order must never be
+// created against a gateway that might be unconfigured. Paying by card is a
+// real option, just one step later — CardNextStepNote below says so.
 const PAY_METHODS = [
-  { id: 'stcpay', label: 'STC Pay', hint: 'Transfer + upload the screenshot', icon: Smartphone, disabled: false },
-  { id: 'card', label: 'Card', hint: 'Coming soon', icon: CreditCard, disabled: true },
+  { id: 'stcpay', label: 'STC Pay', hint: 'Transfer + upload the screenshot', icon: Smartphone },
 ];
 
 export default function FoodCheckoutPage() {
@@ -199,22 +201,19 @@ export default function FoodCheckoutPage() {
             <Card className="p-5">
               <p className="font-black text-brand-black mb-3">How would you like to pay?</p>
               <div className="space-y-2">
-                {PAY_METHODS.map(({ id, label, hint, icon: Icon, disabled }) => (
+                {PAY_METHODS.map(({ id, label, hint, icon: Icon }) => (
                   <button
                     key={id}
                     type="button"
-                    disabled={disabled}
                     onClick={() => setMethod(id)}
-                    className={`w-full flex items-center gap-3 p-3.5 rounded-xl border-2 text-left transition-colors ${
-                      disabled
-                        ? 'border-brand-border opacity-50 cursor-not-allowed'
-                        : method === id
-                          ? 'border-brand-orange bg-brand-warm cursor-pointer'
-                          : 'border-brand-border hover:border-brand-orange/40 cursor-pointer'
+                    className={`w-full flex items-center gap-3 p-3.5 rounded-xl border-2 text-left transition-colors cursor-pointer ${
+                      method === id
+                        ? 'border-brand-orange bg-brand-warm'
+                        : 'border-brand-border hover:border-brand-orange/40'
                     }`}
                   >
                     <div className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${
-                      method === id && !disabled ? 'bg-brand-orange text-white' : 'bg-brand-surface text-brand-grey'
+                      method === id ? 'bg-brand-orange text-white' : 'bg-brand-surface text-brand-grey'
                     }`}>
                       <Icon className="w-5 h-5" />
                     </div>
@@ -223,11 +222,12 @@ export default function FoodCheckoutPage() {
                       <p className="text-xs text-brand-grey">{hint}</p>
                     </div>
                     <span className={`w-4 h-4 rounded-full border-2 shrink-0 ${
-                      method === id && !disabled ? 'border-brand-orange bg-brand-orange' : 'border-brand-border'
+                      method === id ? 'border-brand-orange bg-brand-orange' : 'border-brand-border'
                     }`} />
                   </button>
                 ))}
               </div>
+              <CardNextStepNote />
             </Card>
 
             <Card className="p-5">

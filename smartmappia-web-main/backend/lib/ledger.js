@@ -12,9 +12,7 @@
 const { supabase } = require('./supabase');
 const { config } = require('./config');
 
-function round2(n) {
-  return Math.round((Number(n) + Number.EPSILON) * 100) / 100;
-}
+const { round2 } = require('./money');
 
 // grossFare: the booking's snapshot fare_amount.
 // Overrides let callers (or tests) pin the rate/fee explicitly.

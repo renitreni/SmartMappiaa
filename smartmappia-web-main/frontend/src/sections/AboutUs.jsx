@@ -11,7 +11,7 @@ const AboutUs = () => {
             viewport={{ once: true }}
             className="mb-16 text-center"
             >
-            <h3 className="text-brand-orange text-sm font-bold tracking-widest uppercase mb-3">About Us</h3>
+            <p className="text-brand-orange text-sm font-bold tracking-widest uppercase mb-3">About Us</p>
             <h2 className="text-3xl md:text-5xl font-black text-brand-black">Who We Are</h2>
         </motion.div>
 
@@ -25,7 +25,7 @@ const AboutUs = () => {
           <p className="text-brand-grey text-lg leading-relaxed">
             <span className="text-brand-black text-lg font-bold italic leading-relaxed">SmartMappia </span> 
             was founded with a simple yet powerful vision: to bridge the gap between busy urban lifestyles and seamless access to essential services.
-            More than just and app, SmartMappia is your trusted digital partner, connecting you effortlessly to food, delivery and transportation solutions whenever and wherever you need them.
+            More than just an app, SmartMappia is your trusted digital partner, connecting you effortlessly to food, delivery and transportation solutions whenever and wherever you need them.
           </p>
         </motion.div>
         

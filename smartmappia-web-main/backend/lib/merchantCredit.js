@@ -1,12 +1,17 @@
 // ---------------------------------------------------------------------
 // Reversing a merchant's platform-markup charge, shared by both verticals.
 //
-// Accepting an order charges its platform markup to merchants.credit_used
-// (acceptOrderCore in foodOrderActions.js and shopOrderActions.js). Nothing
-// ever put it back. Cancelling an order the merchant had already accepted
-// therefore left the merchant paying markup on an order that was never
-// fulfilled — and, because the limit suspends a merchant, enough cancelled
-// orders could suspend one for revenue it never earned.
+// CURRENTLY UNCALLED, and kept only for the historical balances it explains.
+// Accepting an order used to charge its platform markup to
+// merchants.credit_used; it no longer does, because the markup is collected
+// once at checkout. With no charge there is nothing to reverse, so both
+// cancel paths stopped calling this -- invoking it now would clamp at zero
+// and quietly pay a merchant back against a balance accrued under the old
+// double-billing rule.
+//
+// Retire this together with the rest of the credit subsystem, or repurpose
+// it if credit comes back as a real mechanism. Do not wire it up again
+// without deciding which.
 //
 // One module rather than a copy in each core: this is money arithmetic
 // against a shared column, and the two verticals already mirror each other

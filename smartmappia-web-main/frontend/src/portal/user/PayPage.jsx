@@ -65,7 +65,7 @@ export default function PayPage() {
               code={code}
               amount={instructions.fare?.total ?? instructions.amount}
               available={instructions.cardAvailable}
-              charge={api.bookingCardCharge}
+              charge={(code, body, key) => api.bookingCardCharge(code, body, key)}
               // A card payment confirms the booking and starts dispatch on
               // the spot, so go straight to tracking rather than back here.
               onPaid={() => navigate(`/track/${code}`)}

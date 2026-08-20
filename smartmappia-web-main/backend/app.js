@@ -91,11 +91,24 @@ const generalLimiter = rateLimit({
   // dropped webhook means an order the customer paid for is never confirmed.
   // The webhook has its own limiter plus a signature check.
   //
-  // originalUrl, not path: this limiter is mounted at '/api/', and inside a
-  // mounted middleware req.path is the REMAINDER after the mount point.
-  skip: (req) => req.originalUrl.includes('/webhooks/'),
+  // Match the PATH exactly, not originalUrl with a substring test:
+  // originalUrl carries the query string, so `?x=/webhooks/` on ANY endpoint
+  // used to skip this limiter entirely. req.path is the remainder after the
+  // '/api/' mount point, hence no /api prefix here.
+  skip: (req) => req.path === '/payments/webhooks/tap',
+  // JSON, not the library default plain text. api.js reads `.error` off the
+  // parsed body; a text/plain body makes res.json() throw, and the client
+  // falls back to 'Request failed (429)' -- the exact meaningless string
+  // that once had our own limiter mistaken for a provider outage.
+  message: { error: 'Too many requests. Please slow down and try again in a minute.' },
 });
-const authLimiter = rateLimit({ windowMs: 60 * 1000, max: 20, standardHeaders: true, legacyHeaders: false });
+const authLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 20,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many sign-in attempts. Please wait a minute and try again.' },
+});
 app.use('/api/', generalLimiter);
 app.use('/api/auth', authLimiter);
 

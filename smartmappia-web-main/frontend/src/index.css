@@ -3,6 +3,10 @@
 @theme {
   /* Logo-inspired brand colors */
   --color-brand-orange: #FF7E21;
+  /* brand-orange is 2.54:1 against white -- fine as a large accent, below
+     WCAG AA for any text sitting on it. This is the same hue darkened to
+     5.0:1, for surfaces that must carry readable white copy. */
+  --color-brand-orange-deep: #B4530F;
   --color-brand-red: #E62B25;
   --color-brand-black: #111827;
   --color-brand-dark: #1F2937;

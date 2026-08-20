@@ -180,8 +180,24 @@ function interpretCharge(charge) {
   if (charge && charge.transaction && charge.transaction.url) {
     return { kind: 'redirect', url: charge.transaction.url, chargeId: charge.id };
   }
-  if (status === 'CAPTURED' || status === 'AUTHORIZED') {
+  // CAPTURED only. AUTHORIZED is a HOLD, not settled money — confirming on it
+  // would dispatch and fulfil an order against funds that can still be voided
+  // or left to expire. The webhook path has always required CAPTURED
+  // (cardPaymentsController); this is the synchronous path catching up.
+  if (status === 'CAPTURED') {
     return { kind: 'paid', chargeId: charge.id, charge };
+  }
+  if (status === 'AUTHORIZED') {
+    // Only reachable if the Tap account is switched to auth-then-capture.
+    // Treat it as unfinished rather than silently settling it.
+    console.error('cardCharge: AUTHORIZED but not captured — check the Tap account capture mode', {
+      chargeId: charge && charge.id,
+    });
+    return {
+      kind: 'error',
+      status: 502,
+      error: 'That payment was authorised but not captured. Please contact support.',
+    };
   }
   if (['FAILED', 'DECLINED', 'CANCELLED', 'ABANDONED'].includes(status)) {
     return {
@@ -200,8 +216,18 @@ function interpretCharge(charge) {
 // Shared mapping from a charge result onto HTTP, so a decline looks
 // identical in all three verticals. onPaid runs only for a charge that
 // captured without a 3DS step — the caller passes the vertical's confirm.
-async function respondToCharge(res, result, code, onPaid) {
+//
+// `vertical` is optional only so an old call site cannot break; every one of
+// them passes it, and without it the charge id is not recorded and the
+// order loses its webhook backstop.
+async function respondToCharge(res, result, code, onPaid, vertical) {
   if (result.kind === 'redirect') {
+    // Before the customer leaves for the hosted page — this is the only
+    // moment we hold the charge id and can still write it down.
+    if (vertical) {
+      const { recordChargeStart } = require('./gatewayPaid');
+      await recordChargeStart({ vertical, code, chargeId: result.chargeId });
+    }
     return res.status(201).json({ code, url: result.url });
   }
   if (result.kind === 'paid') {

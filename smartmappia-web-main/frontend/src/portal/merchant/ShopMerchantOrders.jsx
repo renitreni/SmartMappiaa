@@ -12,11 +12,11 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Package, Check, X, Clock, AlertTriangle, RefreshCw } from 'lucide-react';
 import { api } from '../lib/api';
+import { acknowledgeUrgentAlert } from '../lib/alertSound';
 import { fmtSAR, shopStatusMeta, shopPaymentMeta, TONE_CLASSES, SHOP_PAYMENT_METHODS } from '../lib/constants';
 import { formatAddressDetail } from '../lib/address';
 import { notifySuccess, promptCancelReason } from '../lib/notify';
 import { Card, Spinner, inputClass, btnPrimary, btnGhost } from '../components/ui';
-import SoundToggle from '../components/SoundToggle';
 
 const FILTERS = [
   { id: 'action', label: 'Needs action' },
@@ -180,7 +180,7 @@ function OrderCard({ order, onAccept, onReject, onAdvance, onCancel, busy }) {
   );
 }
 
-export default function ShopMerchantOrders({ onChanged }) {
+export default function ShopMerchantOrders({ onChanged, ping }) {
   const [orders, setOrders] = useState(null);
   const [credit, setCredit] = useState(null);
   const [filter, setFilter] = useState('action');
@@ -202,7 +202,15 @@ export default function ShopMerchantOrders({ onChanged }) {
   useEffect(() => {
     const id = window.setTimeout(() => load(), 0);
     return () => window.clearTimeout(id);
-  }, [load]);
+  }, [load, ping]);
+
+  // Silence the repeating alert for anything no longer waiting on the store.
+  useEffect(() => {
+    if (!orders) return;
+    orders
+      .filter((o) => o.status !== 'pending')
+      .forEach((o) => acknowledgeUrgentAlert(o.orderCode));
+  }, [orders]);
 
   const visible = useMemo(() => {
     const list = orders || [];
@@ -214,6 +222,8 @@ export default function ShopMerchantOrders({ onChanged }) {
   async function accept(order) {
     setBusyCode(order.orderCode);
     setCreditBlock(null);
+    // Acting on the order IS the acknowledgement.
+    acknowledgeUrgentAlert(order.orderCode);
     try {
       await api.merchantShopAcceptOrder(order.orderCode);
       notifySuccess(`Order ${order.orderCode} accepted`);
@@ -230,6 +240,7 @@ export default function ShopMerchantOrders({ onChanged }) {
 
   async function reject(order, reason) {
     setBusyCode(order.orderCode);
+    acknowledgeUrgentAlert(order.orderCode);
     try {
       await api.merchantShopRejectOrder(order.orderCode, reason || null);
       await load();
@@ -318,7 +329,6 @@ export default function ShopMerchantOrders({ onChanged }) {
             </button>
           ))}
         </div>
-        <SoundToggle />
         <button onClick={load} className={btnGhost + ' !py-1.5 !px-3 text-sm'}>
           <RefreshCw className="w-4 h-4" />
         </button>

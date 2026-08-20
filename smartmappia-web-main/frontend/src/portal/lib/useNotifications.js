@@ -36,6 +36,9 @@ export function useNotifications() {
     () => typeof Notification !== 'undefined' && Notification.permission === 'granted'
   );
   const knownIds = useRef(new Set());
+  // False until the first successful load, so opening the app does not ring
+  // for the backlog already sitting in the inbox.
+  const primed = useRef(false);
 
   const load = useCallback(async () => {
     if (!userId) return;
@@ -43,8 +46,27 @@ export function useNotifications() {
     try {
       const res = await api.listNotifications();
       const list = res?.notifications || [];
+
+      // The poll is the ONLY delivery path when Web Push is denied or
+      // unconfigured, and it used to swap the list in silently — the bell
+      // count moved and nothing made a sound.
+      const fresh = primed.current
+        ? list.filter((n) => !knownIds.current.has(n.id) && !n.read_at)
+        : [];
+
       knownIds.current = new Set(list.map((n) => n.id));
+      primed.current = true;
       setItems(list);
+
+      if (fresh.length) {
+        // Once for the batch, not once per item: a poll after a reconnect
+        // returns a burst, and N overlapping chimes is noise, not information.
+        const meta = notificationMeta(fresh[0].type, fresh[0].code);
+        notifyAlert(
+          fresh.length === 1 ? meta.title : `${fresh.length} new notifications`,
+          { icon: meta.tone === 'red' ? 'error' : 'success' }
+        );
+      }
     } catch {
       /* silent — the bell just stays as-is on a transient failure */
     } finally {
@@ -57,6 +79,7 @@ export function useNotifications() {
     Promise.resolve().then(() => {
       if (!active) return;
       setItems([]);
+      primed.current = false;
       if (userId) load();
     });
     return () => {
