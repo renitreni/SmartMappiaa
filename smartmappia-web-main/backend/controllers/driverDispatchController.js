@@ -21,7 +21,7 @@ const { addTrackingEvent } = require('../lib/tracking');
 const { logAudit } = require('../lib/audit');
 const { logNotification } = require('../lib/notifications');
 const { buildDriverDocPath, createProofUploadUrl } = require('../lib/storage');
-const { isBlockedFromCash } = require('../lib/driverCash');
+const { isBlockedFromCash, chargeDriverCashOwed, round2 } = require('../lib/driverCash');
 const {
   pushBookingStatus,
   announceRequestTaken,
@@ -129,6 +129,18 @@ async function listOffers(req, res) {
 
 // Returns { ok } or { conflict } — conflict means another driver already claimed it.
 async function claimFoodDelivery(order, driverId) {
+  // Same hard cap rides have used all along: a rider at or over their
+  // cash-owed limit cannot take another cash job. Checked before the claim
+  // so an over-cap rider never ends up holding more of our money.
+  if (order.paymentMethod === 'cash') {
+    const { data: drv } = await supabase
+      .from('profiles')
+      .select('cash_owed, cash_owed_limit')
+      .eq('id', driverId)
+      .single();
+    if (drv && isBlockedFromCash(drv)) return { ok: false, blocked: true };
+  }
+
   const { data: claimed, error } = await supabase
     .from('deliveries')
     .update({ driver_id: driverId, status: 'assigned' })
@@ -170,6 +182,18 @@ async function claimFoodDelivery(order, driverId) {
 // update only lands while shop_deliveries.driver_id is still null, so two
 // riders can never both win.
 async function claimShopDelivery(order, driverId) {
+  // Same hard cap rides have used all along: a rider at or over their
+  // cash-owed limit cannot take another cash job. Checked before the claim
+  // so an over-cap rider never ends up holding more of our money.
+  if (order.paymentMethod === 'cash') {
+    const { data: drv } = await supabase
+      .from('profiles')
+      .select('cash_owed, cash_owed_limit')
+      .eq('id', driverId)
+      .single();
+    if (drv && isBlockedFromCash(drv)) return { ok: false, blocked: true };
+  }
+
   const { data: claimed, error } = await supabase
     .from('shop_deliveries')
     .update({ driver_id: driverId, status: 'assigned' })
@@ -854,7 +878,9 @@ async function updateDeliveryStatus(req, res) {
     const { data: order } = await supabase
       .from(V.orderTable)
       .select(
-        'id, order_code, status, merchant_id, customer_id, total, payment_status, payment_method, ' +
+        'id, order_code, status, merchant_id, customer_id, total, subtotal, ' +
+          'platform_margin_total, delivery_fee, driver_fee, vat_amount, ' +
+          'payment_status, payment_method, ' +
           'delivery_lat, delivery_lng, merchants ( lat, lng )'
       )
       .eq('order_code', req.params.code)
@@ -925,6 +951,38 @@ async function updateDeliveryStatus(req, res) {
         { ...order, status: flow.orderStatus },
         { provider: 'cash', raw: { cash_collected_by: req.driverId }, actorId: req.driverId }
       );
+
+      // The rider is now holding OUR money. Rides have always booked this
+      // receivable; food and shop never did, so a rider could run unlimited
+      // COD orders with a zero balance and no cap.
+      //
+      // They owe our markup, the VAT, and our share of the delivery fee --
+      // but NOT their own share of it, which they have just earned and are
+      // already holding. VAT is in there because it is our liability to
+      // ZATCA, not the rider's to keep.
+      //
+      // driver_fee is read off the ROW, not recomputed from config: a rider
+      // carrying a balance from last week must not have it restated when the
+      // split is repriced. Summed from parts rather than derived from
+      // `total` for the same reason -- `total` cannot tell us which side of
+      // the delivery fee is whose.
+      //
+      // driver_cash_ledger.booking_id is a FK to bookings, so a food/shop
+      // order cannot fill it -- the code goes in `note` until a migration
+      // adds a vertical-neutral reference.
+      const platformDeliveryShare = round2(
+        Number(order.delivery_fee || 0) - Number(order.driver_fee || 0)
+      );
+      const owed = round2(
+        Number(order.platform_margin_total || 0) +
+          Number(order.vat_amount || 0) +
+          platformDeliveryShare
+      );
+      await chargeDriverCashOwed({
+        driverId: req.driverId,
+        amount: owed,
+        note: `Cash collected on ${order.order_code}`,
+      });
     }
 
     logAudit({

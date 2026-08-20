@@ -11,14 +11,11 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Check, X, ChevronRight, ClipboardList, Bike, Download } from 'lucide-react';
 import { api } from '../lib/api';
-import { useBroadcast } from '../lib/useBroadcast';
-import { realtimeEnabled } from '../lib/supabaseClient';
 import { fmtSAR, foodStatusMeta, foodPaymentMeta } from '../lib/constants';
 import { downloadFoodInvoice } from '../lib/invoice';
 import { promptCancelReason } from '../lib/notify';
-import { announceNewOrder } from '../lib/orderAlert';
+import { acknowledgeUrgentAlert } from '../lib/alertSound';
 import { Card, Badge, Spinner, btnPrimary, btnGhost } from '../components/ui';
-import SoundToggle from '../components/SoundToggle';
 
 // Statuses the restaurant may still withdraw from. Mirrors
 // MERCHANT_CANCELLABLE in backend/controllers/merchantOrdersController.js —
@@ -54,7 +51,7 @@ const NEXT_STATUS = {
   preparing: { status: 'ready', label: 'Mark ready for pickup' },
 };
 
-export default function MerchantOrders({ merchant }) {
+export default function MerchantOrders({ merchant, ping }) {
   const [orders, setOrders] = useState(null);
   const [filter, setFilter] = useState('action');
   const [busyCode, setBusyCode] = useState(null);
@@ -68,31 +65,29 @@ export default function MerchantOrders({ merchant }) {
     }
   }, []);
 
-  useEffect(() => { load(); }, [load]);
-  useBroadcast(
-    `merchant-${merchant?.id}`,
-    {
-      // Sound FIRST, then refresh: the chime is the point of this handler on
-      // a busy counter, and it should not wait on a network round trip.
-      // announceNewOrder dedupes on the code, so a reconnect that replays the
-      // event cannot chime twice for the same order.
-      new_order: (payload) => { announceNewOrder(payload?.orderCode); load(); },
-      // The server-side "you still have not started this" chase. Ring again —
-      // keyed on the attempt so each reminder is heard, since the plain order
-      // code was already spent on the new_order chime above.
-      preparing_overdue: (payload) => {
-        announceNewOrder(`${payload?.orderCode}#${payload?.attempt}`);
-        load();
-      },
-      order_update: () => load(),
-      payment_update: () => load(),
-    },
-    realtimeEnabled && !!merchant?.id
-  );
+  // `ping` is bumped by MerchantDashboard, which owns the broadcast
+  // subscription. It has to live up there: this component is mounted only
+  // while the Orders TAB is open, and the dashboard opens on Overview — so a
+  // subscription here meant the merchant heard nothing on the screen they
+  // actually sit on.
+  useEffect(() => { load(); }, [load, ping]);
+
+  // Stop the repeating new-order alert for anything no longer waiting on the
+  // merchant, including orders an admin accepted on their behalf from the
+  // Food tab. Without this the device keeps ringing for handled work.
+  useEffect(() => {
+    if (!orders) return;
+    orders
+      .filter((o) => o.status !== 'pending')
+      .forEach((o) => acknowledgeUrgentAlert(o.orderCode));
+  }, [orders]);
 
   async function run(code, fn) {
     setBusyCode(code);
     setError(null);
+    // Acting on an order IS the acknowledgement — do not make a merchant who
+    // just accepted it also dismiss a banner, and do not wait on the reload.
+    acknowledgeUrgentAlert(code);
     try {
       await fn();
       await load();
@@ -132,7 +127,6 @@ export default function MerchantOrders({ merchant }) {
             {f.label}
           </button>
         ))}
-        <span className="ml-auto"><SoundToggle /></span>
       </div>
 
       {orders === null && <div className="flex justify-center py-12"><Spinner className="!w-7 !h-7" /></div>}

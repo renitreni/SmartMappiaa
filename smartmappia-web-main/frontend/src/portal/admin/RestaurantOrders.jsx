@@ -30,9 +30,8 @@ import { api } from '../lib/api';
 import { useBroadcast } from '../lib/useBroadcast';
 import { realtimeEnabled } from '../lib/supabaseClient';
 import { fmtSAR, foodStatusMeta, foodPaymentMeta } from '../lib/constants';
-import { announceNewOrder, playOrderAlert } from '../lib/orderAlert';
+import { announceNewOrder, playAlert } from '../lib/alertSound';
 import { Card, Badge, Spinner, btnPrimary, btnGhost } from '../components/ui';
-import SoundToggle from '../components/SoundToggle';
 
 const DEFAULT_REMINDER_MINUTES = 10;
 
@@ -161,7 +160,7 @@ export default function RestaurantOrders() {
     );
     if (fresh.length === 0) return;
     fresh.forEach((o) => seenOverdue.current.add(o.orderCode));
-    playOrderAlert();
+    playAlert('order');
   }, [orders, now, reminderMinutes]);
 
   async function run(code, fn) {
@@ -272,7 +271,6 @@ export default function RestaurantOrders() {
           </button>
         </div>
         <div className="shrink-0 self-start sm:self-auto rounded-xl bg-white border border-brand-border px-3 py-2">
-          <SoundToggle />
         </div>
       </div>
 

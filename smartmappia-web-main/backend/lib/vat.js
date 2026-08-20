@@ -12,12 +12,20 @@
 // from the merchant payout base (subtotal - margin) and from the driver
 // commission base (lib/ledger.js computeLedger reads fare_amount, which
 // stays ex-VAT on purpose).
+//
+// WHAT THE BASE IS, because it differs by vertical and the callers decide:
+//
+//   food / shop -> the goods subtotal ONLY. The delivery fee (and the
+//                  distance surcharge inside it) is outside the base: a
+//                  customer paying 100 for food and 10 for delivery is
+//                  taxed on the 100.
+//   rides       -> the whole fare including the distance surcharge. There
+//                  is no separate delivery line to exclude — the trip IS
+//                  the supply we invoice.
 // ---------------------------------------------------------------------
 const { config } = require('./config');
 
-function round2(n) {
-  return Math.round((Number(n) + Number.EPSILON) * 100) / 100;
-}
+const { round2 } = require('./money');
 
 // Tax on a pre-tax base, plus the rate that produced it (for the snapshot).
 //   vatFor(50) -> { vatRate: 0.15, vatAmount: 7.5 }

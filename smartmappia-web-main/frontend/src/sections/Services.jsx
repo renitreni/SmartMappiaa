@@ -48,7 +48,7 @@ const cardVariants = {
 
 const Services = () => {
   return (
-    <section id="features" className="w-full bg-brand-muted px-8 md:px-20 py-24 border-t border-brand-border">
+    <section id="features" className="w-full bg-brand-muted px-8 md:px-20 py-24 border-t border-brand-border scroll-mt-24">
       <div className="max-w-7xl mx-auto">
         <motion.div
           initial={{ opacity: 0, y: 30 }}

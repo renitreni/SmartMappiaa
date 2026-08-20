@@ -118,6 +118,23 @@ const config = {
     cashOwedAlertPct: toNumber(process.env.DRIVER_CASH_ALERT_PCT, 0.8),
   },
 
+  // Reconciling card charges Tap never told us about. See
+  // lib/chargeReconcile.js for why this exists at all.
+  //
+  // The floor is a grace period, not a tuning knob: a customer is still on
+  // the 3DS page for the first few minutes, and asking Tap about a charge
+  // they have not finished only burns rate limit. The ceiling stops the
+  // sweep re-reading a backlog forever — past it, a charge is a support
+  // question, not a sweep.
+  chargeSweep: {
+    everyMs: toNumber(process.env.CHARGE_SWEEP_MS, 5 * 60 * 1000),
+    minAgeMinutes: toNumber(process.env.CHARGE_SWEEP_MIN_AGE_MIN, 5),
+    maxAgeMinutes: toNumber(process.env.CHARGE_SWEEP_MAX_AGE_MIN, 120),
+    // Tap's API is rate limited and this runs unattended; a burst of stuck
+    // orders must not turn into a burst of gateway calls.
+    batchSize: toNumber(process.env.CHARGE_SWEEP_BATCH, 25),
+  },
+
   // KSA VAT. Charged ON TOP of the pre-tax amounts on both services and
   // snapshotted onto every order/booking (migration 0025), so changing the
   // rate here never rewrites the tax on money already taken. Rate is a
@@ -135,13 +152,21 @@ const config = {
   //   beyond maxRadiusKm  -> food/shop refuse the order; RIDES HAVE NO CAP
   //                          (a long airport transfer is legitimate)
   //
-  // The surcharge is PLATFORM revenue everywhere. On rides that means it is
-  // deliberately kept OUT of bookings.fare_amount, which lib/ledger.js uses
-  // as the driver's commission base — see lib/fare.js.
+  // On rides the surcharge is platform revenue, deliberately kept OUT of
+  // bookings.fare_amount, which lib/ledger.js uses as the driver's commission
+  // base — see lib/fare.js. On food/shop deliveries the surcharge rides
+  // inside delivery_fee and is therefore split with the driver like the rest
+  // of it: they drove the extra kilometres.
   delivery: {
     freeRadiusKm: toNumber(process.env.DELIVERY_FREE_RADIUS_KM, 15),
     surchargePerKm: toNumber(process.env.DELIVERY_SURCHARGE_PER_KM, 0.25),
     maxRadiusKm: toNumber(process.env.DELIVERY_MAX_RADIUS_KM, 50),
+
+    // Our cut of a food/shop delivery fee; the driver keeps the rest. A
+    // separate number from ledger.commissionRate (rides, 20%) because the two
+    // are genuinely different deals — collapsing them into one constant would
+    // silently move one when the other is repriced.
+    platformSharePct: toNumber(process.env.DELIVERY_PLATFORM_SHARE, 0.1),
     // Customer-facing ETA floor for DELIVERIES only. A kitchen or a packing
     // bench sits between the order and the road, and Google only measures the
     // road half — an unfloored 18-minute drive would promise 18 minutes for

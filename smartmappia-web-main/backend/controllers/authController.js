@@ -188,11 +188,16 @@ async function syncProfile(req, res) {
     // non-admin profile is never legitimate: real admins are provisioned by
     // the seed scripts, which write the profile row with role 'admin' before
     // anyone signs in, so they match the `existing.role === 'admin'` branch.
-    if (isAdminEmail && existing && existing.role !== 'admin') {
-      console.error('[SECURITY] admin-email claim on an existing non-admin profile', {
+    // !existing is as important as the role mismatch. /api/auth/signup creates
+    // the auth user but NOT the profile row — only this endpoint does — so an
+    // attacker could sign up under a throwaway address, change their email to
+    // an unclaimed ADMIN_EMAILS one, and arrive here with existing === null,
+    // skipping the guard entirely and landing on the role branch below.
+    if (isAdminEmail && (!existing || existing.role !== 'admin')) {
+      console.error('[SECURITY] admin-email claim without a provisioned admin profile', {
         userId: id,
         email: emailLc,
-        currentRole: existing.role,
+        currentRole: existing ? existing.role : '(no profile row)',
       });
       return res.status(403).json({
         error: 'This email address is reserved. Please contact Smart Mappia support.',

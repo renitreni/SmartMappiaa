@@ -12,11 +12,10 @@
 // ---------------------------------------------------------------------
 const { supabase } = require('./supabase');
 const { config } = require('./config');
-const { round2, creditAfterCharge } = require('./foodMoney');
+const { round2 } = require('./foodMoney');
 const { logFoodEvent } = require('./foodEvents');
 const { logAudit } = require('./audit');
 const { logNotification } = require('./notifications');
-const { reverseOrderMargin } = require('./merchantCredit');
 const { pushFoodOrderStatus, pushMerchantFeed, pingFoodAdmin } = require('./realtime');
 
 // Credit summary for a restaurant (used / limit / warning / suspended).
@@ -47,11 +46,11 @@ async function loadMerchantById(id) {
 
 const auditAction = (base, actorRole) => (actorRole === 'admin' ? `admin_${base}` : `merchant_${base}`);
 
-// THE credit-gated action. HARD RULE (PRD §7): a restaurant whose
-// credit_used has reached the 300 SAR limit cannot take new orders (403).
-// Accepting charges the order's platform margin to the ledger; crossing 80%
-// (240) alerts once; hitting the limit suspends the restaurant until
-// reconciled.
+// Accepting an order. No longer credit-gated: the 300 SAR credit limit, the
+// 80% warning and auto-suspend all hung off charging the platform margin
+// here, and that charge is gone -- the margin is collected once, at
+// checkout. The only remaining block is an ADMIN suspension, which is a
+// moderation control rather than a money one.
 async function acceptOrderCore({ orderCode, actorId, actorRole }) {
   const order = await loadOrderByCode(orderCode);
   if (!order) return { httpStatus: 404, body: { error: 'Order not found' } };
@@ -62,43 +61,35 @@ async function acceptOrderCore({ orderCode, actorId, actorRole }) {
   if (!merchant) return { httpStatus: 404, body: { error: 'Merchant not found' } };
 
   const margin = round2(Number(order.platform_margin_total));
-  const credit = creditAfterCharge(merchant, margin);
 
-  if (merchant.status === 'suspended' || !credit.canAccept) {
+  // THE MARKUP IS COLLECTED ONCE, AT CHECKOUT.
+  //
+  // It is already inside the list price the customer paid, and the merchant
+  // payout is `subtotal - markup`, so accepting an order must NOT also
+  // charge that same markup to the merchant's credit line. It used to do
+  // both, which billed the merchant twice: on a 71.00 subtotal with a 9.00
+  // markup they were paid 62.00 AND accrued 9.00 of debt, netting 53.00.
+  //
+  // Admin suspension still blocks accepting -- that is a moderation
+  // control, unrelated to money.
+  if (merchant.status === 'suspended') {
     logFoodEvent({
       eventName: 'service_suspended',
       merchantId: merchant.id,
-      params: { final_balance: credit.before, merchant_id: merchant.id },
+      params: { merchant_id: merchant.id },
     });
     return {
       httpStatus: 403,
       body: {
-        error: `${merchant.name} has used up its SAR ${credit.limit.toFixed(2)} credit ` +
-          `(SAR ${credit.before.toFixed(2)}). Reconcile the balance before accepting new orders.`,
-        failure_reason: 'credit_exhausted',
+        error: `${merchant.name} is suspended and cannot accept new orders.`,
+        failure_reason: 'merchant_suspended',
         credit: creditView(merchant),
       },
     };
   }
 
-  // Charge with a compare-and-swap on the previous balance so two
-  // simultaneous accepts can't both slip under the limit.
-  const nextStatus = credit.exhausted ? 'suspended' : merchant.status;
-  const { data: chargedRows, error: chargeErr } = await supabase
-    .from('merchants')
-    .update({ credit_used: credit.after, status: nextStatus })
-    .eq('id', merchant.id)
-    .eq('credit_used', merchant.credit_used)
-    .select('id');
-  if (chargeErr) {
-    console.error('acceptOrderCore credit charge error:', chargeErr);
-    return { httpStatus: 500, body: { error: 'Could not charge the restaurant credit' } };
-  }
-  if (!chargedRows || chargedRows.length === 0) {
-    return { httpStatus: 409, body: { error: 'The restaurant credit changed — please retry' } };
-  }
-
-  // Flip the order pending -> accepted (also CAS); roll the charge back on a race.
+  // Flip the order pending -> accepted with a CAS so two simultaneous
+  // accepts cannot both win. Nothing to roll back now that no money moves.
   const { data: acceptedRows, error: acceptErr } = await supabase
     .from('orders')
     .update({ status: 'accepted', accepted_at: new Date().toISOString() })
@@ -106,24 +97,8 @@ async function acceptOrderCore({ orderCode, actorId, actorRole }) {
     .eq('status', 'pending')
     .select('order_code');
   if (acceptErr || !acceptedRows || acceptedRows.length === 0) {
-    await supabase
-      .from('merchants')
-      .update({ credit_used: credit.before, status: merchant.status })
-      .eq('id', merchant.id)
-      .eq('credit_used', credit.after);
     return { httpStatus: 409, body: { error: 'Order is no longer pending' } };
   }
-
-  // Ledger entry: every accepted order charges its platform margin.
-  await supabase.from('merchant_credit_ledger').insert({
-    merchant_id: merchant.id,
-    order_id: order.id,
-    type: 'charge',
-    amount: margin,
-    balance_after: credit.after,
-    note: `Platform margin for order ${order.order_code}`,
-    created_by: actorId,
-  });
 
   logFoodEvent({
     eventName: 'merchant_order_accept',
@@ -137,24 +112,9 @@ async function acceptOrderCore({ orderCode, actorId, actorRole }) {
     action: auditAction('food_order_accepted', actorRole),
     resourceType: 'order',
     resourceId: order.order_code,
-    meta: { margin_charged: margin, credit_used_after: credit.after },
+    // Recorded, not charged: the markup is realised at checkout.
+    meta: { margin_at_checkout: margin },
   });
-
-  // 80% alert fires exactly once, on the charge that crosses the line.
-  if (credit.crossesAlert && !credit.exhausted) {
-    logFoodEvent({
-      eventName: 'credit_limit_warning',
-      merchantId: merchant.id,
-      params: { current_usage: credit.after, merchant_id: merchant.id },
-    });
-  }
-  if (credit.exhausted) {
-    logFoodEvent({
-      eventName: 'service_suspended',
-      merchantId: merchant.id,
-      params: { final_balance: credit.after, merchant_id: merchant.id },
-    });
-  }
 
   pushFoodOrderStatus(order.order_code, { status: 'accepted' });
   pushMerchantFeed(merchant.id, 'order_update', { orderCode: order.order_code, status: 'accepted' });
@@ -175,7 +135,7 @@ async function acceptOrderCore({ orderCode, actorId, actorRole }) {
     body: {
       orderCode: order.order_code,
       status: 'accepted',
-      credit: creditView({ ...merchant, credit_used: credit.after, status: nextStatus }),
+      credit: creditView(merchant),
     },
   };
 }
@@ -352,18 +312,13 @@ async function cancelOrderCore({
     console.error('food cancelOrderCore release delivery error:', err.message || err);
   }
 
-  // Accepting charged the platform margin to the restaurant's credit;
-  // cancelling gives it back. Only for an order that WAS accepted — a pending
-  // one was never charged. Best-effort: the cancel already happened.
-  const creditReversal = order.accepted_at
-    ? await reverseOrderMargin({
-        merchantId: order.merchant_id,
-        margin: order.platform_margin_total,
-        orderId: order.id,
-        orderCode: order.order_code,
-        actorId,
-      })
-    : { reversed: false, amount: 0 };
+  // Nothing to reverse. Accepting no longer charges the markup to the
+  // merchant's credit -- it is collected once, at checkout -- so a cancel has
+  // no credit charge to give back. Left as a no-op rather than deleted
+  // because reverseOrderMargin clamps at zero and would otherwise quietly
+  // draw down a merchant's HISTORICAL balance from before that change, paying
+  // them back for a charge this cancel never made.
+  const creditReversal = { reversed: false, amount: 0 };
 
   const refundDue = order.payment_status === 'paid';
 

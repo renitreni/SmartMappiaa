@@ -4,8 +4,10 @@
 //   npm run seed:admin
 //
 // Creates a Supabase auth user from ADMIN_SEED_EMAIL / ADMIN_SEED_PASSWORD
-// (defaults admin123@smartmappia.com / admin123) with its email already
-// confirmed, then upserts an admin profile. Idempotent — safe to re-run.
+// with its email already confirmed, then upserts an admin profile.
+// Idempotent — safe to re-run.
+//
+// BOTH VARIABLES ARE REQUIRED and there are no defaults; see below.
 //
 // Needs SUPABASE_URL + SUPABASE_SERVICE_ROLE_KEY in the environment
 // (loaded from .env, same as the server).
@@ -13,8 +15,29 @@
 require('dotenv').config();
 const { supabase } = require('../lib/supabase');
 
-const email = (process.env.ADMIN_SEED_EMAIL || 'admin123@smartmappia.com').toLowerCase();
-const password = process.env.ADMIN_SEED_PASSWORD || 'admin123';
+// NO DEFAULTS ANY MORE. This script used to default to
+// admin123@smartmappia.com / admin123 -- an eight-character password on a
+// full-privilege account, which is exactly the credential that had to be
+// deleted before launch. Leaving the default in place meant anyone running
+// `npm run seed:accounts` on the box would put it straight back.
+const email = String(process.env.ADMIN_SEED_EMAIL || '').trim().toLowerCase();
+const password = process.env.ADMIN_SEED_PASSWORD || '';
+const MIN_PASSWORD = 12;
+
+if (!email || !email.includes('@')) {
+  console.error(
+    'ADMIN_SEED_EMAIL is required. Run it explicitly, e.g.\n' +
+      '  ADMIN_SEED_EMAIL=you@example.com ADMIN_SEED_PASSWORD=<long random> npm run seed:admin'
+  );
+  process.exit(1);
+}
+if (password.length < MIN_PASSWORD) {
+  console.error(
+    `ADMIN_SEED_PASSWORD must be at least ${MIN_PASSWORD} characters. ` +
+      'This account has full financial control -- generate one rather than choosing it.'
+  );
+  process.exit(1);
+}
 
 // Find an existing auth user by email (listUsers is paginated).
 async function findUserByEmail(targetEmail) {

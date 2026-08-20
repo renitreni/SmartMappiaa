@@ -416,7 +416,7 @@ async function updateRideStatus(req, res) {
     const { data: booking, error } = await supabase
       .from('bookings')
       .select('id, booking_code, fare_amount, vat_amount, vat_rate, total_amount, currency, ' +
-        'payment_method, payment_status, ' +
+        'distance_surcharge, payment_method, payment_status, ' +
         'assigned_driver_id, driver_ride_status, booking_status, user_id, ' +
         'pickup_lat, pickup_lng, trip_type')
       .eq('booking_code', req.params.bookingCode)
@@ -507,11 +507,21 @@ async function updateRideStatus(req, res) {
         // than stay in their pocket (migration 0025).
         // Only on a freshly-written ledger row (the completed-guard above
         // already prevents re-entry, and result.skipped is a second belt).
+        //
+        // The distance surcharge (0034) has to come back too. It sits
+        // OUTSIDE fare_amount because it is platform revenue, not driver
+        // earnings -- but it is inside total_amount, so the passenger hands
+        // it to the driver in cash. Omitting it here let the driver keep it:
+        // on a 40 km ride that is SAR 6.25 a trip, scaling with distance.
         if (!result.skipped) {
           await chargeDriverCashOwed({
             driverId: req.driverId,
             bookingId: booking.id,
-            amount: round2(result.ledger.platform_net + bookingVat(booking)),
+            amount: round2(
+              result.ledger.platform_net +
+                bookingVat(booking) +
+                Number(booking.distance_surcharge || 0)
+            ),
           });
         }
       }

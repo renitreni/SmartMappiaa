@@ -15,9 +15,7 @@
 const { supabase } = require('./supabase');
 const { config } = require('./config');
 
-function round2(n) {
-  return Math.round((Number(n) + Number.EPSILON) * 100) / 100;
-}
+const { round2 } = require('./money');
 
 function limitFor(driver) {
   const raw = Number(driver.cash_owed_limit);

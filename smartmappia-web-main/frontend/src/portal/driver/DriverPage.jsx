@@ -1023,22 +1023,19 @@ export default function DriverPage() {
 
     {
 
-      new_request: (payload) => {
-
-        const r = normRide(payload);
-
-        setAvailable((list) => {
-          if (list.some((x) => x.bookingCode === r.bookingCode)) return list;
-          notifyAlert('New ride request nearby', { icon: 'info' });
-          return [...list, r];
-        });
-
+      // Both handlers refetch instead of rendering the broadcast payload.
+      // `drivers-available` is joinable by anyone holding the anon key, which
+      // ships in the bundle and the APK, so the payload now carries nothing:
+      // it used to include both addresses, both coordinate pairs, the fare
+      // and the booking code. loadAvailable() goes through the authenticated
+      // endpoint, so the same data arrives -- just to drivers only.
+      new_request: () => {
+        notifyAlert('New ride request nearby', { icon: 'info' });
+        loadAvailable();
       },
 
-      request_taken: (payload) => {
-
-        setAvailable((list) => list.filter((x) => x.bookingCode !== payload.bookingCode));
-
+      request_taken: () => {
+        loadAvailable();
       },
 
     },

@@ -10,8 +10,8 @@ const express = require('express');
 const { requireAuth } = require('../middleware/auth');
 const { idempotent } = require('../middleware/idempotency');
 const { validateBody } = require('../lib/validate');
-const { cardChargeLimiter, webhookLimiter } = require('../middleware/rateLimiters');
-const { tapWebhook, createBookingCardCharge } = require('../controllers/cardPaymentsController');
+const { cardChargeLimiter, webhookLimiter, paymentMethodsLimiter } = require('../middleware/rateLimiters');
+const { tapWebhook, createBookingCardCharge, verifyCharge } = require('../controllers/cardPaymentsController');
 
 const router = express.Router();
 
@@ -24,6 +24,13 @@ const router = express.Router();
 // before anything is marked paid.
 router.post('/webhooks/tap', webhookLimiter, tapWebhook);
 
+// Whether the checkout screens may advertise card at all. Public and
+// deliberately thin: this whole router is replaced by a 503 stub when Tap is
+// unconfigured, so an unreachable endpoint already means "no card" and the
+// client needs no flag of its own. Unlike /api/health this says nothing about
+// test mode, keys, or which gateway is behind it.
+router.get('/config', (req, res) => res.json({ cardAvailable: true }));
+
 router.post(
   '/bookings/:code/charge',
   requireAuth,
@@ -35,5 +42,15 @@ router.post(
   }),
   createBookingCardCharge
 );
+
+// The customer landing back from the hosted page, with Tap's tap_id in the
+// URL. STATIC SEGMENT FIRST, same reason as the webhook: 'charges' must
+// never be parsable as a booking code.
+//
+// POST, not GET: it can settle an order, so it is not safe to prefetch or
+// retry blindly. Rate-limited on the read bucket rather than the charge one
+// — it starts no payment, and a customer refreshing a stuck tracking page
+// must not be locked out of the very call that unsticks it.
+router.post('/charges/:chargeId/verify', requireAuth, paymentMethodsLimiter, verifyCharge);
 
 module.exports = router;

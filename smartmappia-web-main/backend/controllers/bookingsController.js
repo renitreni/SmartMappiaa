@@ -265,8 +265,11 @@ async function cancelBooking(req, res) {
     if (error || !booking) {
       return res.status(404).json({ error: 'Booking not found' });
     }
-    // Only the owner (or an admin) may cancel.
-    if (booking.user_id && req.userId !== booking.user_id && req.role !== 'admin') {
+    // Fail closed on a null owner. user_id is null for guest rides and is
+    // deliberately nulled by 0036 when an account is deleted, so the old
+    // `booking.user_id &&` short-circuit let ANY signed-in user cancel a
+    // stranger's ride just by knowing the code, which is public.
+    if (!booking.user_id || (req.userId !== booking.user_id && req.role !== 'admin')) {
       return res.status(403).json({ error: 'You can only cancel your own booking' });
     }
     if (booking.booking_status === 'cancelled') {
@@ -332,7 +335,8 @@ async function updateBookingContact(req, res) {
       .eq('booking_code', bookingCode)
       .single();
     if (error || !booking) return res.status(404).json({ error: 'Booking not found' });
-    if (booking.user_id && req.userId !== booking.user_id && req.role !== 'admin') {
+    // Same nullable-owner trap as cancelBooking above — fail closed.
+    if (!booking.user_id || (req.userId !== booking.user_id && req.role !== 'admin')) {
       return res.status(403).json({ error: 'You can only edit your own booking' });
     }
     if (!CONTACT_EDITABLE_STATUSES.includes(booking.booking_status)) {

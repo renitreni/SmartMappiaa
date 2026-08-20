@@ -37,6 +37,12 @@ const AMOUNT_EPSILON = 0.01;
 // lib/payments.js defers its dispatch require).
 const VERTICALS = {
   food: {
+    // table/codeColumn are for the charge-id bookkeeping below, which works
+    // off the raw row rather than the vertical's loader — a sweeper looking
+    // for unconfirmed charges has no order code to start from.
+    table: 'orders',
+    codeColumn: 'order_code',
+    unsettledPaymentStatus: 'awaiting',
     async load(code) {
       const { loadOrder } = require('../controllers/food/ordersController');
       return loadOrder(code);
@@ -54,6 +60,9 @@ const VERTICALS = {
   },
 
   shop: {
+    table: 'shop_orders',
+    codeColumn: 'order_code',
+    unsettledPaymentStatus: 'awaiting',
     async load(code) {
       const { loadOrder } = require('../controllers/shop/ordersController');
       return loadOrder(code);
@@ -73,11 +82,18 @@ const VERTICALS = {
   },
 
   ride: {
+    table: 'bookings',
+    codeColumn: 'booking_code',
+    // Rides settle to 'verified', not 'paid', so "not yet settled" is the
+    // absence of that rather than a single named status.
+    unsettledPaymentStatus: 'pending',
     async load(code) {
       const { data } = await supabase
         .from('bookings')
         .select(
-          'id, booking_code, customer_id, fare_amount, vat_amount, vat_rate, total_amount, ' +
+          // customer_id:user_id — see the note in cardPaymentsController; the
+          // ride table names its owner differently to the two order tables.
+          'id, booking_code, customer_id:user_id, fare_amount, vat_amount, vat_rate, total_amount, ' +
             'currency, payment_method, payment_status, booking_status'
         )
         .eq('booking_code', code)
@@ -101,6 +117,57 @@ const VERTICALS = {
 
 function isKnownVertical(vertical) {
   return Object.prototype.hasOwnProperty.call(VERTICALS, vertical);
+}
+
+// Record the gateway's charge id BEFORE the customer is redirected away.
+//
+// Without this the id exists only in the response we are about to discard,
+// and a webhook that never arrives leaves a debited customer, an order stuck
+// on 'awaiting', and nothing at all to reconcile against — not even a log
+// line, because nothing failed. With it, both backstops become possible:
+// verify-on-return (the customer comes back with tap_id in the URL) and
+// sweepUnconfirmedCharges (they never come back).
+//
+// Never throws. A charge that is already under way must not be turned into
+// a 500 because our own bookkeeping write failed — losing the backstop is
+// bad, losing the payment is worse.
+async function recordChargeStart({ vertical, code, chargeId }) {
+  if (!isKnownVertical(vertical) || !code || !chargeId) return false;
+  const handler = VERTICALS[vertical];
+  try {
+    const { error } = await supabase
+      .from(handler.table)
+      .update({ gateway_charge_id: chargeId })
+      .eq(handler.codeColumn, code);
+    if (error) {
+      console.error('recordChargeStart failed', { vertical, code, error: error.message });
+      return false;
+    }
+    return true;
+  } catch (err) {
+    console.error('recordChargeStart threw', { vertical, code, err: err && err.message });
+    return false;
+  }
+}
+
+// Which order does this Tap charge belong to? Used by the verify-on-return
+// endpoint, where the only thing the client can prove is the tap_id in its
+// own URL. Returns { vertical, code, record } or null.
+//
+// Deliberately a lookup by charge id rather than trusting a code the client
+// also sends: a customer who edits tap_id finds nothing, and one who edits
+// the code gets an order that does not match the charge.
+async function findByChargeId(chargeId) {
+  if (!chargeId) return null;
+  for (const [vertical, handler] of Object.entries(VERTICALS)) {
+    const { data } = await supabase
+      .from(handler.table)
+      .select(`${handler.codeColumn}`)
+      .eq('gateway_charge_id', chargeId)
+      .maybeSingle();
+    if (data) return { vertical, code: data[handler.codeColumn] };
+  }
+  return null;
 }
 
 // Confirm a captured charge against the order it belongs to.
@@ -152,4 +219,10 @@ async function confirmGatewayPayment({ vertical, code, chargeId, status, amountP
   };
 }
 
-module.exports = { confirmGatewayPayment, isKnownVertical, VERTICALS };
+module.exports = {
+  confirmGatewayPayment,
+  isKnownVertical,
+  recordChargeStart,
+  findByChargeId,
+  VERTICALS,
+};

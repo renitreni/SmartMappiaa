@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { BellRing, X } from 'lucide-react';
 import { useAuth } from '../lib/AuthProvider';
 import { syncWebPush, webPushSupported } from '../lib/pushNotifications';
-import { playChime } from '../lib/notify';
+import { playAlert } from '../lib/alertSound';
 
 export default function PushNotificationPrompt() {
   const { user } = useAuth();
@@ -35,7 +35,7 @@ export default function PushNotificationPrompt() {
     try {
       const result = await syncWebPush({ requestPermission: true });
       if (result.state === 'enabled') {
-        playChime();
+        playAlert('chime');
         setState('hidden');
       } else if (result.state === 'denied') {
         setState('denied');

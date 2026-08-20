@@ -17,6 +17,7 @@ import {
 import { useState } from 'react';
 import { useAuth } from '../lib/AuthProvider';
 import NotificationBell from '../components/NotificationBell';
+import SoundToggle from '../components/SoundToggle';
 
 export const MERCHANT_NAV = [
   { id: 'overview', label: 'Overview', icon: LayoutDashboard },
@@ -90,6 +91,39 @@ const SHOP_PAGE_COPY = {
   },
 };
 
+// Hoisted OUT of MerchantLayout on purpose. Declared inside the component
+// body it was a new component type on every render, so React unmounted and
+// remounted all six nav buttons whenever the dashboard re-rendered -- which
+// now happens on every order broadcast -- dropping keyboard focus to <body>.
+// AdminLayout already declares its equivalent at module scope.
+function NavButton({ id, label, icon: Icon, compact = false, isActive, onSelect }) {
+  return (
+    <button
+      type="button"
+      onClick={() => onSelect(id)}
+      className={`w-full flex items-center gap-3 rounded-xl text-left transition-all cursor-pointer ${
+        compact ? 'px-3 py-2.5' : 'px-3 py-3'
+      } ${
+        isActive
+          ? 'bg-white/10 text-white shadow-inner shadow-black/10'
+          : 'text-white/55 hover:text-white hover:bg-white/5'
+      }`}
+    >
+      <span
+        className={`flex items-center justify-center w-9 h-9 rounded-lg shrink-0 ${
+          isActive ? 'bg-brand-orange text-white' : 'bg-white/5 text-white/70'
+        }`}
+      >
+        <Icon className="w-[18px] h-[18px]" />
+      </span>
+      <span className="text-sm font-semibold tracking-tight">{label}</span>
+      {isActive && !compact && (
+        <span className="ml-auto w-1.5 h-1.5 rounded-full bg-brand-orange shrink-0" />
+      )}
+    </button>
+  );
+}
+
 export default function MerchantLayout({ activeTab, onTabChange, children, vertical = 'food' }) {
   const { user, signOut } = useAuth();
   const [mobileNav, setMobileNav] = useState(false);
@@ -104,34 +138,6 @@ export default function MerchantLayout({ activeTab, onTabChange, children, verti
     setMobileNav(false);
   }
 
-  function NavButton({ id, label, icon: Icon, compact = false }) {
-    const isActive = activeTab === id;
-    return (
-      <button
-        type="button"
-        onClick={() => selectTab(id)}
-        className={`w-full flex items-center gap-3 rounded-xl text-left transition-all cursor-pointer ${
-          compact ? 'px-3 py-2.5' : 'px-3 py-3'
-        } ${
-          isActive
-            ? 'bg-white/10 text-white shadow-inner shadow-black/10'
-            : 'text-white/55 hover:text-white hover:bg-white/5'
-        }`}
-      >
-        <span
-          className={`flex items-center justify-center w-9 h-9 rounded-lg shrink-0 ${
-            isActive ? 'bg-brand-orange text-white' : 'bg-white/5 text-white/70'
-          }`}
-        >
-          <Icon className="w-[18px] h-[18px]" />
-        </span>
-        <span className="text-sm font-semibold tracking-tight">{label}</span>
-        {isActive && !compact && (
-          <span className="ml-auto w-1.5 h-1.5 rounded-full bg-brand-orange shrink-0" />
-        )}
-      </button>
-    );
-  }
 
   return (
     <div className="min-h-screen flex bg-[#0c1018]">
@@ -158,7 +164,7 @@ export default function MerchantLayout({ activeTab, onTabChange, children, verti
           </p>
           <nav className="space-y-1">
             {navItems.map(({ id, label, icon }) => (
-              <NavButton key={id} id={id} label={label} icon={icon} />
+              <NavButton key={id} id={id} label={label} icon={icon} isActive={activeTab === id} onSelect={selectTab} />
             ))}
           </nav>
         </div>
@@ -205,8 +211,11 @@ export default function MerchantLayout({ activeTab, onTabChange, children, verti
                 <p className="text-sm text-brand-grey truncate hidden sm:block">{copy.subtitle}</p>
               </div>
             </div>
-            <div className="rounded-xl bg-white border border-black/5 shadow-sm">
-              <NotificationBell />
+            <div className="flex items-center gap-1.5">
+              <SoundToggle />
+              <div className="rounded-xl bg-white border border-black/5 shadow-sm">
+                <NotificationBell />
+              </div>
             </div>
           </div>
 
@@ -255,7 +264,7 @@ export default function MerchantLayout({ activeTab, onTabChange, children, verti
             </div>
             <nav className="flex-1 p-3 space-y-1">
               {navItems.map(({ id, label, icon }) => (
-                <NavButton key={id} id={id} label={label} icon={icon} compact />
+                <NavButton key={id} id={id} label={label} icon={icon} compact isActive={activeTab === id} onSelect={selectTab} />
               ))}
             </nav>
             <div className="p-4 border-t border-white/5">

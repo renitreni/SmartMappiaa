@@ -18,6 +18,7 @@
 // ---------------------------------------------------------------------
 const crypto = require('crypto');
 const { config } = require('./config');
+const { fetchWithTimeout } = require('./httpTimeout');
 
 // Minor units per ISO 4217, for the webhook hash only. Tap sends and takes
 // amounts as DECIMALS (100.5 means 100.50), so this is about formatting the
@@ -84,7 +85,9 @@ async function tapRequest(path, { method = 'GET', body = null } = {}) {
   let response;
   let payload;
   try {
-    response = await fetch(`${config.tap.apiBase}${path}`, {
+    // 15s: generous enough for the gateway hop, bounded so a slow Tap
+    // cannot pin every in-flight checkout open indefinitely.
+    response = await fetchWithTimeout(15000)(`${config.tap.apiBase}${path}`, {
       method,
       headers: {
         'Content-Type': 'application/json',

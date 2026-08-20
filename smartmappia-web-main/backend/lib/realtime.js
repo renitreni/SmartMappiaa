@@ -15,10 +15,15 @@
 // ---------------------------------------------------------------------
 const url = process.env.SUPABASE_URL;
 const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+const { fetchWithTimeout } = require('./httpTimeout');
 
 async function broadcast(topic, event, payload) {
   try {
-    const res = await fetch(`${url}/realtime/v1/api/broadcast`, {
+    // 3s. The header above promises realtime never blocks the request, and
+    // that was true for ERRORS but not for LATENCY -- these calls are
+    // awaited from inside the dispatch loop and the order controllers, so a
+    // hanging broadcast endpoint was blocking order acceptance itself.
+    const res = await fetchWithTimeout(3000)(`${url}/realtime/v1/api/broadcast`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -40,18 +45,21 @@ function pushBookingStatus(code, payload) {
 }
 
 // A newly-verified booking becomes available for any driver to accept.
-function announceAvailableRide(ride) {
+// Carries NO data: this topic is joinable by anyone with the anon key.
+function announceAvailableRide() {
   return Promise.all([
-    broadcast('drivers-available', 'new_request', ride),
-    broadcast('admin-bookings', 'changed', { bookingCode: ride.bookingCode }),
+    broadcast('drivers-available', 'new_request', {}),
+    broadcast('admin-bookings', 'changed', {}),
   ]);
 }
 
 // A booking was claimed (or cancelled) — remove it from the open feed.
-function announceRequestTaken(code) {
+// Also carries nothing: a booking code is enough to read the passenger's
+// phone number off the public tracking endpoint.
+function announceRequestTaken() {
   return Promise.all([
-    broadcast('drivers-available', 'request_taken', { bookingCode: code }),
-    broadcast('admin-bookings', 'changed', { bookingCode: code }),
+    broadcast('drivers-available', 'request_taken', {}),
+    broadcast('admin-bookings', 'changed', {}),
   ]);
 }
 

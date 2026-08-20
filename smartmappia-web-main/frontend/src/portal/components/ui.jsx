@@ -7,6 +7,7 @@ import { ArrowLeft, LogOut, UserCircle, History, Settings, ChevronDown, CreditCa
 import { TONE_CLASSES } from '../lib/constants';
 import { useAuth } from '../lib/AuthProvider';
 import NotificationBell from './NotificationBell';
+import SoundToggle from './SoundToggle';
 
 function initialsOf(name, email) {
   const source = (name || email || '?').trim();
@@ -121,6 +122,7 @@ export function PortalShell({ title, subtitle, right, onBack, children, wide = f
             {right}
             {user && (
               <>
+                <SoundToggle />
                 <NotificationBell />
                 <UserMenu />
               </>
@@ -174,7 +176,7 @@ export function Field({ label, children }) {
 
 export const inputClass =
   'w-full bg-white border border-brand-border rounded-xl px-4 py-3 text-brand-dark text-sm ' +
-  'focus:outline-none focus:border-brand-orange transition-colors';
+  'focus:outline-none focus:border-brand-orange focus:ring-2 focus:ring-brand-dark/30 transition-colors';
 
 // Styled <input type="file"> — orange "choose file" button + standard input look.
 export const fileInputClass =

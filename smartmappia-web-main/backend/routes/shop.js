@@ -27,7 +27,6 @@ const {
   createPayUploadUrl,
   recordPayment,
   createCardCharge,
-  createTapCharge,
 } = require('../controllers/shop/ordersController');
 const { recordEvent } = require('../controllers/shop/eventsController');
 const { rateShopDriver } = require('../controllers/ratingsController');
@@ -133,9 +132,6 @@ router.post(
   }),
   createCardCharge
 );
-// Superseded by /charge. Kept for one release so a cached frontend bundle
-// gets a readable 503 instead of a 404; delete after the next deploy.
-router.post('/orders/:code/tap-charge', requireAuth, shopPayLimiter, createTapCharge);
 
 // Rate the delivery rider (1-5 stars) after the order is delivered.
 router.post(

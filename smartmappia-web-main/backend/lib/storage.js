@@ -121,16 +121,41 @@ function merchantImagePublicUrl(path) {
 // Same signed-upload pattern as merchant images. The bucket is created
 // lazily on first use so no manual Supabase setup step is needed.
 
+// Create the bucket if it is missing, and either way make sure its size and
+// MIME limits match what config says.
+//
+// The UPDATE half is the part that matters. createBucket is a no-op on a
+// bucket that already exists, so the three buckets made by hand in the
+// dashboard (payment-proofs, driver-docs, merchant-images) had no
+// fileSizeLimit at all — and a bucket limit is the only enforcement point
+// we have, because files never pass through this server. The browser PUTs
+// straight to Storage with a signed URL, so an Express body limit would
+// catch precisely nothing.
+async function ensureBucket(name, { isPublic, maxBytes, allowedMimeTypes }) {
+  const options = {
+    public: isPublic,
+    fileSizeLimit: maxBytes,
+    allowedMimeTypes,
+  };
+
+  const { error: createError } = await supabase.storage.createBucket(name, options);
+  const alreadyExists = createError && /already exists/i.test(createError.message || '');
+  if (createError && !alreadyExists) throw createError;
+  if (!alreadyExists) return { bucket: name, action: 'created', maxBytes };
+
+  const { error: updateError } = await supabase.storage.updateBucket(name, options);
+  if (updateError) throw updateError;
+  return { bucket: name, action: 'updated', maxBytes };
+}
+
 let avatarBucketReady = false;
 async function ensureAvatarBucket() {
   if (avatarBucketReady) return;
-  const { error } = await supabase.storage.createBucket(config.avatars.bucket, {
-    public: true,
-    fileSizeLimit: config.avatars.maxBytes,
+  await ensureBucket(config.avatars.bucket, {
+    isPublic: true,
+    maxBytes: config.avatars.maxBytes,
     allowedMimeTypes: config.avatars.allowedMimeTypes,
   });
-  // "already exists" is fine — anything else propagates.
-  if (error && !/already exists/i.test(error.message || '')) throw error;
   avatarBucketReady = true;
 }
 
@@ -178,6 +203,7 @@ async function deleteAvatarFolder(userId) {
 }
 
 module.exports = {
+  ensureBucket,
   buildProofPath,
   createProofUploadUrl,
   createProofDownloadUrl,

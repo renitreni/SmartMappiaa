@@ -7,6 +7,7 @@
 // so they don't nag the user.
 // ---------------------------------------------------------------------
 import Swal from 'sweetalert2';
+import { playAlert } from './alertSound';
 
 const GENERIC_ERROR = 'Something went wrong on our side. Please try again in a moment.';
 
@@ -128,37 +129,11 @@ export async function confirmAction({
 // ---------------------------------------------------------------------
 // Live ride alerts: a short chime + a corner toast. Used for "driver
 // arrived" / "on the way to drop-off" style notifications (NOTES §5).
+//
+// The chime itself lives in alertSound.js. It used to be a second
+// AudioContext right here, with no autoplay unlock, so every alert on this
+// path was silently swallowed on a page the user had not clicked.
 // ---------------------------------------------------------------------
-
-// Two-tone chime via the Web Audio API — no asset file needed. Best-effort:
-// browsers may keep the audio context suspended until a user gesture, so this
-// is wrapped in try/catch and silently no-ops if it can't play.
-let _audioCtx = null;
-export function playChime() {
-  try {
-    const Ctx = window.AudioContext || window.webkitAudioContext;
-    if (!Ctx) return;
-    _audioCtx = _audioCtx || new Ctx();
-    const ctx = _audioCtx;
-    if (ctx.state === 'suspended') ctx.resume();
-    const now = ctx.currentTime;
-    [880, 1175].forEach((freq, i) => {
-      const osc = ctx.createOscillator();
-      const gain = ctx.createGain();
-      osc.type = 'sine';
-      osc.frequency.value = freq;
-      const t = now + i * 0.18;
-      gain.gain.setValueAtTime(0, t);
-      gain.gain.linearRampToValueAtTime(0.25, t + 0.02);
-      gain.gain.exponentialRampToValueAtTime(0.0001, t + 0.35);
-      osc.connect(gain).connect(ctx.destination);
-      osc.start(t);
-      osc.stop(t + 0.36);
-    });
-  } catch {
-    /* audio unavailable — ignore */
-  }
-}
 
 export function notifyToast(title, opts = {}) {
   Swal.fire({
@@ -174,7 +149,7 @@ export function notifyToast(title, opts = {}) {
 
 // Chime + toast together — the "ring the bell" alert for ride events.
 export function notifyAlert(title, opts = {}) {
-  playChime();
+  playAlert('chime');
   notifyToast(title, opts);
 }
 

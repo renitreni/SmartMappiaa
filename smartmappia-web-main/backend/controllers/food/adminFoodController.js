@@ -1351,7 +1351,7 @@ async function getSettlement(req, res) {
         .from('orders')
         .select(
           'order_code, created_at, status, payment_status, payment_method, ' +
-            'subtotal, delivery_fee, platform_margin_total, vat_amount, total, merchants ( id, name )'
+            'subtotal, delivery_fee, driver_fee, platform_margin_total, vat_amount, total, merchants ( id, name )'
         )
         .gte('created_at', range.from.toISOString())
         .lt('created_at', range.toExclusive.toISOString())
@@ -1382,6 +1382,11 @@ async function getSettlement(req, res) {
         restaurantPayout: round2(subtotal - markup), // = sum of net prices
         platformMarkup: markup,
         deliveryFee: round2(Number(o.delivery_fee || 0)),
+        // The delivery fee is now split (0041). driverFee is the rider's
+        // share; the remainder is ours. Read off the row so a historical
+        // order reports the deal it was actually placed on.
+        driverFee: round2(Number(o.driver_fee || 0)),
+        platformDeliveryShare: round2(Number(o.delivery_fee || 0) - Number(o.driver_fee || 0)),
         // VAT is collected on the platform's behalf and owed onward to the
         // tax authority — never part of the restaurant payout or our markup.
         vat: round2(Number(o.vat_amount || 0)),
@@ -1401,6 +1406,12 @@ async function getSettlement(req, res) {
       // VAT collected on paid orders — what we owe the tax authority for the
       // period, split the same way as the money it arrived with.
       vatCollected: 0, onlineVat: 0, cashVat: 0,
+      // The delivery fee, split two ways and in two directions. On a PREPAID
+      // order we hold the cash, so driverPayoutOwed is a payable — the one
+      // number to look at before paying riders. On a CASH order the rider
+      // already kept their share, so it is reported for completeness only
+      // and is never owed by us.
+      driverPayoutOwed: 0, driverKeptFromCash: 0, platformDeliveryShare: 0,
       refundedAmount: 0,
     };
     const blankBucket = (r) => ({
@@ -1426,6 +1437,7 @@ async function getSettlement(req, res) {
 
       m.vatCollected = round2(m.vatCollected + r.vat);
       totals.vatCollected = round2(totals.vatCollected + r.vat);
+      totals.platformDeliveryShare = round2(totals.platformDeliveryShare + r.platformDeliveryShare);
 
       if (r.collectedBy === 'platform_online') {
         m.onlineOwedToRestaurant = round2(m.onlineOwedToRestaurant + r.restaurantPayout);
@@ -1433,6 +1445,7 @@ async function getSettlement(req, res) {
         totals.onlineOwedToRestaurant = round2(totals.onlineOwedToRestaurant + r.restaurantPayout);
         totals.onlineMarkupKept = round2(totals.onlineMarkupKept + r.platformMarkup);
         totals.onlineVat = round2(totals.onlineVat + r.vat);
+        totals.driverPayoutOwed = round2(totals.driverPayoutOwed + r.driverFee);
       } else {
         m.cashCollectedByRider = round2(m.cashCollectedByRider + r.total);
         m.cashRestaurantPayout = round2(m.cashRestaurantPayout + r.restaurantPayout);
@@ -1441,6 +1454,7 @@ async function getSettlement(req, res) {
         totals.cashRestaurantPayout = round2(totals.cashRestaurantPayout + r.restaurantPayout);
         totals.cashMarkup = round2(totals.cashMarkup + r.platformMarkup);
         totals.cashVat = round2(totals.cashVat + r.vat);
+        totals.driverKeptFromCash = round2(totals.driverKeptFromCash + r.driverFee);
       }
     }
 

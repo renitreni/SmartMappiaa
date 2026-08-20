@@ -9,9 +9,13 @@
 //     price set, the flat config.shop.defaultMargin applies
 //   * delivery fee: flat 15 SAR within 15 km, plus 0.25 SAR per km
 //     beyond it; past 50 km checkout is rejected
-//   * VAT: 15% charged ON TOP of (subtotal + delivery_fee)
-//   * total = subtotal + delivery_fee + vat (the markup is charged to the
-//     STORE's credit on accept, not to the customer)
+//   * VAT: 15% charged ON TOP of the subtotal only — the delivery fee is
+//     outside the taxable base
+//   * of the delivery fee, the driver keeps 90% and the platform 10%
+//   * total = subtotal + delivery_fee + vat
+//
+// As in foodMoney: the markup is collected ONCE, at checkout. It is inside
+// the list price and withheld from the store payout, never billed again.
 //
 // Deliberately mirrors lib/foodMoney.js line for line so the two verticals
 // cannot drift. round2 and creditAfterCharge are IMPORTED rather than
@@ -25,7 +29,7 @@
 const { config } = require('./config');
 const { vatFor } = require('./vat');
 const { round2, creditAfterCharge } = require('./foodMoney');
-const { surchargeFor, exceedsMaxRadius } = require('./deliveryPricing');
+const { surchargeFor, exceedsMaxRadius, driverShareOf } = require('./deliveryPricing');
 
 // Markup the platform keeps on ONE unit.
 //   * with a net price set: markup = list price - net price (varies per
@@ -38,7 +42,13 @@ function markupPerUnit({ unitPrice, netPrice }) {
     const markup = round2(Number(unitPrice) - Number(netPrice));
     return markup < 0 ? 0 : markup;
   }
-  return config.shop.defaultMargin;
+  // Clamp the flat fallback to the unit price too. The net_price branch
+  // above cannot go negative, but the fallback compared against nothing --
+  // so an item priced below its own flat margin (live: BOTTLED WATER at
+  // 1.99 against a 3.00 drink margin) charged the merchant MORE than the
+  // line earned, driving `subtotal - markup` negative with nothing
+  // downstream rejecting it.
+  return Math.min(config.shop.defaultMargin, round2(Number(unitPrice)));
 }
 
 // A variant overrides the product's price and net price when it sets them;
@@ -135,8 +145,10 @@ function priceShopOrder({ items, distanceKm }) {
   const { surcharge: deliverySurcharge } = surchargeFor(distanceKm);
   const deliveryFee = round2(baseDeliveryFee + deliverySurcharge);
 
-  const { vatRate, vatAmount } = vatFor(subtotal + deliveryFee);
+  const { vatRate, vatAmount } = vatFor(subtotal);
   const total = round2(subtotal + deliveryFee + vatAmount);
+
+  const { driverFee, driverFeeRate } = driverShareOf(deliveryFee);
 
   return {
     ok: true,
@@ -145,6 +157,8 @@ function priceShopOrder({ items, distanceKm }) {
     baseDeliveryFee,
     deliverySurcharge,
     deliveryFee,
+    driverFee,
+    driverFeeRate,
     vatRate,
     vatAmount,
     total,

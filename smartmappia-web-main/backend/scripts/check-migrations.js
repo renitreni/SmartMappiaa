@@ -774,6 +774,51 @@ const CHECKS = [
     sqlFile: '0040_order_cancellation.sql',
   },
   {
+    id: '0041',
+    name: 'driver delivery share + gateway charge id',
+    // Cash settlement reads driver_fee off the row to decide what a rider
+    // owes, and the order insert writes it. Missing, every cash delivery
+    // charges the rider the WHOLE delivery fee back — money they were
+    // supposed to keep. gateway_charge_id is what the lost-webhook sweeper
+    // has to work from; missing, the backstop silently does nothing.
+    run: async () => {
+      const e1 = (
+        await supabase.from('orders').select('driver_fee, driver_fee_rate, gateway_charge_id').limit(0)
+      ).error;
+      if (e1) return e1.message;
+      const e2 = (
+        await supabase
+          .from('shop_orders')
+          .select('driver_fee, driver_fee_rate, gateway_charge_id')
+          .limit(0)
+      ).error;
+      if (e2) return e2.message;
+      const e3 = (await supabase.from('bookings').select('gateway_charge_id').limit(0)).error;
+      return e3 ? e3.message : null;
+    },
+    sqlFile: '0041_driver_delivery_share.sql',
+  },
+  {
+    id: '0041-grant',
+    name: 'driver pay stays hidden from the client roles',
+    // The opposite direction from every other grant check here: 0041 grants
+    // NOTHING on purpose. What we pay a rider is commercial data in the same
+    // class as platform_margin_total, and a customer has no use for the
+    // gateway's charge id. If one of these ever becomes visible, someone has
+    // re-granted the table wholesale and undone 0019/0029 with it.
+    grantCheck: true,
+    run: async () => {
+      return (
+        (await assertHidden('orders', 'driver_fee')) ||
+        (await assertHidden('orders', 'gateway_charge_id')) ||
+        (await assertHidden('shop_orders', 'driver_fee')) ||
+        (await assertHidden('shop_orders', 'gateway_charge_id')) ||
+        null
+      );
+    },
+    sqlFile: '0041_driver_delivery_share.sql',
+  },
+  {
     id: '0030-priv',
     name: 'write grants revoked from the public client roles (CRITICAL)',
     // The privilege half of 0030. Needs the anon key for the same reason

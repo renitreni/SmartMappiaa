@@ -14,9 +14,12 @@ const crypto = require('crypto');
 
 const { supabase } = require('../lib/supabase');
 const tap = require('../lib/tap');
-const savedCards = require('../lib/savedCards');
 const { chargeForOrder, respondToCharge } = require('../lib/cardCharge');
-const { confirmGatewayPayment, isKnownVertical } = require('../lib/gatewayPaid');
+const { confirmGatewayPayment, findByChargeId } = require('../lib/gatewayPaid');
+// Deciding what a charge means, and settling the order against it, is shared
+// with verify-on-return and the sweeper — see lib/chargeReconcile.js. Three
+// copies of "has this been paid" is three ways to disagree about money.
+const { settleCharge } = require('../lib/chargeReconcile');
 
 // Ride bookings the passenger may still pay for.
 const PAYABLE_BOOKING_STATUSES = ['awaiting_proof', 'proof_uploaded', 'under_review', 'rejected'];
@@ -35,17 +38,6 @@ function redactWebhookPayload(body) {
     metadata: b.metadata || null,
     created: (b.transaction && b.transaction.created) || null,
   };
-}
-
-// Our own charges always carry metadata.vertical. The code prefix is the
-// fallback, matching how driverDispatchController resolves the same thing.
-function resolveVertical(charge) {
-  const fromMetadata = charge && charge.metadata && charge.metadata.vertical;
-  if (isKnownVertical(fromMetadata)) return fromMetadata;
-  const code = String((charge && charge.reference && charge.reference.order) || '').toUpperCase();
-  if (code.startsWith('FD-')) return 'food';
-  if (code.startsWith('SH-')) return 'shop';
-  return 'ride';
 }
 
 async function recordWebhookEvent({ body, signatureVerified }) {
@@ -104,90 +96,52 @@ async function tapWebhook(req, res) {
     }
 
     const chargeId = body.id;
-    const code = body.reference && body.reference.order;
-    if (!chargeId || !code) {
+    if (!chargeId) {
       await finishWebhookEvent(eventId, { verified_by_fetch: false });
       return res.status(400).json({ error: 'Malformed webhook' });
     }
 
-    // 4. Verify by fetch. The hash proves the message came from Tap; only
-    //    Tap's own record of the charge proves what actually happened, so
-    //    the posted status and amount are never acted on directly.
-    let charge;
-    try {
-      charge = await tap.fetchCharge(chargeId);
-    } catch (err) {
+    // 4-6. Verify by fetch, then settle. The hash proves the message came
+    //      from Tap; only Tap's own record of the charge proves what
+    //      actually happened, so the posted status, amount and order code
+    //      are never acted on. settleCharge does all of that, and the same
+    //      call backs verify-on-return and the sweeper.
+    const settled = await settleCharge(chargeId);
+
+    if (!settled.ok && settled.reason === 'fetch_failed') {
       // Tap retries on a non-2xx, and a transient fetch failure is exactly
       // the case where a retry helps.
       await finishWebhookEvent(eventId, { verified_by_fetch: false });
       return res.status(502).json({ error: 'Could not verify the charge' });
     }
-
-    const status = String(charge.status || '').toUpperCase();
-    const vertical = resolveVertical(charge);
-
-    if (status !== 'CAPTURED') {
-      // Not a payment. Mark the order failed so the customer is told to try
-      // again, but only from the awaiting state — never walk back a paid
-      // order because a later event arrived out of order.
-      if (['FAILED', 'DECLINED', 'CANCELLED', 'ABANDONED'].includes(status)) {
-        await markFailed(vertical, code);
-      }
-      await finishWebhookEvent(eventId, { verified_by_fetch: true, event_type: status });
-      return res.json({ received: true, ignored: status });
+    if (!settled.ok && settled.reason === 'malformed') {
+      await finishWebhookEvent(eventId, { verified_by_fetch: true });
+      return res.status(400).json({ error: 'Malformed webhook' });
     }
-
-    // 5. Money moved -> the order is confirmed. No admin review on this
-    //    path: Tap already told us, and re-checking by hand adds delay
-    //    without adding certainty.
-    const result = await confirmGatewayPayment({
-      vertical,
-      code,
-      chargeId: charge.id,
-      status,
-      amountPaid: charge.amount,
-      currency: charge.currency,
-    });
-
-    if (!result.ok) {
+    if (!settled.ok) {
       console.error('tapWebhook: refused to confirm', {
-        vertical,
-        code,
-        chargeId: charge.id,
-        reason: result.reason,
-        expected: result.expected,
-        amountPaid: result.amountPaid,
+        vertical: settled.vertical,
+        code: settled.code,
+        chargeId,
+        detail: settled.detail,
       });
       await finishWebhookEvent(eventId, { verified_by_fetch: false });
       // Still 200: retrying an event we have correctly decided to reject
       // achieves nothing but six more deliveries over three hours.
-      return res.json({ received: true, ignored: result.reason });
+      return res.json({ received: true, ignored: settled.detail && settled.detail.reason });
     }
 
-    // 6. If the charge carried save_card, persist the references Tap minted.
-    //    This is the only place guaranteed to observe a completed 3DS
-    //    charge — the synchronous response for one is INITIATED and carries
-    //    no card id, and the customer may never return to the redirect URL.
-    //    userId comes from the ORDER, never from webhook metadata.
-    const ownerId = result.record && (result.record.customer_id || null);
-    if (ownerId) {
-      try {
-        await savedCards.saveMethodFromCharge({
-          userId: ownerId,
-          charge,
-          consentReference: code,
-        });
-      } catch (err) {
-        // A failure to remember the card must not un-pay the order.
-        console.error('tapWebhook: could not save payment method', { code, error: err.message });
-      }
+    if (settled.outcome === 'failed' || settled.outcome === 'ignored') {
+      await finishWebhookEvent(eventId, { verified_by_fetch: true, event_type: settled.status });
+      return res.json({ received: true, ignored: settled.status });
     }
 
+    const { vertical, record } = settled;
     await finishWebhookEvent(eventId, {
       verified_by_fetch: true,
-      ...(vertical === 'ride' ? { booking_id: result.record.id } : {}),
-      ...(vertical === 'food' ? { order_id: result.record.id } : {}),
-      ...(vertical === 'shop' ? { shop_order_id: result.record.id } : {}),
+      ...(vertical === 'ride' ? { booking_id: record.id } : {}),
+      ...(vertical === 'food' ? { order_id: record.id } : {}),
+      ...(vertical === 'shop' ? { shop_order_id: record.id } : {}),
     });
     return res.json({ received: true });
   } catch (err) {
@@ -195,25 +149,6 @@ async function tapWebhook(req, res) {
     await finishWebhookEvent(eventId, { verified_by_fetch: false });
     return res.status(500).json({ error: 'Unexpected server error' });
   }
-}
-
-// A failed charge leaves the order payable so the customer can retry. It is
-// never walked back from a settled state.
-async function markFailed(vertical, code) {
-  if (vertical === 'ride') {
-    await supabase
-      .from('bookings')
-      .update({ payment_status: 'rejected' })
-      .eq('booking_code', code)
-      .in('payment_status', ['awaiting_proof', 'proof_uploaded', 'under_review']);
-    return;
-  }
-  const table = vertical === 'shop' ? 'shop_orders' : 'orders';
-  await supabase
-    .from(table)
-    .update({ payment_status: 'failed' })
-    .eq('order_code', code)
-    .eq('payment_status', 'awaiting');
 }
 
 // --- Rides: start a card charge --------------------------------------
@@ -227,7 +162,10 @@ async function createBookingCardCharge(req, res) {
     const { data: booking } = await supabase
       .from('bookings')
       .select(
-        'id, booking_code, customer_id, fare_amount, vat_amount, total_amount, currency, ' +
+        // customer_id:user_id — bookings name the owner user_id (guest rides
+        // leave it null); orders/shop_orders use customer_id. Aliasing here
+        // means the ownership check below reads the same for all three.
+        'id, booking_code, customer_id:user_id, fare_amount, vat_amount, total_amount, currency, ' +
           'payment_method, payment_status'
       )
       .eq('booking_code', req.params.code)
@@ -238,7 +176,10 @@ async function createBookingCardCharge(req, res) {
     // No admin bypass on a card charge, unlike the proof endpoints: an
     // admin acting on a passenger's booking must not be able to attach or
     // charge that passenger's card.
-    if (booking.customer_id !== req.userId) {
+    // The !booking.customer_id half is load-bearing: a guest booking has no
+    // owner, and null !== undefined comparisons are not something to leave to
+    // chance on a money path.
+    if (!booking.customer_id || booking.customer_id !== req.userId) {
       return res.status(403).json({ error: 'This booking belongs to another account' });
     }
     if (booking.payment_method === 'cash') {
@@ -269,11 +210,75 @@ async function createBookingCardCharge(req, res) {
         amountPaid: result.charge && result.charge.amount,
         currency: result.charge && result.charge.currency,
       });
-    });
+    }, 'ride');
   } catch (err) {
     console.error('createBookingCardCharge error:', err);
     return res.status(500).json({ error: 'Unexpected server error' });
   }
 }
 
-module.exports = { tapWebhook, createBookingCardCharge };
+// --- Verify on return -------------------------------------------------
+//
+// The customer has just come back from Tap's hosted page. Tap appends
+// tap_id to the redirect URL and we used to throw it away, leaving the
+// tracking page to poll a row only the webhook could change — so a lost
+// webhook meant polling forever on an order that was actually paid.
+//
+// This is the cheap half of the backstop: it catches every case where the
+// customer returns, which is most of them. The sweeper catches the rest.
+//
+// Authenticated, and ownership is checked against the ORDER the charge
+// names — not against anything the client sent. A stranger who guesses a
+// tap_id gets 403; they cannot settle, refund, or even read someone else's
+// order through it. The charge id itself is looked up rather than trusted:
+// a client that edits it simply finds nothing.
+async function verifyCharge(req, res) {
+  try {
+    const chargeId = String(req.params.chargeId || '');
+    if (!chargeId || chargeId.length > 80) {
+      return res.status(400).json({ error: 'Invalid charge reference' });
+    }
+
+    const owned = await findByChargeId(chargeId);
+    if (!owned) return res.status(404).json({ error: 'No payment found for that reference' });
+
+    // settleCharge is idempotent — if the webhook already landed this is a
+    // no-op that reports 'already_paid', which is exactly what the client
+    // needs to stop polling.
+    const settled = await settleCharge(chargeId);
+
+    if (!settled.ok) {
+      const status = settled.reason === 'fetch_failed' ? 502 : 409;
+      console.error('verifyCharge could not settle', {
+        chargeId,
+        reason: settled.reason,
+        detail: settled.detail,
+      });
+      return res.status(status).json({ error: 'Could not confirm that payment yet' });
+    }
+
+    // The record is loaded by settleCharge; check the caller owns it before
+    // saying anything about it. Rides alias user_id -> customer_id.
+    const ownerId = settled.record && settled.record.customer_id;
+    if (ownerId && ownerId !== req.userId && req.role !== 'admin') {
+      return res.status(403).json({ error: 'That payment belongs to another account' });
+    }
+
+    // A failed or still-in-flight charge loads no record, so there is
+    // nothing to check ownership against — answer the outcome and nothing
+    // identifying. The client only needs to know whether to stop polling.
+    if (!ownerId) return res.json({ outcome: settled.outcome, paid: false });
+
+    return res.json({
+      code: settled.code,
+      vertical: settled.vertical,
+      outcome: settled.outcome, // paid | already_paid | failed | ignored
+      paid: settled.outcome === 'paid' || settled.outcome === 'already_paid',
+    });
+  } catch (err) {
+    console.error('verifyCharge error:', err);
+    return res.status(500).json({ error: 'Unexpected server error' });
+  }
+}
+
+module.exports = { tapWebhook, createBookingCardCharge, verifyCharge };

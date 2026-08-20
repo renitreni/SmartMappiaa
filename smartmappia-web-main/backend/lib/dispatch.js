@@ -128,6 +128,7 @@ async function loadFoodTarget(orderId) {
     kind: 'food',
     id: order.id,
     code: order.order_code,
+    paymentMethod: order.payment_method,
     merchantId: order.merchant_id,
     merchantName: m ? m.name : null,
     pickupAddress: m ? m.address : null,
@@ -152,6 +153,7 @@ async function loadShopTarget(shopOrderId) {
     kind: 'shop',
     id: order.id,
     code: order.order_code,
+    paymentMethod: order.payment_method,
     merchantId: order.merchant_id,
     merchantName: m ? m.name : null,
     pickupAddress: m ? m.address : null,
@@ -218,20 +220,19 @@ async function dropToOpenPool(target) {
     pingShopAdmin(target.code);
   } else {
     // Classic Pick & Drop behavior: visible to every online driver.
-    announceAvailableRide({
-      bookingCode: target.booking.booking_code,
-      tripType: target.booking.trip_type,
-      airportTerminal: target.booking.airport_terminal,
-      pickupAddress: target.booking.pickup_address,
-      pickupLat: target.booking.pickup_lat,
-      pickupLng: target.booking.pickup_lng,
-      dropoffAddress: target.booking.dropoff_address,
-      dropoffLat: target.booking.dropoff_lat,
-      dropoffLng: target.booking.dropoff_lng,
-      pickupDatetime: target.booking.pickup_datetime,
-      fareAmount: target.booking.fare_amount,
-      currency: target.booking.currency,
-    });
+    // Deliberately EMPTY. `drivers-available` is a plain Supabase broadcast
+    // topic with no Realtime Authorization, so anyone holding the anon key
+    // -- which ships in the JS bundle and the APK by design -- can join it.
+    // This payload used to carry both addresses, both coordinate pairs, the
+    // pickup time, the fare and the booking code, which made the channel a
+    // live feed of who is travelling where and when. Worse, the booking code
+    // is the bearer credential for the public tracking endpoint, so it also
+    // handed over the passenger's phone number.
+    //
+    // The signal is "something changed"; drivers re-read through the
+    // authenticated endpoint they already call. announceRequestTaken and the
+    // admin pings were already this shape.
+    announceAvailableRide();
   }
 }
 
@@ -241,13 +242,16 @@ async function dropToOpenPool(target) {
 async function offerNext(target) {
   if (!target || !target.active) return false;
 
-  // For cash rides, also exclude drivers over their cash-owed cap up front.
-  const isCashRide = target.kind === 'ride' && target.paymentMethod === 'cash';
+  // Exclude drivers over their cash-owed cap from any CASH job, in every
+  // vertical. This was ride-only, which meant a rider already at the cap
+  // was still offered cash food and shop deliveries -- the one case where
+  // handing them more of our money is exactly what the cap forbids.
+  const isCashJob = target.paymentMethod === 'cash';
   const [locations, seen, busy, overCap] = await Promise.all([
     freshDriverLocations(),
     alreadyOfferedDriverIds(target),
     busyDriverIds(),
-    isCashRide ? overCashCapDriverIds() : Promise.resolve(new Set()),
+    isCashJob ? overCashCapDriverIds() : Promise.resolve(new Set()),
   ]);
 
   // Only drivers who opted into this vertical (service_types, 0020).
@@ -647,7 +651,12 @@ async function sweepStaleShopOrders() {
   }
   if (accepted.error) console.error('sweepStaleShopOrders (accepted) error:', accepted.error);
 
-  const rows = [...(pending.data || []), ...(accepted.data || [])];
+  // Tag the cohort so the audit row reports the window that actually expired
+  // rather than always claiming the pending one.
+  const rows = [
+    ...(pending.data || []).map((o) => ({ ...o, _afterMinutes: config.shop.orderExpiryMinutes })),
+    ...(accepted.data || []).map((o) => ({ ...o, _afterMinutes: config.shop.acceptedExpiryMinutes })),
+  ];
   if (rows.length === 0) return;
 
   const { releaseShopStock } = require('./stock');
@@ -657,7 +666,12 @@ async function sweepStaleShopOrders() {
       .from('shop_orders')
       .update({ status: 'cancelled', reject_reason: 'payment_timeout' })
       .eq('id', order.id)
-      .eq('status', 'pending')
+      // Both cohorts, not just 'pending'. The accepted-but-unpaid query above
+      // only ever returns rows with status='accepted', so a CAS pinned to
+      // 'pending' matched nothing and `continue`d -- releaseShopStock was
+      // never reached and the accepted-expiry window released no stock at
+      // all. payment_status='awaiting' is what keeps this safe.
+      .in('status', ['pending', 'accepted'])
       .eq('payment_status', 'awaiting')
       .select('order_code');
     if (!cancelled || cancelled.length === 0) continue;
@@ -668,7 +682,7 @@ async function sweepStaleShopOrders() {
       action: 'shop_order_expired',
       resourceType: 'shop_order',
       resourceId: order.order_code,
-      meta: { after_minutes: config.shop.orderExpiryMinutes },
+      meta: { after_minutes: order._afterMinutes },
     });
     logNotification({
       userId: order.customer_id,
@@ -794,39 +808,140 @@ async function sweepExpiredOffers() {
   }
 }
 
+// setInterval does not wait for the previous run, so a slow pass overlaps
+// the next tick. That was survivable while a stalled PostgREST call hung
+// forever and the process was obviously wedged; now that every call is
+// bounded at 10s (lib/httpTimeout.js), a bad pass instead takes a LONG time
+// and returns -- so the 5s offer sweeper could stack a dozen concurrent runs,
+// each holding pooler slots, on a single process with no bulkhead.
+//
+// Correctness never depended on this (the sweeps are CAS-guarded and cannot
+// double-offer); this is purely about not piling up work.
+function everyNonOverlapping(ms, label, run) {
+  let running = false;
+  setInterval(() => {
+    if (running) return;
+    running = true;
+    Promise.resolve()
+      .then(run)
+      .catch((err) => console.error(`${label}:`, err))
+      .finally(() => {
+        running = false;
+      });
+  }, ms);
+}
+
+// --- Card charges nobody confirmed ---------------------------------------
+//
+// The last line of the webhook backstop. Layers one and two (persisting the
+// charge id, and verify-on-return) cover the customer who comes back; this
+// covers the one who closes the tab. Without it a dropped webhook leaves a
+// debited customer on an 'awaiting' order forever, and nothing anywhere
+// says so — from our side nothing failed.
+//
+// Deliberately narrow: only rows that HAVE a charge id (so there is
+// something to ask Tap about), only inside the age window, and only a
+// batch at a time. Tap's API is rate limited and this runs unattended.
+async function sweepUnconfirmedCharges() {
+  if (!config.tap.secretKey) return; // card payments not configured
+  const { settleCharge } = require('./chargeReconcile');
+
+  const now = Date.now();
+  const newest = new Date(now - config.chargeSweep.minAgeMinutes * 60000).toISOString();
+  const oldest = new Date(now - config.chargeSweep.maxAgeMinutes * 60000).toISOString();
+
+  // Rides settle to 'verified', orders to 'paid' — so "unconfirmed" is a
+  // different predicate per table and cannot be one shared query.
+  const sources = [
+    { table: 'orders', code: 'order_code', filter: (q) => q.eq('payment_status', 'awaiting') },
+    { table: 'shop_orders', code: 'order_code', filter: (q) => q.eq('payment_status', 'awaiting') },
+    {
+      table: 'bookings',
+      code: 'booking_code',
+      filter: (q) => q.in('payment_status', ['awaiting_proof', 'proof_uploaded', 'under_review']),
+    },
+  ];
+
+  for (const source of sources) {
+    let query = supabase
+      .from(source.table)
+      .select(`${source.code}, gateway_charge_id`)
+      .not('gateway_charge_id', 'is', null)
+      .lt('created_at', newest)
+      .gt('created_at', oldest)
+      .limit(config.chargeSweep.batchSize);
+    query = source.filter(query);
+
+    const { data, error } = await query;
+    if (error) {
+      console.error('sweepUnconfirmedCharges query failed', { table: source.table, error: error.message });
+      continue;
+    }
+
+    for (const row of data || []) {
+      const settled = await settleCharge(row.gateway_charge_id);
+      // Only the interesting outcomes. 'ignored' is the normal case — a
+      // charge the customer simply abandoned — and logging every pass of
+      // those would bury the ones that matter.
+      if (!settled.ok) {
+        console.error('sweepUnconfirmedCharges could not settle', {
+          table: source.table,
+          code: row[source.code],
+          reason: settled.reason,
+        });
+      } else if (settled.outcome === 'paid') {
+        console.log('sweepUnconfirmedCharges recovered a lost webhook', {
+          table: source.table,
+          code: row[source.code],
+        });
+      }
+    }
+  }
+}
+
 let sweeperStarted = false;
 function startDispatchSweeper() {
   if (sweeperStarted) return;
   sweeperStarted = true;
-  setInterval(() => {
-    sweepExpiredOffers().catch((err) => console.error('dispatch sweeper error:', err));
-  }, config.dispatch.sweepMs);
+  everyNonOverlapping(config.dispatch.sweepMs, 'dispatch sweeper error', sweepExpiredOffers);
   // Disconnect watchdog (food + rides) runs less often than the offer sweeper
   // (abandonMinutes is minutes, not seconds) to keep per-driver lookups cheap.
-  setInterval(() => {
-    sweepAbandonedDeliveries().catch((err) => console.error('dispatch abandon (food) sweep error:', err));
-    sweepAbandonedShopDeliveries().catch((err) => console.error('dispatch abandon (shop) sweep error:', err));
-    sweepAbandonedRides().catch((err) => console.error('dispatch abandon (ride) sweep error:', err));
-  }, Math.max(config.dispatch.sweepMs, 20000));
+  // Sequential inside one guarded run so the three cannot overlap each other
+  // either -- they all hit driver_locations.
+  everyNonOverlapping(
+    Math.max(config.dispatch.sweepMs, 20000),
+    'dispatch abandon sweep error',
+    async () => {
+      await sweepAbandonedDeliveries();
+      await sweepAbandonedShopDeliveries();
+      await sweepAbandonedRides();
+    }
+  );
   // Shop stock expiry. Runs on its own, slower cadence: it is about minutes
   // of payment latency, not seconds of dispatch latency, and each pass is a
   // table scan rather than a per-driver lookup.
-  setInterval(() => {
-    sweepStaleShopOrders().catch((err) => console.error('shop stale order sweep error:', err));
-  }, config.shop.staleSweepMs);
+  everyNonOverlapping(config.shop.staleSweepMs, 'shop stale order sweep error', sweepStaleShopOrders);
   // "Kitchen never started" chase. Minutes, not seconds, and each pass is an
   // indexed range scan, so it runs on its own slow cadence like the one above.
-  setInterval(() => {
-    sweepOrdersAwaitingPreparing().catch((err) =>
-      console.error('food preparing reminder sweep error:', err)
-    );
-  }, config.food.preparingReminderSweepMs);
+  everyNonOverlapping(
+    config.food.preparingReminderSweepMs,
+    'food preparing reminder sweep error',
+    sweepOrdersAwaitingPreparing
+  );
+  // Slowest cadence of the lot: it makes outbound gateway calls, and the
+  // thing it is watching for is measured in minutes of missing webhook.
+  everyNonOverlapping(
+    config.chargeSweep.everyMs,
+    'unconfirmed charge sweep error',
+    sweepUnconfirmedCharges
+  );
   console.log(
     `Dispatch sweeper running (offers expire after ${config.dispatch.offerSeconds}s; ` +
       `rider disconnect watchdog after ${config.dispatch.abandonMinutes}m; ` +
       `unpaid shop orders release stock after ${config.shop.orderExpiryMinutes}m; ` +
       `"start preparing" reminders every ${config.food.preparingReminderMinutes}m ` +
-      `up to ${config.food.preparingReminderMaxCount} times).`
+      `up to ${config.food.preparingReminderMaxCount} times; ` +
+      `unconfirmed card charges re-checked with Tap after ${config.chargeSweep.minAgeMinutes}m).`
   );
 }
 

@@ -9,6 +9,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { Phone, MessageCircle, ShoppingBag, MapPin, Clock } from 'lucide-react';
 import { api } from '../lib/api';
+import useReturnedCharge from '../lib/useReturnedCharge';
 import { formatAddressDetail } from '../lib/address';
 import { notifyMerchantCancelled } from '../lib/notify';
 import { bearingDeg } from '../lib/geo';
@@ -91,6 +92,10 @@ export default function ShopTrackPage() {
       })
       .catch((e) => setError(e.message));
   }, [code]);
+
+  // Back from Tap's hosted page: confirm the charge directly rather than
+  // waiting on a webhook that may never arrive. No-op on every other visit.
+  useReturnedCharge(load);
 
   useEffect(load, [load]);
 

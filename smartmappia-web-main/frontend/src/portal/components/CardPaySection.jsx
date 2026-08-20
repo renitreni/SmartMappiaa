@@ -9,7 +9,7 @@
 // no card number ever reaches React state — the moment it did, this page
 // would be in PCI scope.
 // ---------------------------------------------------------------------
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { CreditCard } from 'lucide-react';
 import { api } from '../lib/api';
 import { fmtSAR } from '../lib/constants';
@@ -21,6 +21,13 @@ export default function CardPaySection({ code, amount, available, charge, onPaid
   const [selected, setSelected] = useState(NEW_CARD);
   const [saveCard, setSaveCard] = useState(false);
   const [busy, setBusy] = useState(false);
+  // One idempotency key per payment ATTEMPT, keyed on what is actually being
+  // charged. Re-tapping Pay after a timeout must reuse it, so the retry lands
+  // on the same gateway charge instead of a second one; changing card (which
+  // is also what a decline forces, below) is a genuinely new attempt and mints
+  // a new key. Without this the backend's idempotency store and Tap's own
+  // dedupe both saw every tap as unrelated.
+  const attempt = useRef({ sig: null, key: null });
 
   // Saved cards are vertical-agnostic — one call whichever service this is.
   // A failure is non-fatal: the customer can still pay with a new card.
@@ -48,13 +55,23 @@ export default function CardPaySection({ code, amount, available, charge, onPaid
 
   const usingSaved = selected !== NEW_CARD;
 
+  function attemptKey() {
+    const sig = usingSaved ? `saved:${selected}` : `new:${saveCard}`;
+    if (attempt.current.sig !== sig) {
+      attempt.current = { sig, key: crypto.randomUUID() };
+    }
+    return attempt.current.key;
+  }
+
   async function pay() {
     onError?.(null);
     setBusy(true);
     try {
-      const result = await charge(code, {
-        ...(usingSaved ? { saved_method_id: selected } : { save_card: saveCard }),
-      });
+      const result = await charge(
+        code,
+        { ...(usingSaved ? { saved_method_id: selected } : { save_card: saveCard }) },
+        attemptKey()
+      );
       if (result && result.url) {
         // 3DS, or Tap's hosted page for a new card. The webhook confirms the
         // order while the customer is away, so they land back on a paid one.

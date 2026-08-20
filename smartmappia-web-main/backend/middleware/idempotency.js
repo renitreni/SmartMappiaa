@@ -11,6 +11,10 @@
 // ---------------------------------------------------------------------
 
 const TTL_MS = 10 * 60 * 1000; // remember completed requests for 10 minutes
+// A request that never produced a response holds its key for far less time.
+// Long enough to still be in flight; short enough that a crashed handler does
+// not lock the customer out of their own checkout for ten minutes.
+const PENDING_TTL_MS = 60 * 1000;
 const MAX_ENTRIES = 1000;
 
 const store = new Map(); // key -> { state: 'pending'|'done', status, body, at }
@@ -18,7 +22,8 @@ const store = new Map(); // key -> { state: 'pending'|'done', status, body, at }
 function prune() {
   const now = Date.now();
   for (const [key, entry] of store) {
-    if (now - entry.at > TTL_MS) store.delete(key);
+    const ttl = entry.state === 'pending' ? PENDING_TTL_MS : TTL_MS;
+    if (now - entry.at > ttl) store.delete(key);
   }
   // Hard cap so a key-spamming client can't grow memory unbounded.
   while (store.size > MAX_ENTRIES) {
@@ -44,19 +49,39 @@ function idempotent(req, res, next) {
 
   store.set(mapKey, { state: 'pending', at: Date.now() });
 
-  // Capture the response so an identical retry can replay it.
+  // Capture the response so an identical retry can replay it -- but only
+  // when replaying is the RIGHT answer.
+  //
+  // A 4xx means the client sent something we refused and nothing was
+  // written, so the key must be released: checkout pages mint one key per
+  // mount, so caching the 422 for "outside delivery radius" replayed that
+  // same refusal for ten minutes after the customer fixed their address,
+  // with no way out but a hard reload.
+  //
+  // A 5xx is the opposite case. The request may have half-succeeded before
+  // it blew up, so a retry could create a second order -- exactly what this
+  // middleware exists to prevent. Those stay cached.
   const originalJson = res.json.bind(res);
   res.json = (body) => {
-    store.set(mapKey, { state: 'done', status: res.statusCode, body, at: Date.now() });
+    const status = res.statusCode;
+    if (status >= 400 && status < 500) store.delete(mapKey);
+    else store.set(mapKey, { state: 'done', status, body, at: Date.now() });
     return originalJson(body);
   };
 
-  // If the request dies without a JSON response, forget the key so the
-  // client's retry actually runs.
-  res.on('close', () => {
-    const entry = store.get(mapKey);
-    if (entry && entry.state === 'pending') store.delete(mapKey);
-  });
+  // Deliberately NO res.on('close') handler releasing the key.
+  //
+  // `close` fires on client disconnect too -- a phone dropping signal
+  // mid-checkout -- and it fires while the handler is STILL RUNNING. Deleting
+  // a pending key there removes the one thing stopping the retry from placing
+  // a second order and reserving stock twice, which is the exact scenario
+  // this middleware exists for. There is no reliable way to tell "client hung
+  // up, handler still working" from "handler died silently" at close time:
+  // res.writableFinished is false for both.
+  //
+  // So a request that never answers holds its key until PENDING_TTL_MS. A
+  // retry inside that window gets a 409 telling it the request is already in
+  // flight, which is a far cheaper failure than a duplicate charge.
 
   return next();
 }

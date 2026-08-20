@@ -1,5 +1,6 @@
-import React from "react";
+import React, { useState } from "react";
 import { motion } from "framer-motion";
+import { Link, useNavigate } from "react-router-dom";
 import PhoneMockup from "../components/PhoneMockup";
 
 const stats = [
@@ -9,6 +10,16 @@ const stats = [
 ];
 
 const Hero = () => {
+  const navigate = useNavigate();
+  const [query, setQuery] = useState("");
+
+  // Hands the term to /food, which seeds its own search box from ?q=.
+  const submitSearch = (e) => {
+    e.preventDefault();
+    const q = query.trim();
+    navigate(q ? `/food?q=${encodeURIComponent(q)}` : "/food");
+  };
+
   return (
     <section
       id="home"
@@ -61,7 +72,10 @@ const Hero = () => {
             app with real-time tracking and exclusive rewards.
           </p>
 
-          <div className="w-full max-w-xl flex flex-col sm:flex-row gap-3 p-1.5 rounded-2xl bg-white border border-brand-border shadow-lg shadow-brand-orange/5">
+          <form
+            onSubmit={submitSearch}
+            className="w-full max-w-xl flex flex-col sm:flex-row gap-3 p-1.5 rounded-2xl bg-white border border-brand-border shadow-lg shadow-brand-orange/5 focus-within:ring-2 focus-within:ring-brand-dark/40 focus-within:border-brand-dark"
+          >
             <div className="flex items-center gap-3 px-4 flex-1 min-h-12">
               <svg
                 className="w-5 h-5 text-brand-grey shrink-0"
@@ -78,22 +92,28 @@ const Hero = () => {
               </svg>
               <input
                 type="text"
-                placeholder="Search restaurants, food, or services..."
-                className="w-full bg-transparent text-brand-dark placeholder-brand-grey/70 text-sm focus:outline-none"
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder="Search restaurants or dishes..."
+                aria-label="Search restaurants or dishes"
+                className="w-full bg-transparent text-brand-dark placeholder-brand-grey text-sm focus:outline-none"
               />
             </div>
-            <button className="bg-brand-orange hover:bg-brand-orange/90 text-white font-bold text-sm px-8 py-3.5 rounded-xl transition-all duration-300 hover:scale-[1.02] active:scale-95 cursor-pointer shadow-md shadow-brand-orange/25 whitespace-nowrap">
+            <button
+              type="submit"
+              className="bg-brand-orange hover:bg-brand-orange/90 text-white font-bold text-sm px-8 py-3.5 rounded-xl transition-all duration-300 hover:scale-[1.02] active:scale-95 cursor-pointer shadow-md shadow-brand-orange/25 whitespace-nowrap"
+            >
               Search
             </button>
-          </div>
+          </form>
 
           <div className="flex flex-wrap items-center gap-4">
-            <a
-              href="#features"
+            <Link
+              to="/#features"
               className="bg-brand-orange hover:bg-brand-orange/90 text-white font-bold text-sm px-7 py-3.5 rounded-xl transition-all duration-300 hover:scale-[1.02] cursor-pointer shadow-md shadow-brand-orange/20"
             >
               Explore Services
-            </a>
+            </Link>
           </div>
 
           <div className="flex flex-wrap gap-8 pt-2 border-t border-brand-border w-full max-w-xl">

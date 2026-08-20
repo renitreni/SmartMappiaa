@@ -221,6 +221,11 @@ async function checkout(req, res) {
         // so a reprinted receipt can itemise the distance charge (0034).
         delivery_fee: priced.deliveryFee,
         delivery_surcharge: priced.deliverySurcharge,
+        // The driver's cut of that fee, snapshotted with the rate that
+        // produced it (0041). Mirrors the food insert; the RPC's column
+        // list had to be replaced to carry it.
+        driver_fee: priced.driverFee,
+        driver_fee_rate: priced.driverFeeRate,
         platform_margin_total: priced.marginTotal,
         vat_amount: priced.vatAmount,
         vat_rate: priced.vatRate,
@@ -572,21 +577,43 @@ async function markShopOrderPaid(
       .select('id')
       .single();
     if (payErr) {
-      // 23505 = unique violation (transaction id, or the cash-once index):
-      // this payment is already recorded.
-      if (payErr.code === '23505') return { alreadyPaid: true };
+      // 23505 = unique violation on gateway_transaction_id: the payment row
+      // already exists. That does NOT mean the order caught up -- if the
+      // process died between these two writes, the row is there and the
+      // order is still 'awaiting'. Returning here made every one of Tap's
+      // redeliveries take this same early exit, so the customer stayed
+      // charged for an order nobody could see, forever. Re-run the order
+      // update instead; it is idempotent and CAS-guarded on 'awaiting'.
+      if (payErr.code === '23505') {
+        await supabase
+          .from('shop_orders')
+          .update({
+            payment_status: 'paid',
+            ...(transactionId != null ? { gateway_transaction_id: transactionId } : {}),
+          })
+          .eq('id', order.id)
+          .eq('payment_status', 'awaiting');
+        return { alreadyPaid: true };
+      }
       throw payErr;
     }
     paymentId = payment.id;
   }
 
-  await supabase
+  // See the food twin: supabase-js resolves rather than rejects on a
+  // PostgREST error, so leaving this unchecked turned a failed settlement
+  // into a 200 that Tap would never retry.
+  const { error: ordErr } = await supabase
     .from('shop_orders')
     .update({
       payment_status: 'paid',
       ...(transactionId != null ? { gateway_transaction_id: transactionId } : {}),
     })
     .eq('id', order.id);
+  if (ordErr) {
+    console.error('markShopOrderPaid: payment recorded but order update failed', order.order_code, ordErr);
+    throw ordErr;
+  }
 
   logShopEvent({
     eventName: 'payment_success',
@@ -738,17 +765,11 @@ async function createCardCharge(req, res) {
         amountPaid: result.charge && result.charge.amount,
         currency: result.charge && result.charge.currency,
       });
-    });
+    }, 'shop');
   } catch (err) {
     console.error('shop createCardCharge error:', err);
     return res.status(500).json({ error: 'Unexpected server error' });
   }
-}
-
-// Superseded by createCardCharge. Kept for one release so a cached frontend
-// bundle gets a readable 503 instead of a 404; delete after the next deploy.
-async function createTapCharge(req, res) {
-  return res.status(503).json({ error: 'This payment link is out of date — please refresh the page.' });
 }
 
 // NOTE: the per-vertical Tap webhook that used to live here is gone. Two
@@ -768,7 +789,6 @@ module.exports = {
   createPayUploadUrl,
   recordPayment,
   createCardCharge,
-  createTapCharge,
   markShopOrderPaid,
   loadOrder,
   ORDER_SELECT,

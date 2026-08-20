@@ -76,6 +76,15 @@ export const api = {
   // list, remove and re-prioritise. The ids are our own uuids — the gateway
   // references never reach the browser.
   paymentMethods: () => request('/api/payment-methods', { silent: true }),
+  // The customer just came back from Tap's hosted page. Tap appends tap_id
+  // to the redirect URL; handing it back asks the server to confirm the
+  // charge directly with Tap instead of waiting for a webhook that may
+  // never arrive. Idempotent — the webhook landing first makes this a no-op.
+  verifyCharge: (chargeId) =>
+    request(`/api/payments/charges/${encodeURIComponent(chargeId)}/verify`, {
+      method: 'POST',
+      silent: true,
+    }),
   deletePaymentMethod: (id) => request(`/api/payment-methods/${id}`, { method: 'DELETE' }),
   setDefaultPaymentMethod: (id) => request(`/api/payment-methods/${id}/default`, { method: 'POST' }),
 
@@ -86,17 +95,21 @@ export const api = {
   cancelBooking: (code, reason) => request(`/api/bookings/${code}/cancel`, { method: 'POST', body: { reason } }),
   // Contact number stays editable while the trip is active (even in progress).
   updateBookingContact: (code, body) => request(`/api/bookings/${code}/contact`, { method: 'PATCH', body }),
+  paymentConfig: () => request('/api/payments/config', { silent: true }),
   paymentInstructions: (code) => request(`/api/bookings/${code}/payment-instructions`),
   proofSignedUrl: (code, body) => request(`/api/bookings/${code}/payment-proof/signed-url`, { method: 'POST', body }),
   recordProof: (code, body) => request(`/api/bookings/${code}/payment-proof`, { method: 'POST', body }),
   // Card charge for a ride. The path is /bookings/:code/charge, not
   // /:code/charge, so the sibling /webhooks/tap route can never be matched
   // as a booking code.
-  bookingCardCharge: (code, body = {}) =>
+  // The key belongs to the payment ATTEMPT, not to the call: it is what makes
+  // a retry after a timeout land on the same gateway charge instead of a
+  // second one. CardPaySection holds one per attempt and passes it in.
+  bookingCardCharge: (code, body = {}, idempotencyKey) =>
     request(`/api/payments/bookings/${code}/charge`, {
       method: 'POST',
       body,
-      headers: { 'Idempotency-Key': crypto.randomUUID() },
+      headers: { 'Idempotency-Key': idempotencyKey || crypto.randomUUID() },
     }),
   tracking: (code) => request(`/api/tracking/${code}`, { silent: true }), // polled every 8s
 
@@ -191,11 +204,11 @@ export const api = {
   foodPaymentInfo: (code) => request(`/api/food/orders/${code}/pay`),
   foodPaySignedUrl: (code, body) => request(`/api/food/orders/${code}/pay/signed-url`, { method: 'POST', body }),
   foodRecordPayment: (code, body) => request(`/api/food/orders/${code}/pay`, { method: 'POST', body }),
-  foodCardCharge: (code, body = {}) =>
+  foodCardCharge: (code, body = {}, idempotencyKey) =>
     request(`/api/food/orders/${code}/charge`, {
       method: 'POST',
       body,
-      headers: { 'Idempotency-Key': crypto.randomUUID() },
+      headers: { 'Idempotency-Key': idempotencyKey || crypto.randomUUID() },
     }),
   foodEvent: (body) => request('/api/food/events', { method: 'POST', body, silent: true }),
 
@@ -228,11 +241,11 @@ export const api = {
   shopPaymentInfo: (code) => request(`/api/shop/orders/${code}/pay`),
   shopPaySignedUrl: (code, body) => request(`/api/shop/orders/${code}/pay/signed-url`, { method: 'POST', body }),
   shopRecordPayment: (code, body) => request(`/api/shop/orders/${code}/pay`, { method: 'POST', body }),
-  shopCardCharge: (code, body = {}) =>
+  shopCardCharge: (code, body = {}, idempotencyKey) =>
     request(`/api/shop/orders/${code}/charge`, {
       method: 'POST',
       body,
-      headers: { 'Idempotency-Key': crypto.randomUUID() },
+      headers: { 'Idempotency-Key': idempotencyKey || crypto.randomUUID() },
     }),
   rateShopDriver: (code, body) =>
     request(`/api/shop/orders/${code}/rate-driver`, { method: 'POST', body, silent: true }),

@@ -22,9 +22,11 @@ import useScrollToHash from "../hooks/useScrollToHash";
 // it's currently on instead of back to the landing page section.
 const menuLinks = [
   { name: "Home",         to: "/",              Icon: Home },
-  { name: "About",        to: "/#about",        Icon: Info },
   { name: "Services",     to: "/services",      Icon: Sparkles },
   { name: "How It Works", to: "/#how-it-works", Icon: Lightbulb },
+  // Follows scroll order: About now sits near the bottom of the landing page,
+  // so listing it second sent people to the end of a page they had not read.
+  { name: "About",        to: "/#about",        Icon: Info },
   { name: "FAQ",          to: "/#faq",          Icon: HelpCircle },
   { name: "Support",      to: "/support",       Icon: Headphones },
 ];

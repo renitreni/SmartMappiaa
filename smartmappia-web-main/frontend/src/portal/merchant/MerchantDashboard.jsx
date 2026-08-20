@@ -18,6 +18,9 @@ import {
   UploadCloud,
 } from 'lucide-react';
 import { api } from '../lib/api';
+import { useBroadcast } from '../lib/useBroadcast';
+import { realtimeEnabled } from '../lib/supabaseClient';
+import { startUrgentAlert, acknowledgeUrgentAlert, playAlert } from '../lib/alertSound';
 import { foodStatusMeta, fmtSAR } from '../lib/constants';
 import { confirmAction, notifySuccess } from '../lib/notify';
 import { uploadProofFile } from '../lib/supabaseClient';
@@ -33,6 +36,7 @@ import { Badge, Field, Spinner, btnGhost, btnPrimary, inputClass } from '../comp
 import StoreHoursEditor from '../components/StoreHoursEditor';
 import LocationPicker from '../components/LocationPicker';
 import MerchantLayout from './MerchantLayout';
+import NewOrderAlertBar from '../components/NewOrderAlertBar';
 import MerchantOrders from './MerchantOrders';
 
 const FOOD_MARGIN_MEAL = 5;
@@ -873,15 +877,23 @@ export default function MerchantDashboard() {
   const [editingItemId, setEditingItemId] = useState(null);
   const [showItemForm, setShowItemForm] = useState(false);
   const [error, setError] = useState(null);
+  // Bumped on every order event so the Orders tab refetches. The SUBSCRIPTION
+  // has to live here rather than in MerchantOrders: that component is mounted
+  // only while the Orders tab is open, and this dashboard opens on Overview,
+  // so a restaurant sitting on the default screen heard nothing at all.
+  const [orderPing, setOrderPing] = useState(0);
 
   const activeCategories = useMemo(
     () => categories.filter((c) => c.is_active !== false),
     [categories]
   );
 
-  async function load() {
+  // `silent` skips the full-page spinner. Callers that pass an event object
+  // (onSaved={load} and friends) destructure to the default, which is the
+  // loud behaviour they already had.
+  async function load({ silent = false } = {}) {
     setError(null);
-    setLoading(true);
+    if (!silent) setLoading(true);
     try {
       const [menuData, analyticsData] = await Promise.all([api.merchantMenu(), api.merchantAnalytics()]);
       setMerchant(menuData.merchant);
@@ -900,6 +912,61 @@ export default function MerchantDashboard() {
     const id = window.setTimeout(() => load(), 0);
     return () => window.clearTimeout(id);
   }, []);
+
+  const connected = useBroadcast(
+    `merchant-${merchant?.id}`,
+    {
+      // Sound FIRST, then refresh: the alert is the point of this handler on a
+      // busy counter and must not wait on a network round trip. This one keeps
+      // ringing until somebody acknowledges it — a single burst was missable
+      // and the server-side chase is ten minutes behind.
+      new_order: (payload) => {
+        startUrgentAlert(payload?.orderCode);
+        setOrderPing((n) => n + 1);
+      },
+      // The "you still have not started this" chase. One burst is right here:
+      // the order is already accepted, so nobody is waiting on a first tap.
+      preparing_overdue: () => {
+        playAlert('order');
+        setOrderPing((n) => n + 1);
+      },
+      // Acknowledge HERE, not only in the orders tab. The tab is mounted just
+      // when it is open and the dashboard opens on Overview, so an admin
+      // accepting on the merchant's behalf left the chime repeating for two
+      // minutes over work already done. Every order_update emit carries
+      // orderCode, and any order_update means it is no longer waiting on us.
+      order_update: (payload) => {
+        acknowledgeUrgentAlert(payload?.orderCode);
+        setOrderPing((n) => n + 1);
+      },
+      payment_update: () => setOrderPing((n) => n + 1),
+      // Admin suspended/reactivated the restaurant, or moved its credit limit
+      // (adminFoodController emits this on all three). Nothing listened for it
+      // before and useBroadcast silently drops events with no handler, so a
+      // suspended merchant kept taking orders they could no longer fulfil
+      // until someone happened to reload. Refetch the merchant record itself,
+      // not just the order list.
+      // Silent: the loud path swaps the whole page for a spinner, which
+      // unmounts NewOrderAlertBar mid-alarm -- the Silence and View orders
+      // buttons vanish while the chime keeps going.
+      merchant_update: () => load({ silent: true }),
+    },
+    realtimeEnabled && !!merchant?.id
+  );
+
+  // Realtime is an ACCELERATOR here, not the transport. useBroadcast returns
+  // `connected` precisely so callers can fall back, and the customer tracking
+  // pages already do -- but these dashboards discarded it, so a merchant whose
+  // socket dropped (tablet asleep, Wi-Fi roam, captive portal, Realtime
+  // degraded) stopped receiving orders with a screen that still looked
+  // perfectly healthy. Silence is indistinguishable from "no orders", and the
+  // alarm only rings on events that arrive.
+  useEffect(() => {
+    if (connected) return undefined;
+    const t = setInterval(() => setOrderPing((n) => n + 1), 15000);
+    return () => clearInterval(t);
+  }, [connected]);
+
 
   async function saveBusiness(e) {
     e.preventDefault();
@@ -1021,6 +1088,17 @@ export default function MerchantDashboard() {
         </div>
       ) : (
         <div className="space-y-5 w-full">
+          <NewOrderAlertBar onOpenOrders={() => setActiveTab('orders')} />
+
+      {!connected && (
+            <div
+              role="status"
+              className="mb-4 flex items-center gap-2 p-3 rounded-xl bg-amber-50 border border-amber-300 text-amber-900 text-sm font-bold"
+            >
+              Live updates are offline. Checking for new orders every 15 seconds.
+            </div>
+          )}
+
           {error && (
             <div className="p-3 rounded-xl bg-red-50 border border-red-200 text-red-700 text-sm font-bold">
               {error}
@@ -1031,7 +1109,7 @@ export default function MerchantDashboard() {
             <OverviewTab merchant={merchant} analytics={analytics} categories={categories} items={items} />
           )}
 
-          {activeTab === 'orders' && <MerchantOrders merchant={merchant} />}
+          {activeTab === 'orders' && <MerchantOrders merchant={merchant} ping={orderPing} />}
 
           {activeTab === 'business' && (
             <div className="space-y-4">

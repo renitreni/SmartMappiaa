@@ -27,19 +27,19 @@ const API_BY_VERTICAL = {
     paymentInfo: (code) => api.foodPaymentInfo(code),
     signedUrl: (code, body) => api.foodPaySignedUrl(code, body),
     recordPayment: (code, body) => api.foodRecordPayment(code, body),
-    cardCharge: (code, body) => api.foodCardCharge(code, body),
+    cardCharge: (code, body, key) => api.foodCardCharge(code, body, key),
   },
   shop: {
     paymentInfo: (code) => api.shopPaymentInfo(code),
     signedUrl: (code, body) => api.shopPaySignedUrl(code, body),
     recordPayment: (code, body) => api.shopRecordPayment(code, body),
-    cardCharge: (code, body) => api.shopCardCharge(code, body),
+    cardCharge: (code, body, key) => api.shopCardCharge(code, body, key),
   },
   ride: {
     paymentInfo: (code) => api.paymentInstructions(code),
     signedUrl: (code, body) => api.proofSignedUrl(code, body),
     recordPayment: (code, body) => api.recordProof(code, body),
-    cardCharge: (code, body) => api.bookingCardCharge(code, body),
+    cardCharge: (code, body, key) => api.bookingCardCharge(code, body, key),
   },
 };
 

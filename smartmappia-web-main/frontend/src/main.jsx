@@ -43,6 +43,7 @@ import FoodServicePage from './pages/services/FoodServicePage.jsx'
 import ShopServicePage from './pages/services/ShopServicePage.jsx'
 import PickDropServicePage from './pages/services/PickDropServicePage.jsx'
 import { registerServiceWorker } from './portal/lib/pushNotifications.js'
+import { installAlertUnlock } from './portal/lib/alertSound.js'
 
 import { useEffect, useState } from 'react'
 import { Navigate } from 'react-router-dom'
@@ -56,6 +57,12 @@ if (import.meta.env.PROD) {
     // PWA support is best-effort; the web app remains fully usable without it.
   })
 }
+
+// App-wide, not per-screen: the autoplay policy keeps the AudioContext
+// suspended until the user interacts, and only three merchant/admin screens
+// ever asked it to resume. Every driver, passenger and tracking alert was
+// therefore mute with nothing on screen to say why.
+installAlertUnlock()
 
 function RootRedirect() {
   const { session, role } = useAuth()

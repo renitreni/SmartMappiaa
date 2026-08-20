@@ -48,13 +48,29 @@ Compiled in at **build** time — a change requires a rebuild, not a restart.
 | `VITE_SUPABASE_ANON_KEY` | **Anon key only** — never the service-role key |
 | `VITE_GOOGLE_MAPS_BROWSER_KEY` | Maps JS API. Restrict by HTTP referrer in Google Cloud. |
 | `VITE_GOOGLE_MAP_ID` | **Required** — a vector Map ID, needed for `AdvancedMarkerElement` |
-| `VITE_TAP_ENABLED` | Online payment flag. `false` by default; manual STC Pay is the live path. |
+| `VITE_TAP_PUBLIC_KEY` | Optional. Tap publishable key, needed only by the Apple Pay Web SDK. Public by design. |
+| `VITE_APP_VERSION` | Optional. Recorded on push-subscription rows for debugging. |
 
 > **`VITE_` is a security boundary.** Vite inlines any `VITE_`-prefixed variable into the public
-> client bundle. Never give a server secret a `VITE_` name.
+> client bundle. Never give a server secret a `VITE_` name — in particular the Supabase service-role
+> key or `TAP_SECRET_KEY`.
 
-> Retired: `VITE_OSRM_BASE` and `VITE_MAP_STYLE_URL`. Routing and geocoding now go through the
-> backend proxies. If `.env.production` still sets `VITE_OSRM_BASE`, remove it.
+### Retired variables — delete them from any `.env` you still have
+
+| Variable | Replaced by |
+|---|---|
+| `VITE_TAP_ENABLED` | `GET /api/payments/config` |
+| `VITE_OSRM_BASE` | The backend `/api/route` proxy |
+| `VITE_MAP_STYLE_URL` | Google Maps SDK tiles (still read by the dead `MapLibreMap.jsx`) |
+
+**Card availability is not a client flag and must never become one again.** The frontend asks
+`GET /api/payments/config` (`portal/lib/useCardAvailable.js`), and the whole `/api/payments` router
+only exists when the backend has a Tap secret key — otherwise it is a `503` stub, and any failure
+reading that endpoint is treated as "no card".
+
+`VITE_TAP_ENABLED` was the counter-example: a build-time flag that could say "card is off" while the
+backend had a live key, or the reverse. The two halves can no longer disagree because there is only
+one half.
 
 ---
 
@@ -77,8 +93,10 @@ src/
     ├── merchant/     MerchantDashboard, MerchantLayout, MerchantOrders
     ├── admin/        AdminLayout, AdminPage, Dashboard, FoodAdmin
     ├── food/         home, restaurant, cart, checkout, orders, track
-    ├── components/   Shared portal UI (ui.jsx design system, RideMap, LocationPicker)
-    └── lib/          api.js, AuthProvider, useBroadcast, constants, invoice, csv
+    ├── components/   Shared portal UI (ui.jsx design system, RideMap, LocationPicker,
+    │                 CardPaySection, SavedCardPicker, NewOrderAlertBar)
+    └── lib/          api.js, AuthProvider, useBroadcast, useCardAvailable,
+                      alertSound.js, notify.js, constants, invoice, csv
 ```
 
 **Two rules govern the whole frontend:**
@@ -133,8 +151,17 @@ Preview mode is a **UI convenience, not a permission change** — the JWT is unc
 still sees an admin.
 
 Every live screen uses the same pattern: an initial fetch, then a Supabase Realtime subscription via
-`useBroadcast`, with an **8-second polling fallback**. `useBroadcast` returns `connected` so the page
-knows which mode it is in. **Polling is the correctness guarantee**; realtime is the accelerator.
+`useBroadcast`, with a polling fallback. `useBroadcast` returns `connected` so the page knows which
+mode it is in. **Polling is the correctness guarantee**; realtime is the accelerator.
+
+| Screen | Fallback |
+|---|---|
+| Customer tracking and most live screens | 8-second poll |
+| Both merchant dashboards | 15-second poll **only while disconnected**, plus a visible offline banner |
+
+The merchant dashboards previously discarded `connected` entirely, so a merchant whose websocket
+dropped saw a frozen order list with nothing to indicate it. If you add a live screen, use
+`connected` — do not assume the socket is up.
 
 ---
 
@@ -159,6 +186,58 @@ behind them. This seam survived the last migration unchanged — **keep it that 
   with a Places session token, a 550 ms debounce, and a ~150 m movement gate to control cost.
 - Geolocation branches on `Capacitor.isNativePlatform()` — `@capacitor/geolocation` (Fused Location)
   in the app, `navigator.geolocation` in the browser.
+
+---
+
+## Payments
+
+Three methods, and which of them a checkout screen may offer is decided **entirely by the backend**.
+
+| Method | Availability |
+|---|---|
+| Manual STC Pay | Always. The customer uploads a transfer screenshot; an admin verifies it. |
+| Cash | Rides, food and shop deliveries. Settled at the kerb or the door. |
+| Card (Tap: cards, mada, Apple Pay, saved cards) | Only when the backend has a Tap secret key |
+
+`portal/lib/useCardAvailable.js` is the single source of that answer for all three verticals. It
+calls `GET /api/payments/config` once per page load and shares one module-level promise. Any failure
+means "no card" — the entire `/api/payments` router is a `503` stub when Tap is unconfigured, so an
+unreachable endpoint is already the answer.
+
+A failure is deliberately **not** memoised: one dropped request on mobile data, or a `429` from the
+backend's general limiter, would otherwise pin card as unavailable for the rest of the session.
+
+**Do not reintroduce a build-time card flag.** `VITE_TAP_ENABLED` was exactly that and could
+contradict the backend in either direction.
+
+Card charges return either a URL to send the customer to (Tap's hosted page, or a 3DS step) or an
+immediate `paid` when a saved card captured outright. Confirmation arrives by webhook to the backend,
+never through the browser — the customer may close the tab and the order must still confirm.
+
+---
+
+## Notification sound
+
+`portal/lib/alertSound.js` is the **only** `AudioContext` in the application. It serves merchant
+new-order alerts, driver dispatch offers, passenger status changes and admin pings.
+
+Three things about it are non-obvious and worth knowing before touching it:
+
+1. **Every sound is synthesised.** There are **no audio assets in this repository.** The chime is a
+   triangle oscillator plus an octave-up square through a `DynamicsCompressor` into a master gain.
+2. **Loudness is a client-side concern only.** There is no backend lever. The push payload's
+   `urgency: 'high'` is Web Push *delivery priority* — it tells the push service not to batch the
+   message. No push protocol has a volume field. Anything louder is a change to `MASTER_GAIN`, the
+   tone table or the compressor settings here.
+3. **The autoplay policy will silently swallow it.** Browsers create an `AudioContext` suspended and
+   only `resume()` inside a real user gesture, synchronously — deferring the call into a `.then()`
+   fails without an error. `installAlertUnlock()` is wired once from `main.jsx` and must stay there.
+   A second `AudioContext` elsewhere in the app will not be unlocked by it; that is exactly how
+   driver and passenger chimes were dead for months.
+
+New-order alerts repeat every 6 seconds until acknowledged, capped at 20 repeats. `NewOrderAlertBar`
+is the acknowledge affordance, and it also badges the tab title — the only channel that reaches a
+merchant on another tab, or a deaf merchant at all.
 
 ---
 
@@ -191,8 +270,11 @@ cd android && ./gradlew assembleRelease
 
 Two integration constraints:
 
-- The WebView origin is `https://localhost`, which must appear in the backend `CORS_ORIGINS` — but
-  **not first**, because the Tap redirect uses `CORS_ORIGINS.split(',')[0]`.
+- The WebView origin is `https://localhost`, which must appear in the backend `CORS_ORIGINS`.
+  **Position no longer matters, provided the backend sets `PUBLIC_WEB_URL`** — the payment-gateway
+  redirect reads that variable and only falls back to `CORS_ORIGINS[0]` when it is unset. With the
+  fallback in play, `https://localhost` must not be first or paying customers get redirected into the
+  app's internal origin.
 - The Google browser key's referrer restrictions must include `https://localhost/*`, or the map
   renders blank in the APK.
 
@@ -225,6 +307,8 @@ git pull && npm install && npm run build
 ## Known gaps
 
 - **No 404 route** — `main.jsx` has no `*` catch-all, so an unknown path renders blank.
+- **No frontend tests.** The backend has a small money suite (`cd ../backend && node --test`); this
+  project has none, and ESLint is not run in any gate.
 - **Maps migration cleanup unfinished:** `portal/components/maplibre/MapLibreMap.jsx` is dead code,
   `maplibre-gl` and `pmtiles` are still dependencies, and residual `.maplibregl-*` CSS remains in
   `index.css`. (`maplibre/pinHtml.js` beside it **is** live and correct — only the folder name is

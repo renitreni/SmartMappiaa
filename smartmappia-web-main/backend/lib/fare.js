@@ -36,9 +36,7 @@ const FARE_BASE = 100;
 const SERVICE_FEE_RATE = 0.0375; // 3.75%
 const CURRENCY = 'SAR';
 
-function round2(n) {
-  return Math.round((Number(n) + Number.EPSILON) * 100) / 100;
-}
+const { round2 } = require('./money');
 
 // Quote a fresh fare.
 //

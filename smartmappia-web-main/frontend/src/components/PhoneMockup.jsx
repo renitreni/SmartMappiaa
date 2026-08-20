@@ -503,7 +503,7 @@ const PhoneMockup = () => {
         </motion.div>
 
         <div
-          className="relative w-full max-w-[340px] sm:max-w-[380px] lg:max-w-[400px] xl:max-w-[420px] mx-auto"
+          className="relative w-full max-w-[255px] sm:max-w-[380px] lg:max-w-[400px] xl:max-w-[420px] mx-auto"
           style={{ perspective: "1200px" }}
         >
           <motion.div
@@ -530,7 +530,7 @@ const PhoneMockup = () => {
                   </div>
                 </div>
 
-                <div className="h-[520px] sm:h-[560px] lg:h-[580px] relative overflow-hidden">
+                <div className="h-[390px] sm:h-[560px] lg:h-[580px] relative overflow-hidden">
                   <AnimatePresence mode="wait">
                     <motion.div
                       key={screens[activeIndex].id}

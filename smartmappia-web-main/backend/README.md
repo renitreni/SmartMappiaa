@@ -41,16 +41,23 @@ Three layers, strictly one-directional:
 | `controllers/` | Parse the request, call `lib/`, shape the response | Query the database directly |
 | `lib/` | **All** business logic and database access | Reference `req` or `res` |
 
-**There is no `services/` directory — `lib/` is the service layer.** It is substantial:
-`lib/dispatch.js` alone is 551 lines and holds the platform's most concurrency-sensitive code.
+**There is no `services/` directory — `lib/` is the service layer.** It is substantial: 42 modules,
+and `lib/dispatch.js` alone is 889 lines holding the platform's most concurrency-sensitive code.
 
 Key invariants:
 
 - **All money is computed server-side** from database values. Client-sent amounts are ignored.
+- **One rounding rule.** `round2()` lives in `lib/money.js` and nowhere else. It is half-up, sign-safe
+  and collapses non-finite input to `0`. It used to be copied into six modules and all six were
+  identically wrong (`Number.EPSILON` stops working above roughly 2.0, so a 50.50 base at 15% VAT
+  returned 7.57 instead of 7.58). **Never re-inline it.**
 - **The database arbitrates concurrency** — partial unique indexes and compare-and-swap updates, not
   application locks.
 - **Realtime accelerates; polling guarantees.** Every broadcast failure is swallowed by design.
 - **`lib/config.js` is the only place that reads `process.env`.**
+- **Every outbound call has a timeout** (`lib/httpTimeout.js`): Tap 15s, Supabase Realtime 3s, every
+  PostgREST call 10s. One PM2 process with no queue and no bulkhead means a *slow* dependency is more
+  dangerous than a dead one — each hung promise holds an Express handler and a pooler slot.
 
 ---
 
@@ -88,6 +95,34 @@ Twelve route modules mounted in `app.js`.
 - Orders: `GET /orders` · `POST /orders/:code/accept` · `/reject` ·
   `PATCH /orders/:code/status` — **authority caps at `ready`**
 
+**Payments (card, Tap)** — `/api/payments` and `/api/payment-methods`
+
+Mounted **only when `TAP_SECRET_KEY` is set**; otherwise both are replaced wholesale by a
+`503 { error: 'Card payment is not available yet.' }` stub. That gate is the whole design: there is no
+client-side feature flag to drift out of sync.
+
+- `GET /config` — **public**, returns `{ cardAvailable: true }`. Deliberately a constant; an
+  unreachable endpoint already means "no card". Unlike `/api/health` it reveals nothing about test
+  mode, keys, or which gateway is behind it.
+- `POST /webhooks/tap` — **public by necessity** (the gateway has no credential). Verified by a
+  constant-time HMAC-SHA256 over Tap's concatenation of named charge fields, keyed with
+  `TAP_SECRET_KEY`, then re-fetched from Tap before anything is marked paid. There is no separate
+  webhook secret and never was one that worked.
+- `POST /bookings/:code/charge` — the ride charge. Static-segment-first routing, so `webhooks` can
+  never be parsed as a booking code.
+- `/api/payment-methods` — saved cards: list, set default, delete.
+
+Food and shop keep their own charge endpoints (`POST /api/food/orders/:code/charge`,
+`POST /api/shop/orders/:code/charge`) because each needs its vertical's order loading. Only the
+webhook is shared.
+
+**Two variables must be set before card works in any environment**, and neither failure is loud:
+
+| Variable | If unset |
+|---|---|
+| `PUBLIC_WEB_URL` | Falls back to `CORS_ORIGINS[0]`, which makes that list's *order* silently load-bearing |
+| `PUBLIC_API_BASE` | **No fallback.** Resolves to `''`, so Tap is given a relative webhook URL it cannot call. The charge succeeds, the customer is debited, and the confirmation never arrives. |
+
 **Food** — `/api/food`
 - Discovery: `GET /restaurants` · `/restaurants/:id` (public)
 - Cart: `GET|POST|PATCH|DELETE /cart[...]`
@@ -95,9 +130,7 @@ Twelve route modules mounted in `app.js`.
   and 15 km radius. Accepts `Idempotency-Key`.
 - `GET /orders` · `/orders/:code` · `PATCH /orders/:code/contact` · `POST /orders/:code/rate-driver`
 - Payments: `GET|POST /orders/:code/pay[...]` (STC Pay proof) · `POST /orders/:code/charge` (card)
-- Card payments platform-wide: `/api/payment-methods` (saved cards) and `/api/payments`
-  (ride charge + the single Tap webhook). Both 503 until `TAP_SECRET_KEY` is set.
-- `POST /webhooks/tap` (signed) · `POST /events`
+- `POST /events`
 
 **Admin** — `/api/admin` (entire router behind `requireAdmin`)
 - Rides: `GET /stats` · `/reports` · `/bookings[/:code]` ·
@@ -173,11 +206,23 @@ it; RLS defends the path where a client uses the anon key directly.
 
 ## Get it running (local)
 
-1. **Database** — in the Supabase SQL Editor run `backend/migrations/0001`–`0024` in order,
-   **skipping `0004`**.
+1. **Database** — in the Supabase SQL Editor run `backend/migrations/0001`–`0040` in order,
+   **skipping `0004`**. There is no migration runner; SQL is applied by hand.
+
+   > **`backend/migrations/` is gitignored and is not in the public repository.** If you are reading
+   > this from a clone, ask for the SQL. It is excluded because several migrations carry the
+   > column-level grants that keep margin and net-price columns confidential, and the reasoning in
+   > their headers is commercially sensitive.
 
    > `0004_auto_approve_drivers.PILOT.sql` removes the KYC gate from every driver. Pilot demos only.
    > **Never run it in production.**
+
+   > **Ordering is not advisory.** Apply schema changes *before* deploying code that reads the new
+   > columns. Doing it the other way round has already caused a production outage here: the code
+   > shipped, the SQL did not, and the API returned "column does not exist" as a scatter of unrelated
+   > 500s. And because several tables have had table-wide `SELECT` revoked from the client roles, a
+   > **new column on one of them is not automatically granted** — a migration that "succeeded" can
+   > still leave the column invisible to the app.
 
 2. **Storage** — create four buckets:
 
@@ -190,10 +235,15 @@ it; RLS defends the path where a client uses the anon key directly.
 
 3. **Env** — `cp .env.example .env`, then fill at minimum `SUPABASE_URL`,
    `SUPABASE_SERVICE_ROLE_KEY`, `ADMIN_EMAILS`, `SMART_MAPPIA_STCPAY_NUMBER`,
-   `GOOGLE_MAPS_SERVER_KEY`.
+   `GOOGLE_MAPS_SERVER_KEY`. `.env.example` lists every variable the code reads, with the default
+   commented beside it and no values.
 
    Keep `AUTO_VERIFY_STCPAY_TEST_MODE=true` locally so payments self-verify.
    **It must be `false` in production.**
+
+   Card payment stays off until `TAP_SECRET_KEY` is set, which is the intended default for local
+   work. If you do turn it on locally, set `PUBLIC_WEB_URL` and `PUBLIC_API_BASE` too, and point
+   `PUBLIC_API_BASE` at a public tunnel — the gateway calls it back and cannot reach `localhost`.
 
 4. **Run** — `npm install && npm run dev` -> `http://localhost:4000`
 
@@ -204,8 +254,22 @@ it; RLS defends the path where a client uses the anon key directly.
 
 6. **Verify** — `npm run check:migrations` and `curl http://localhost:4000/api/health`.
 
-   > The checker probes `0001`-`0003`, `0009`-`0016`, `0021`-`0024`. It does **not** probe
-   > `0017`-`0020` — verify `0019` manually, since it carries the margin confidentiality grants.
+   > The checker probes `0001`-`0003` and `0005`-`0040` (no probe for `0004`, `0036`). Some entries
+   > are grant/privilege checks rather than shape checks: `0030-priv`, `0037-grant`, `0038-grant`,
+   > `0039-grant`, `0040-grant`. Those need `SUPABASE_ANON_KEY` set or they report `[SKIP]`, **which
+   > is not a pass** — the service role sees every column, so a confidentiality leak is undetectable
+   > without a non-privileged client.
+
+7. **Tests** — `node --test` from `backend/`.
+
+   > 87 assertions over the money layer: `lib/money.js`, the pinned defaults in `lib/config.js`,
+   > `foodMoney.js`, `shopMoney.js`, `fare.js`, `deliveryPricing.js`, `vat.js`, plus the frontend
+   > alert state machine. No database, no network, about 300 ms. `npm test` maps to the same command,
+   > and **no test dependency was added** — the runner is Node's built-in `node:test`. Run it from
+   > `backend/` so discovery works; naming the directory (`node --test test/`) fails on Node 22.
+   >
+   > `test/money-defaults.test.js` pins every commercial default as a literal number, so changing a
+   > price produces a failing assertion in review rather than a silent one-character edit.
 
 ---
 
@@ -233,15 +297,25 @@ pm2 logs smartmappia-api --lines 50
 | Line | Meaning |
 |---|---|
 | `Dispatch sweeper running (...)` | Healthy. **Its absence means dispatch has no cascade.** |
+| `Card payments (Tap) ENABLED.` | `TAP_SECRET_KEY` is set and `/api/payments` is mounted. Its absence means every card endpoint is a 503 stub. |
 | `[cors] CORS_ORIGINS is not set` | **Every browser origin is allowed.** Fix immediately. |
 | `[SECURITY] AUTO_VERIFY_STCPAY_TEST_MODE` | **Payments are auto-verifying.** Fix immediately. |
+
+A **restart** is required after any change to `.env` — the Supabase client and its 10s timeout are
+constructed once at boot. After a *schema* change, `lib/profileSchema.js` re-probes a missing column
+every 60 seconds, so it recovers on its own; nothing else caches schema state.
 
 ---
 
 ## Security notes
 
-- **Rate limiting** — global 240/min plus 20/min on auth, and 15 per-endpoint limiters in
-  `middleware/rateLimiters.js`. When debugging a `429`, check these first.
+- **Rate limiting** — global 240/min plus 20/min on auth, and 22 per-endpoint limiters in
+  `middleware/rateLimiters.js`. All of them answer with a JSON `{ error }` body, not the library's
+  plain-text default. **When debugging a `429`, check these first** — a bare "(429)" surfaced through
+  a chatty UI is almost always our own bucket, not a provider or a permissions problem.
+  The Tap webhook is exempt from the global limiter, matched by exact path
+  (`req.path === '/payments/webhooks/tap'`), because a `429` to a gateway converts a burst into a
+  redelivery storm.
 - **Validation** — `lib/validate.js` whitelists request bodies, **rejects** unknown fields, and
   replaces `req.body` with only validated fields, so mass assignment is structurally impossible.
 - **Geofencing** — driver status transitions asserting physical presence are gated on a fresh GPS fix
@@ -292,14 +366,20 @@ backend/
 ├── controllers/      13 modules + food/ (admin, orders, merchant, ratings, dispatch, docs)
 ├── middleware/       auth.js (6 guards), foodAuth.js (optionalAuth),
 │                     rateLimiters.js (15 limiters), idempotency.js
-├── lib/              THE SERVICE LAYER (24 files):
-│                       dispatch, foodMoney, fare, ledger, driverCash, payments,
-│                       foodOrderActions, geofence, geo, realtime, notifications,
+├── lib/              THE SERVICE LAYER (42 files):
+│                       money (the one round2), dispatch, foodMoney, shopMoney,
+│                       fare, vat, deliveryPricing, ledger, driverCash,
+│                       merchantCredit, foodOrderActions, shopOrderActions,
+│                       tap, cardCharge, savedCards, gatewayPaid, stock,
+│                       httpTimeout, geofence, geo, realtime, notifications,
 │                       webPush, storage, uploadValidation, validate, audit,
 │                       config, supabase, ...
-├── migrations/       0001..0024 (skip 0004 in production) + utilities/
+├── migrations/       0001..0040 (skip 0004 in production) + utilities/
+│                     GITIGNORED — not in the public repository
+├── test/             money.test.js, money-defaults.test.js, helpers/pureEnv.js
+│                     run with `node --test` from backend/
 └── scripts/          seed-admin, seed-admins, seed-user, seed-driver,
-                      check-migrations, demo/
+                      set-password, check-migrations, check-shop, demo/
 ```
 
 ---
@@ -318,13 +398,28 @@ record; push and realtime are best-effort.
 
 ## Known gaps
 
-- **No automated tests.** The highest-value first step is unit tests for the pure modules
-  (`foodMoney.js`, `ledger.js`, `fare.js`, `validate.js`, `geo.js`) — no database required.
-- **No transactions.** The Supabase client exposes none, so multi-table writes are sequential.
-  Moving them into Postgres functions (RPCs) is the main outstanding integrity improvement.
+- **Almost no automated tests.** `test/` covers `lib/money.js` and the pinned money defaults. Dispatch,
+  the order lifecycle, validation and payouts have no regression net. The highest-value next files are
+  `foodMoney.js` / `shopMoney.js`, `ledger.js`, `fare.js`, `deliveryPricing.js`, `validate.js` — all
+  pure, none needing a database.
+- **No migration runner.** SQL is applied by hand in the Supabase SQL Editor, so schema and deployed
+  code drift independently and silently. `npm run check:migrations` is the only gate; treat it as
+  required, not optional.
+- **Transactions only where an RPC exists.** The Supabase client exposes none, so most multi-table
+  writes are sequential and can leave partial state on a crash. Four Postgres functions cover the
+  cases that could not tolerate it: `shop_place_order`, `shop_release_stock`,
+  `set_default_payment_method`, `delete_account_pii`. Extending that approach is the main outstanding
+  integrity improvement.
 - **No monitoring or alerting.** An external uptime check on `/api/health` is the cheapest fix.
+- **The merchant credit line is vestigial.** Order acceptance no longer writes
+  `merchants.credit_used` (it was double-counting an amount already settled elsewhere), so that
+  column, its limit, its 80% alert and the admin replenish action now gate nothing. Whether to retire
+  or repurpose them is an open decision; until it is made, treat every merchant credit figure in the
+  UI as historical rather than current. The commercial detail is in the private handbook.
+- **`driver_cash_ledger` cannot reference a food or shop order.** `booking_id` is a foreign key to
+  `bookings`, so the cash-on-delivery charge for a food/shop order writes the order code into the
+  free-text `note` and leaves `booking_id` null. The balance is right; the row cannot be joined to its
+  order. A migration adding a vertical-neutral reference is an open follow-up and has not been written.
 - `GET /:code/payment-instructions` has no rate limiter, unlike its siblings.
-- `merchantOrderLimiter` is defined but not wired into `routes/merchant.js`.
-- `ADMIN_API_KEY` / `DRIVER_API_KEY` are legacy and used by no route.
+- `ADMIN_API_KEY` / `DRIVER_API_KEY` / `PAYMENT_MODE` are legacy and read by no live code path.
 - `vercel.json` and `api/index.js` are **dead** — hosting is the Hostinger VPS only.
-- **Tap Payments** — schema, enums, and the webhook path exist; the flow is behind a flag and off.

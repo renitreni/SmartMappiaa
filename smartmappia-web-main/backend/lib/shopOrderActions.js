@@ -16,9 +16,8 @@
 // ---------------------------------------------------------------------
 const { supabase } = require('./supabase');
 const { config } = require('./config');
-const { round2, creditAfterCharge } = require('./shopMoney');
+const { round2 } = require('./shopMoney');
 const { releaseShopStock } = require('./stock');
-const { reverseOrderMargin } = require('./merchantCredit');
 const { logShopEvent } = require('./foodEvents');
 const { logAudit } = require('./audit');
 const { logNotification } = require('./notifications');
@@ -67,44 +66,29 @@ async function acceptOrderCore({ orderCode, actorId, actorRole }) {
   if (!merchant) return { httpStatus: 404, body: { error: 'Store not found' } };
 
   const margin = round2(Number(order.platform_margin_total));
-  const credit = creditAfterCharge(merchant, margin);
 
-  if (merchant.status === 'suspended' || !credit.canAccept) {
+  // Mirrors the food twin: THE MARKUP IS COLLECTED ONCE, AT CHECKOUT. It is
+  // already inside the list price the customer paid and is withheld from the
+  // store payout, so accepting must not charge it to the credit line too.
+  // Admin suspension is a moderation control and still blocks.
+  if (merchant.status === 'suspended') {
     logShopEvent({
       eventName: 'service_suspended',
       merchantId: merchant.id,
-      params: { final_balance: credit.before, merchant_id: merchant.id },
+      params: { merchant_id: merchant.id },
     });
     return {
       httpStatus: 403,
       body: {
-        error:
-          `${merchant.name} has used up its SAR ${credit.limit.toFixed(2)} credit ` +
-          `(SAR ${credit.before.toFixed(2)}). Reconcile the balance before accepting new orders.`,
-        failure_reason: 'credit_exhausted',
+        error: `${merchant.name} is suspended and cannot accept new orders.`,
+        failure_reason: 'merchant_suspended',
         credit: creditView(merchant),
       },
     };
   }
 
-  // Charge with a compare-and-swap on the previous balance so two
-  // simultaneous accepts can't both slip under the limit.
-  const nextStatus = credit.exhausted ? 'suspended' : merchant.status;
-  const { data: chargedRows, error: chargeErr } = await supabase
-    .from('merchants')
-    .update({ credit_used: credit.after, status: nextStatus })
-    .eq('id', merchant.id)
-    .eq('credit_used', merchant.credit_used)
-    .select('id');
-  if (chargeErr) {
-    console.error('shop acceptOrderCore credit charge error:', chargeErr);
-    return { httpStatus: 500, body: { error: 'Could not charge the store credit' } };
-  }
-  if (!chargedRows || chargedRows.length === 0) {
-    return { httpStatus: 409, body: { error: 'The store credit changed — please retry' } };
-  }
-
-  // Flip the order pending -> accepted (also CAS); roll the charge back on a race.
+  // CAS so two simultaneous accepts cannot both win. Nothing to roll back
+  // now that no money moves here.
   const { data: acceptedRows, error: acceptErr } = await supabase
     .from('shop_orders')
     .update({ status: 'accepted', accepted_at: new Date().toISOString() })
@@ -112,23 +96,8 @@ async function acceptOrderCore({ orderCode, actorId, actorRole }) {
     .eq('status', 'pending')
     .select('order_code');
   if (acceptErr || !acceptedRows || acceptedRows.length === 0) {
-    await supabase
-      .from('merchants')
-      .update({ credit_used: credit.before, status: merchant.status })
-      .eq('id', merchant.id)
-      .eq('credit_used', credit.after);
     return { httpStatus: 409, body: { error: 'Order is no longer pending' } };
   }
-
-  await supabase.from('merchant_credit_ledger').insert({
-    merchant_id: merchant.id,
-    shop_order_id: order.id,
-    type: 'charge',
-    amount: margin,
-    balance_after: credit.after,
-    note: `Platform markup for order ${order.order_code}`,
-    created_by: actorId,
-  });
 
   logShopEvent({
     eventName: 'merchant_order_accept',
@@ -142,23 +111,9 @@ async function acceptOrderCore({ orderCode, actorId, actorRole }) {
     action: auditAction('shop_order_accepted', actorRole),
     resourceType: 'shop_order',
     resourceId: order.order_code,
-    meta: { margin_charged: margin, credit_used_after: credit.after },
+    // Recorded, not charged: the markup is realised at checkout.
+    meta: { margin_at_checkout: margin },
   });
-
-  if (credit.crossesAlert && !credit.exhausted) {
-    logShopEvent({
-      eventName: 'credit_limit_warning',
-      merchantId: merchant.id,
-      params: { current_usage: credit.after, merchant_id: merchant.id },
-    });
-  }
-  if (credit.exhausted) {
-    logShopEvent({
-      eventName: 'service_suspended',
-      merchantId: merchant.id,
-      params: { final_balance: credit.after, merchant_id: merchant.id },
-    });
-  }
 
   pushShopOrderStatus(order.order_code, { status: 'accepted' });
   pushMerchantFeed(merchant.id, 'order_update', { orderCode: order.order_code, status: 'accepted' });
@@ -181,7 +136,7 @@ async function acceptOrderCore({ orderCode, actorId, actorRole }) {
     body: {
       orderCode: order.order_code,
       status: 'accepted',
-      credit: creditView({ ...merchant, credit_used: credit.after, status: nextStatus }),
+      credit: creditView(merchant),
     },
   };
 }
@@ -374,18 +329,13 @@ async function cancelOrderCore({
 
   const release = await releaseShopStock(order.id);
 
-  // Accepting charged the platform markup to the store's credit; cancelling
-  // gives it back. Only for an order that WAS accepted — a pending one was
-  // never charged. Best-effort by design: the cancel already happened.
-  const creditReversal = order.accepted_at
-    ? await reverseOrderMargin({
-        merchantId: order.merchant_id,
-        margin: order.platform_margin_total,
-        shopOrderId: order.id,
-        orderCode: order.order_code,
-        actorId,
-      })
-    : { reversed: false, amount: 0 };
+  // Nothing to reverse. Accepting no longer charges the markup to the
+  // merchant's credit -- it is collected once, at checkout -- so a cancel has
+  // no credit charge to give back. Left as a no-op rather than deleted
+  // because reverseOrderMargin clamps at zero and would otherwise quietly
+  // draw down a merchant's HISTORICAL balance from before that change, paying
+  // them back for a charge this cancel never made.
+  const creditReversal = { reversed: false, amount: 0 };
 
   // Withdraw any offer still on a rider's screen. Without this the offer
   // stays 'pending' and unexpired: a rider tapping Accept a few seconds

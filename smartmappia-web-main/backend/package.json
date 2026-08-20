@@ -8,6 +8,7 @@
   "scripts": {
     "start": "node server.js",
     "dev": "node --watch server.js",
+    "test": "node --test",
     "seed:admin": "node scripts/seed-admin.js",
     "seed:admins": "node scripts/seed-admins.js",
     "set:password": "node scripts/set-password.js",
@@ -19,6 +20,9 @@
     "check:migrations": "node scripts/check-migrations.js",
     "check:shop": "node scripts/check-shop.js",
     "check:hours": "node scripts/check-store-hours.js",
+    "setup:buckets": "node scripts/setup-buckets.js",
+    "reset:orders": "node scripts/reset-orders.js",
+    "delete:account": "node scripts/delete-account.js",
     "seed:shop": "node scripts/seed-shop.js",
     "seed:demo": "node scripts/demo/seed-demo.js",
     "seed:pay": "node scripts/demo/seed-pay.js",
