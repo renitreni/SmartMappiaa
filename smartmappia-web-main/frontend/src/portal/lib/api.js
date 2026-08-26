@@ -20,6 +20,20 @@ async function authHeader() {
 // Pass { silent: true } for background/polling calls so a transient failure
 // doesn't fire a popup every few seconds. All other errors show one via Swal.
 async function request(path, { method = 'GET', body, headers = {}, silent = false } = {}) {
+  // /admin/ferdz renders the whole admin portal against invented data. The
+  // switch is the URL, not a flag: a flag set on mount outlives an unmount
+  // that never runs and would leak fake numbers into the live /admin. Read
+  // per call, leaving the route makes the very next call real again.
+  if (path.startsWith('/api/admin') && window.location.pathname.startsWith('/admin/ferdz')) {
+    const { resolveDemo } = await import('../demo/demoApi');
+    try {
+      return await resolveDemo(path, method, body);
+    } catch (err) {
+      if (!silent) notifyError(err.message);
+      throw err;
+    }
+  }
+
   const auth = await authHeader();
 
   let res;
