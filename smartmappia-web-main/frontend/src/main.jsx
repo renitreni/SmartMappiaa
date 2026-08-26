@@ -18,6 +18,7 @@ import TrackPage from './portal/user/TrackPage.jsx'
 import DriverPage from './portal/driver/DriverPage.jsx'
 import MerchantPortal from './portal/merchant/MerchantPortal.jsx'
 import AdminPage from './portal/admin/AdminPage.jsx'
+import AdminDemoPage from './portal/admin/AdminDemoPage.jsx'
 import FoodHomePage from './portal/food/FoodHomePage.jsx'
 import RestaurantPage from './portal/food/RestaurantPage.jsx'
 import FoodCartPage from './portal/food/FoodCartPage.jsx'
@@ -113,6 +114,10 @@ createRoot(document.getElementById('root')).render(
                 lazy-loads either the restaurant or the store dashboard. */}
             <Route path="/merchant" element={<RequireAuth role="merchant"><MerchantPortal /></RequireAuth>} />
             <Route path="/admin" element={<RequireAuth role="admin"><AdminPage /></RequireAuth>} />
+            {/* Same portal, invented data — for showing the product without
+                exposing real customers. Admin-only, and the fixtures are
+                pulled in on demand so they never ship in the main bundle. */}
+            <Route path="/admin/ferdz" element={<RequireAuth role="admin"><AdminDemoPage /></RequireAuth>} />
 
             {/* Legal — must stay public. Store reviewers open the privacy URL logged
                 out, and Play requires a deletion page reachable after uninstalling. */}

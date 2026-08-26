@@ -336,6 +336,10 @@ export default function Dashboard({ onNavigate }) {
   const greeting = hour < 12 ? 'Good morning' : hour < 18 ? 'Good afternoon' : 'Good evening';
   const attentionCount = t.needsReview + d.pending + t.awaitingPayment;
   const live = t.active > 0;
+  // Only the /admin/ferdz demo sends revenueTrend; the live stats endpoint
+  // has no such key, so this row simply does not render in production.
+  const trend = Array.isArray(stats.revenueTrend) ? stats.revenueTrend : [];
+  const trendPeak = trend.reduce((max, m) => Math.max(max, m.revenue), 0) || 1;
 
   return (
     <div className="space-y-5 sm:space-y-7">
@@ -387,6 +391,32 @@ export default function Dashboard({ onNavigate }) {
           </div>
         </div>
       </Panel>
+
+      {trend.length > 0 && (
+        <Panel className="p-4 sm:p-5">
+          <div className="flex items-baseline justify-between gap-3 mb-4">
+            <div>
+              <p className="font-bold text-brand-black text-sm">Revenue by month</p>
+              <p className="text-xs text-brand-grey mt-0.5">Verified fares, last {trend.length} months</p>
+            </div>
+            <p className="text-lg font-black text-brand-orange tabular-nums shrink-0">
+              SAR {money(trend[trend.length - 1].revenue)}
+            </p>
+          </div>
+          <div className="flex items-end gap-2 h-24">
+            {trend.map((m) => (
+              <div key={m.bucket} className="flex-1 min-w-0 flex flex-col items-center gap-1.5">
+                <span className="text-[10px] font-bold text-brand-grey tabular-nums">{money(m.revenue)}</span>
+                <div
+                  className="w-full rounded-t-sm bg-brand-orange/80"
+                  style={{ height: `${Math.max(6, (m.revenue / trendPeak) * 100)}%` }}
+                />
+                <span className="text-[10px] font-medium text-brand-grey truncate w-full text-center">{m.label}</span>
+              </div>
+            ))}
+          </div>
+        </Panel>
+      )}
 
       <div>
         <SectionHead
