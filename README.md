@@ -209,7 +209,7 @@ SmartMappiaa/
 │   │   │       ├── user/         # Home, book, pay, track, profile, transactions
 │   │   │       ├── driver/       # DriverPage, verification, dispatch
 │   │   │       ├── merchant/     # Dashboard, layout, orders
-│   │   │       ├── admin/        # AdminLayout, Dashboard, FoodAdmin
+│   │   │       ├── admin/        # AdminLayout, Dashboard, FoodAdmin, ErrorsView
 │   │   │       ├── food/         # Home, restaurant, cart, checkout, orders
 │   │   │       └── shop/         # Ecommerce (gated by SHOP_ENABLED)
 │   │   ├── public/               # Static assets, manifest, service worker
@@ -473,7 +473,7 @@ Nginx reverse-proxies `https://api.smartmappia.com` to `localhost:4000`. HTTPS i
 | `seed:accounts` | Combined seed-admin + seed-user + seed-driver | Seed all roles |
 | `seed:drink-sizes` | `node scripts/seed-drink-sizes.js` | Seed drink size catalog |
 | `seed:aling-marias` | `node scripts/seed-aling-marias.js` | Seed Aling Maria's restaurant |
-| `check:migrations` | `node scripts/check-migrations.js` | Verify RLS grant security |
+| `check:migrations` | `node scripts/check-migrations.js` | Verify every migration is applied and its grants still hold |
 | `check:shop` | `node scripts/check-shop.js` | Verify shop schema readiness |
 | `check:hours` | `node scripts/check-store-hours.js` | Verify store hours config |
 | `seed:shop` | `node scripts/seed-shop.js` | Seed shop products |

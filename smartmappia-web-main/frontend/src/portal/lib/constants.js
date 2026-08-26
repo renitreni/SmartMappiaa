@@ -193,6 +193,27 @@ export function fmtSAR(amount) {
   return `SAR ${Number(amount ?? 0).toFixed(2)}`;
 }
 
+// Absolute timestamps are pinned to Riyadh, not the reader's machine: an
+// admin diagnosing an incident from another timezone has to be able to
+// compare what they see here against the server log and a driver's account
+// of when it happened. Pair it with relativeTime() from lib/notifications.js
+// when both "when exactly" and "how long ago" are useful.
+export function formatDateTime(iso) {
+  if (!iso) return '';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '';
+  return d.toLocaleString('en-GB', {
+    timeZone: 'Asia/Riyadh',
+    day: '2-digit',
+    month: 'short',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: false,
+  });
+}
+
 // merchants.badge is snake_case, constrained by the DB to these four values
 // (0015_merchant_homepage_presentation.sql) and echoed by the route whitelist
 // in backend/routes/admin.js. Lives here, in the shared constants module,

@@ -150,6 +150,15 @@ export const api = {
   adminReviewDoc: (driverId, docId, body) =>
     request(`/api/admin/drivers/${driverId}/documents/${docId}/review`, { method: 'POST', body }),
   // Driver cash settlement (pick & drop cash rides)
+  // Backend error log (admin Errors tab). The list is polled by a refresh
+  // button rather than an interval, so these are not silent — an admin who
+  // clicks refresh should be told if it failed.
+  adminErrors: (query = '') => request(`/api/admin/errors${query}`),
+  adminErrorSummary: () => request('/api/admin/errors/summary'),
+  adminErrorDetail: (id) => request(`/api/admin/errors/${id}`),
+  adminResolveError: (id, resolved = true) =>
+    request(`/api/admin/errors/${id}/resolve`, { method: 'POST', body: { resolved } }),
+
   adminDriverCash: () => request('/api/admin/drivers/cash'),
   adminSettleDriverCash: (driverId, body) =>
     request(`/api/admin/drivers/${driverId}/settle-cash`, { method: 'POST', body }),

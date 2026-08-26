@@ -15,6 +15,7 @@
 //   requireApprovedDriver -> requireDriver + driver_approved = true
 // ---------------------------------------------------------------------
 const { supabase } = require('../lib/supabase');
+const { setContextUser } = require('../lib/requestContext');
 
 function getBearer(req) {
   const header = req.get('authorization') || '';
@@ -60,6 +61,9 @@ async function requireAuth(req, res, next) {
     req.profile = profile;
     req.role = profile.role;
     req.userId = profile.id;
+    // Every other guard composes through this one, so this is what puts a
+    // name against a row in the admin Errors page.
+    setContextUser({ id: profile.id, email: user.email, role: profile.role });
     return next();
   } catch (err) {
     console.error('requireAuth error:', err);

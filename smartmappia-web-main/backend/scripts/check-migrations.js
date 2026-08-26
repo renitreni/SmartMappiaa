@@ -819,6 +819,44 @@ const CHECKS = [
     sqlFile: '0041_driver_delivery_share.sql',
   },
   {
+    id: '0042',
+    name: 'error_logs table + prune function',
+    // Without it every console.error in the app tries to insert into a
+    // table that is not there. Nothing breaks — lib/errorLog.js swallows
+    // the failure — but the admin Errors page stays permanently empty and
+    // nobody notices the log was never being kept.
+    run: async () => {
+      const e1 = (
+        await supabase
+          .from('error_logs')
+          .select('id, occurred_at, label, message, user_email, fingerprint, suppressed_count')
+          .limit(0)
+      ).error;
+      if (e1) return e1.message;
+      const { error: e2 } = await supabase.rpc('prune_error_logs', { keep_days: 3650 });
+      return e2 ? `prune_error_logs missing or not callable: ${e2.message}` : null;
+    },
+    sqlFile: '0042_error_logs.sql',
+  },
+  {
+    id: '0042-grant',
+    name: 'error logs stay hidden from the client roles',
+    // error_logs holds stack traces, request paths and the signed-in
+    // user's email. 0042 revokes the table from anon and authenticated
+    // outright rather than relying on RLS, because RLS filters rows and
+    // not columns. If this ever reads, the revoke was undone.
+    grantCheck: true,
+    run: async () => {
+      return (
+        (await assertHidden('error_logs', 'message')) ||
+        (await assertHidden('error_logs', 'user_email')) ||
+        (await assertHidden('error_logs', 'stack')) ||
+        null
+      );
+    },
+    sqlFile: '0042_error_logs.sql',
+  },
+  {
     id: '0030-priv',
     name: 'write grants revoked from the public client roles (CRITICAL)',
     // The privilege half of 0030. Needs the anon key for the same reason

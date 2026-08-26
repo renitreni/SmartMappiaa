@@ -5,6 +5,17 @@
 // On Vercel this file is NOT used — api/index.js is the entrypoint there.
 // ---------------------------------------------------------------------
 require('dotenv').config(); // load .env BEFORE anything reads process.env
+const {
+  installConsoleCapture,
+  installProcessHandlers,
+  startErrorLogPruner,
+} = require('./lib/errorLog');
+
+// Before ./app, so console.error calls made while the modules load (config
+// warnings, a failed client) are captured too.
+installConsoleCapture();
+installProcessHandlers();
+
 const app = require('./app');
 const { config } = require('./lib/config');
 const { startDispatchSweeper } = require('./lib/dispatch');
@@ -26,4 +37,5 @@ app.listen(PORT, () => {
   // driver. Long-running server only (Hostinger VPS / local); on serverless
   // there is no interval — jobs still surface via the open-pool fallback.
   startDispatchSweeper();
+  startErrorLogPruner();
 });

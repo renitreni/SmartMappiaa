@@ -300,6 +300,7 @@ pm2 logs smartmappia-api --lines 50
 | `Card payments (Tap) ENABLED.` | `TAP_SECRET_KEY` is set and `/api/payments` is mounted. Its absence means every card endpoint is a 503 stub. |
 | `[cors] CORS_ORIGINS is not set` | **Every browser origin is allowed.** Fix immediately. |
 | `[SECURITY] AUTO_VERIFY_STCPAY_TEST_MODE` | **Payments are auto-verifying.** Fix immediately. |
+| `prune_error_logs failed` | Migration `0042` has not been applied. Errors are still logged to pm2 but nothing reaches the admin Errors page. |
 
 A **restart** is required after any change to `.env` — the Supabase client and its 10s timeout are
 constructed once at boot. After a *schema* change, `lib/profileSchema.js` re-probes a missing column
@@ -316,6 +317,12 @@ every 60 seconds, so it recovers on its own; nothing else caches schema state.
   The Tap webhook is exempt from the global limiter, matched by exact path
   (`req.path === '/payments/webhooks/tap'`), because a `429` to a gateway converts a burst into a
   redelivery storm.
+- **Error log** — `lib/errorLog.js` wraps `console.error` once at boot, so all 395 catch blocks
+  also write a row to `error_logs` (migration `0042`) with the signed-in user attached, readable at
+  Admin -> Errors. Messages and stacks are redacted of keys, bearer tokens and JWTs first, repeats
+  are collapsed to one row per minute per distinct error, and the table is revoked from
+  `anon`/`authenticated` outright. Writes are best-effort: a logging failure never breaks the
+  request. **Never log a secret deliberately and rely on the redactor to catch it.**
 - **Validation** — `lib/validate.js` whitelists request bodies, **rejects** unknown fields, and
   replaces `req.body` with only validated fields, so mass assignment is structurally impossible.
 - **Geofencing** — driver status transitions asserting physical presence are gated on a fresh GPS fix
