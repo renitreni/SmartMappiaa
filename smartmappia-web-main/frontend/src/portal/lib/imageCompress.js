@@ -3,10 +3,10 @@
 //
 // Payment proofs, driver documents and avatars are all camera shots or
 // screenshots straight off a phone: 8 to 12 megapixels, several MB each, for
-// something a human only ever reads at a few hundred pixels wide. The project
-// is on the Supabase free tier with a 1 GB storage ceiling, so uploading the
-// originals burns the quota on detail nobody looks at, and costs the user
-// their mobile data twice over.
+// something a human only ever reads at a few hundred pixels wide. This landed
+// while the project was on the Supabase free tier, where a 1 GB ceiling made it
+// an outage risk; on Pro it is a cost one. Either way, uploading the originals
+// pays for detail nobody looks at and costs the user their mobile data twice.
 //
 // The re-encode deliberately keeps the source mime type. The signed upload URL
 // is already bound to a path whose extension came from the original filename,

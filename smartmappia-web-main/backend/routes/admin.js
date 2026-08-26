@@ -19,6 +19,7 @@ const {
 } = require('../controllers/adminController');
 const food = require('../controllers/food/adminFoodController');
 const hours = require('../controllers/merchantHoursController');
+const errors = require('../controllers/adminErrorsController');
 
 // Opening-hours payloads. The windows themselves are validated in
 // lib/merchantHours.js — this only keeps the shape sane before it gets there.
@@ -54,6 +55,18 @@ router.post(
 );
 router.get('/drivers/:driverId/documents', listDriverDocuments);
 router.post('/drivers/:driverId/documents/:docId/review', reviewDriverDocument);
+
+// --- Backend error log (migration 0042) -------------------------------
+// error_logs is revoked from anon/authenticated, so this router is the
+// only path to it. /summary before /:id, or 'summary' matches as an id.
+router.get('/errors', errors.listErrors);
+router.get('/errors/summary', errors.errorSummary);
+router.get('/errors/:id', errors.getError);
+router.post(
+  '/errors/:id/resolve',
+  validateBody({ resolved: { type: 'boolean' } }),
+  errors.resolveError
+);
 
 // --- Food Delivery oversight (PRD: merchant credit + reconciliation) ---
 // Restaurants are onboarded by ADMINS: they contact SmartMappia, an admin

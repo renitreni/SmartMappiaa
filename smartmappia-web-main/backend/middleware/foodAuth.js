@@ -11,6 +11,7 @@
 // because admin-side food routes are locked down separately.
 // ---------------------------------------------------------------------
 const { supabase } = require('../lib/supabase');
+const { setContextUser } = require('../lib/requestContext');
 
 async function optionalAuth(req, _res, next) {
   try {
@@ -21,6 +22,9 @@ async function optionalAuth(req, _res, next) {
     if (!error && data && data.user) {
       req.authUser = { id: data.user.id, email: data.user.email };
       req.userId = data.user.id;
+      // No profile lookup here, so the role stays unknown; id and email
+      // are still enough to trace an error to a person.
+      setContextUser({ id: data.user.id, email: data.user.email, role: null });
     }
     return next();
   } catch (err) {

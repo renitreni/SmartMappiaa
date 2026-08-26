@@ -27,6 +27,8 @@ const locationRoutes = require('./routes/locations');
 const paymentRoutes = require('./routes/payments');
 const paymentMethodRoutes = require('./routes/paymentMethods');
 const { config } = require('./lib/config');
+const { requestContext } = require('./lib/requestContext');
+const { reportFatal } = require('./lib/errorLog');
 
 const app = express();
 
@@ -71,6 +73,11 @@ app.use(
     },
   })
 );
+
+// Per-request context that lib/errorLog.js reads when it captures a
+// console.error. Before the rate limiters and the body parser so a 429 or a
+// malformed-JSON rejection is attributable too.
+app.use(requestContext);
 
 // Parse JSON bodies with an explicit size cap so an oversized payload can't be
 // used to exhaust memory before validation ever runs.
@@ -175,11 +182,15 @@ app.use((req, res) => {
 });
 
 // Central error handler — log the detail server-side, never leak stack traces
-// or raw DB/internal errors to the client.
+// or raw DB/internal errors to the client. A backstop, not the main capture
+// path: every controller catches its own errors and responds directly (there
+// is no next(err) anywhere in the app), so little reaches here. reportFatal
+// rather than the console interception because only here is the status known.
 // eslint-disable-next-line no-unused-vars
 app.use((err, req, res, next) => {
-  console.error('Unhandled error:', err);
-  res.status(err.status || 500).json({ error: 'Unexpected server error' });
+  const status = err.status || 500;
+  reportFatal('unhandledExpressError', err, { statusCode: status });
+  res.status(status).json({ error: 'Unexpected server error' });
 });
 
 module.exports = app;

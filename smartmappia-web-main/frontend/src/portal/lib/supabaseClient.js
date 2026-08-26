@@ -55,8 +55,9 @@ export const realtimeEnabled = !!supabase;
 // Upload a file to a backend-issued signed upload URL.
 //
 // Every storage upload in the app goes through here, which makes it the one
-// place worth downscaling: see imageCompress.js for why the 1 GB free tier
-// makes that necessary. Non-images and already-small files pass through.
+// place worth downscaling: see imageCompress.js for why. Note this is the
+// client path only — there is still no server-side byte cap, and the signed
+// URL is a plain PUT. Non-images and already-small files pass through.
 export async function uploadProofFile(bucket, path, token, file) {
   if (!supabase) {
     throw new Error(

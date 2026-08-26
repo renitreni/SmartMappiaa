@@ -9,6 +9,7 @@ import {
   ChefHat,
   UtensilsCrossed,
   ShoppingBag,
+  AlertTriangle,
   BarChart3,
   RefreshCw,
   LogOut,
@@ -121,6 +122,7 @@ export const ADMIN_NAV = [
   { id: 'food', label: 'Food', icon: UtensilsCrossed },
   { id: 'shop', label: 'Shop', icon: ShoppingBag },
   { id: 'reports', label: 'Reports', icon: BarChart3 },
+  { id: 'errors', label: 'Errors', icon: AlertTriangle },
 ];
 
 const PAGE_COPY = {
@@ -151,6 +153,10 @@ const PAGE_COPY = {
   reports: {
     title: 'Reports',
     subtitle: 'Bookings and revenue over time — export to CSV.',
+  },
+  errors: {
+    title: 'Errors',
+    subtitle: 'Backend errors, who hit them, and when.',
   },
 };
 

@@ -12,6 +12,7 @@ import RestaurantOrders from './RestaurantOrders';
 import FoodAdmin from './FoodAdmin';
 import ShopAdmin from './ShopAdmin';
 import ReportsView from './ReportsView';
+import ErrorsView from './ErrorsView';
 
 export default function AdminPage() {
   // Notifications deep-link to a tab with ?tab= (see portal/lib/notifications.js).
@@ -38,6 +39,7 @@ export default function AdminPage() {
       {tab === 'food' && <FoodAdmin key={`f${tick}`} />}
       {tab === 'shop' && <ShopAdmin key={`s${tick}`} />}
       {tab === 'reports' && <ReportsView key={`r${tick}`} />}
+      {tab === 'errors' && <ErrorsView key={`e${tick}`} />}
     </AdminLayout>
   );
 }
