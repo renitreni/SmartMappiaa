@@ -2,22 +2,22 @@ import React, { useState } from "react";
 import { motion } from "framer-motion";
 import { Link, useNavigate } from "react-router-dom";
 import PhoneMockup from "../components/PhoneMockup";
+import MarketplaceCategories from "./MarketplaceCategories";
 
 const stats = [
-  { value: "500+", label: "Restaurants" },
+  { value: "500+", label: "Restaurants & stores" },
   { value: "15 min", label: "Avg. delivery" },
-  { value: "50k+", label: "Happy users" },
+  { value: "50k+", label: "Orders delivered" },
 ];
 
 const Hero = () => {
   const navigate = useNavigate();
   const [query, setQuery] = useState("");
 
-  // Hands the term to /food, which seeds its own search box from ?q=.
   const submitSearch = (e) => {
     e.preventDefault();
     const q = query.trim();
-    navigate(q ? `/food?q=${encodeURIComponent(q)}` : "/food");
+    navigate(q ? `/services/food?q=${encodeURIComponent(q)}` : "/services/food");
   };
 
   return (
@@ -44,7 +44,7 @@ const Hero = () => {
           initial={{ opacity: 0, y: 30 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.7, ease: "easeOut" }}
-          className="flex flex-col items-start gap-6 lg:gap-7 order-2 lg:order-1"
+          className="flex flex-col items-start gap-5 lg:gap-6 order-2 lg:order-1"
         >
           <motion.div
             initial={{ opacity: 0, scale: 0.9 }}
@@ -56,20 +56,20 @@ const Hero = () => {
               <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-brand-orange opacity-60" />
               <span className="relative inline-flex rounded-full h-2 w-2 bg-brand-orange" />
             </span>
-            Delivery in a Flash
+            Your marketplace, delivered
           </motion.div>
 
           <h1 className="text-4xl sm:text-5xl lg:text-6xl xl:text-7xl font-black tracking-tight text-brand-black leading-[1.05]">
-            Fast Delivery.{" "}
+            Shop food, groceries{" "}
             <span className="text-transparent bg-clip-text bg-linear-to-r from-brand-orange to-brand-red">
-              Easy Booking.
+              &amp; more
             </span>{" "}
-            Smart Rewards.
+            — delivered fast.
           </h1>
 
           <p className="text-brand-grey text-base md:text-lg leading-relaxed max-w-lg">
-            Order food, send packages, and book airport transfers, all in one
-            app with real-time tracking and exclusive rewards.
+            Browse restaurants and stores, add to cart, and track every order live.
+            Food, essentials, and airport rides — all in one app.
           </p>
 
           <form
@@ -94,8 +94,8 @@ const Hero = () => {
                 type="text"
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
-                placeholder="Search restaurants or dishes..."
-                aria-label="Search restaurants or dishes"
+                placeholder="Search restaurants, stores, or products..."
+                aria-label="Search restaurants, stores, or products"
                 className="w-full bg-transparent text-brand-dark placeholder-brand-grey text-sm focus:outline-none"
               />
             </div>
@@ -107,16 +107,24 @@ const Hero = () => {
             </button>
           </form>
 
-          <div className="flex flex-wrap items-center gap-4">
+          <MarketplaceCategories />
+
+          <div className="flex flex-wrap items-center gap-3">
             <Link
-              to="/#features"
+              to="/services/food"
               className="bg-brand-orange hover:bg-brand-orange/90 text-white font-bold text-sm px-7 py-3.5 rounded-xl transition-all duration-300 hover:scale-[1.02] cursor-pointer shadow-md shadow-brand-orange/20"
             >
-              Explore Services
+              Start Shopping
+            </Link>
+            <Link
+              to="/book"
+              className="text-brand-dark hover:text-brand-orange font-bold text-sm px-5 py-3.5 rounded-xl border border-brand-border hover:border-brand-orange/30 transition-colors"
+            >
+              Book a ride
             </Link>
           </div>
 
-          <div className="flex flex-wrap gap-8 pt-2 border-t border-brand-border w-full max-w-xl">
+          <div className="flex flex-wrap gap-6 sm:gap-8 pt-2 border-t border-brand-border w-full max-w-xl">
             {stats.map((stat) => (
               <div key={stat.label}>
                 <p className="text-2xl font-black text-brand-black">{stat.value}</p>

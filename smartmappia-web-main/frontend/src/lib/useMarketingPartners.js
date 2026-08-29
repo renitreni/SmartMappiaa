@@ -65,6 +65,9 @@ export function mapMerchantToCard(merchant, delivery) {
     tag: BADGE_LABELS[merchant.badge] || null,
     logo: merchant.logo_url || null,
     tagline: merchant.description || merchant.cuisine_type || '',
+    cuisine: merchant.cuisine_type || '',
+    featured: !!merchant.is_featured,
+    reviewCount: merchant.reviewCount > 0 ? merchant.reviewCount : null,
     hasMenu: merchant.hasMenu !== false,
     // Left undefined rather than defaulted when the response predates these
     // fields — portal/lib/storeHours.js reads an absent `hours` as "cannot
@@ -131,6 +134,8 @@ function useListedMerchants(load, pick) {
     failed: false,
     // The surcharge terms, not a bare number: the card needs to say "from".
     delivery: null,
+    cuisines: [],
+    minOrder: null,
   });
 
   useEffect(() => {
@@ -151,6 +156,8 @@ function useListedMerchants(load, pick) {
         loading: false,
         failed: false,
         delivery,
+        cuisines: data.cuisines || data.categories || [],
+        minOrder: Number.isFinite(Number(data.minOrder)) ? Number(data.minOrder) : null,
       });
     });
     return () => {
