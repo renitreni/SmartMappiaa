@@ -9,6 +9,7 @@ import HowItWorks from "./sections/HowItWorks";
 import SponsoredReel from "./sections/SponsoredReel";
 import FAQ from "./sections/FAQ";
 import Footer from "./sections/Footer";
+import PopularNearYou from "./sections/PopularNearYou";
 
 function App() {
   return (
@@ -17,6 +18,7 @@ function App() {
 
       <main>
         <Hero />
+        <PopularNearYou />
         <Services />
         <PromoBanners />
         <VideoShowcase />

@@ -58,11 +58,11 @@ const Services = () => {
           className="text-center md:text-left mb-16 max-w-2xl"
         >
           <span className="text-brand-orange text-sm font-bold tracking-widest uppercase">
-            Our Core Services
+            Marketplace
           </span>
           <h2 className="text-3xl md:text-5xl font-black tracking-tight text-brand-black mt-2 leading-tight">
-            Everything you need, <br className="hidden md:block" />
-            all in <span className="text-brand-orange">one smart app.</span>
+            Shop food, groceries &amp; more — <br className="hidden md:block" />
+            <span className="text-brand-orange">delivered to your door.</span>
           </h2>
         </motion.div>
 

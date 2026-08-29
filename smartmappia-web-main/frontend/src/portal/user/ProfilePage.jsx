@@ -5,7 +5,7 @@
 // /api/auth/profile then refreshes the AuthProvider profile so the navbar
 // picks the changes up instantly.
 // ---------------------------------------------------------------------
-import { useEffect, useRef, useState } from 'react';
+import { useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Camera, User, Phone, MapPin, Mail, KeyRound, Save, History, Trash2 } from 'lucide-react';
 import { api } from '../lib/api';
@@ -44,13 +44,6 @@ export default function ProfilePage() {
   const [deleting, setDeleting] = useState(false);
 
   const set = (k) => (e) => setForm((f) => ({ ...f, [k]: e.target.value }));
-
-  // "Settings" in the navbar dropdown deep-links to /profile#settings.
-  useEffect(() => {
-    if (window.location.hash === '#settings') {
-      document.getElementById('settings')?.scrollIntoView({ behavior: 'smooth' });
-    }
-  }, []);
 
   async function saveInfo(e) {
     e.preventDefault();
@@ -171,7 +164,7 @@ export default function ProfilePage() {
   const avatarUrl = avatarPreview || profile?.avatarUrl || null;
 
   return (
-    <PortalShell title="My profile" subtitle="Manage your account" onBack={() => navigate(-1)}>
+    <PortalShell title="My profile" subtitle="Manage your account" onBack={() => navigate('/home')}>
       <div className="max-w-2xl mx-auto space-y-5 pb-10">
         <Card className="p-6 flex flex-col sm:flex-row items-center gap-5">
           <div className="relative shrink-0">
