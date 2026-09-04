@@ -26,6 +26,7 @@ const { haversineKm } = require('../../lib/geo');
 const { travelEtaMinutes, deliveryEtaBand } = require('../../lib/eta');
 const { latestDriverFix } = require('../../lib/tracking');
 const { priceOrder } = require('../../lib/foodMoney');
+const { getMaxDistanceKm } = require('../../lib/settings');
 const { merchantOpenState, CLOSED_RESPONSE } = require('../../lib/storeHours');
 const { findSizeOption } = require('../../lib/foodSizes');
 const { logFoodEvent } = require('../../lib/foodEvents');
@@ -186,7 +187,7 @@ async function checkout(req, res) {
     );
 
     // THE money math — single source of truth.
-    const priced = priceOrder({ items, distanceKm });
+    const priced = priceOrder({ items, distanceKm, maxRadiusKm: await getMaxDistanceKm() });
     if (!priced.ok) {
       logFoodEvent({
         eventName: 'checkout_attempt',

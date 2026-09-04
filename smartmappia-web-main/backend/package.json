@@ -11,6 +11,7 @@
     "test": "node --test",
     "seed:admin": "node scripts/seed-admin.js",
     "seed:admins": "node scripts/seed-admins.js",
+    "seed:super-admin": "node scripts/seed-super-admin.js",
     "set:password": "node scripts/set-password.js",
     "seed:user": "node scripts/seed-user.js",
     "seed:driver": "node scripts/seed-driver.js",

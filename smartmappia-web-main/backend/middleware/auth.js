@@ -8,6 +8,7 @@
 //   requireToken          -> valid token only (profile may not exist yet)
 //   requireAuth           -> valid token + an existing profile  (req.userId)
 //   requireAdmin          -> requireAuth + role 'admin'         (req.adminId)
+//   requireSuperAdmin     -> requireAdmin + is_super_admin      (req.superAdminId)
 //   requireDriver         -> requireAuth + role 'driver'        (req.driverId)
 //   requireMerchant       -> requireAuth + role 'merchant'      (req.merchantOwnerId)
 //   requireMerchantVertical('food'|'shop')
@@ -16,6 +17,7 @@
 // ---------------------------------------------------------------------
 const { supabase } = require('../lib/supabase');
 const { setContextUser } = require('../lib/requestContext');
+const { hasSuperAdminColumns } = require('../lib/profileSchema');
 
 function getBearer(req) {
   const header = req.get('authorization') || '';
@@ -49,14 +51,29 @@ async function requireAuth(req, res, next) {
     if (!user) return res.status(401).json({ error: 'Authentication required' });
     req.authUser = { id: user.id, email: user.email };
 
+    // 0043 columns are probed, not assumed — see hasSuperAdminColumns.
+    // This select runs on every authenticated request, so naming a column
+    // that is not there yet would 403 the entire platform.
+    const tiered = await hasSuperAdminColumns(supabase);
     const { data: profile } = await supabase
       .from('profiles')
-      .select('id, role, full_name, whatsapp_number, mobile_number, email, driver_approved, service_types')
+      .select(
+        'id, role, full_name, whatsapp_number, mobile_number, email, driver_approved, service_types' +
+          (tiered ? ', is_super_admin, disabled_at' : '')
+      )
       .eq('id', user.id)
       .maybeSingle();
 
     if (!profile) {
       return res.status(403).json({ error: 'Profile not set up. Please complete registration.' });
+    }
+    // Deactivated (0043). Banning the Supabase auth user is what stops a
+    // NEW sign-in; this is what stops a session that was already issued —
+    // without it a deactivated admin keeps full access until their JWT
+    // expires, which is the window that matters when access is being
+    // revoked in a hurry.
+    if (profile.disabled_at) {
+      return res.status(403).json({ error: 'This account has been deactivated.' });
     }
     req.profile = profile;
     req.role = profile.role;
@@ -75,6 +92,27 @@ function requireAdmin(req, res, next) {
   requireAuth(req, res, () => {
     if (req.role !== 'admin') return res.status(403).json({ error: 'Admin access required' });
     req.adminId = req.userId;
+    return next();
+  });
+}
+
+// The tier above admin (0043): may create, edit, deactivate and reset the
+// password of other admins, and may change app_settings.
+//
+// is_super_admin is a COLUMN, not a role — adding 'super_admin' to the
+// user_role enum would have failed every `role !== 'admin'` check above
+// and every is_admin() RLS policy, locking a super admin out of the very
+// portal they administer. Composing through requireAdmin also means a
+// super admin keeps the whole ordinary admin surface for free.
+//
+// Unlike requireDriver/requireMerchant there is NO bypass here: a plain
+// admin is exactly who this is meant to keep out.
+function requireSuperAdmin(req, res, next) {
+  requireAdmin(req, res, () => {
+    if (!req.profile.is_super_admin) {
+      return res.status(403).json({ error: 'Super admin access required' });
+    }
+    req.superAdminId = req.userId;
     return next();
   });
 }
@@ -174,6 +212,7 @@ module.exports = {
   requireToken,
   requireAuth,
   requireAdmin,
+  requireSuperAdmin,
   requireDriver,
   requireMerchant,
   requireMerchantVertical,

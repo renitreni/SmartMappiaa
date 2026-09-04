@@ -25,6 +25,7 @@ const {
 } = require('../lib/storage');
 const { opsError } = require('../lib/opsError');
 const { MIN_PASSWORD_LENGTH, MAX_PASSWORD_LENGTH } = require('../lib/validate');
+const { currentContext } = require('../lib/requestContext');
 
 // The camelCase profile JSON every auth endpoint returns to the UI.
 function profileJson(profile, merchant = null) {
@@ -36,6 +37,10 @@ function profileJson(profile, merchant = null) {
     mobile: profile.mobile_number,
     email: profile.email,
     driverApproved: profile.driver_approved,
+    // 0043. Absent until the migration is applied — the probe in
+    // lib/profileSchema.js leaves the columns out of the select, and the
+    // UI reads a missing flag as "not a super admin", which is correct.
+    isSuperAdmin: !!profile.is_super_admin,
     serviceTypes: profile.service_types,
     avatarUrl: profile.avatar_url ?? null,
     address: profile.address ?? null,
@@ -459,8 +464,46 @@ async function deleteAccount(req, res) {
   }
 }
 
+// POST /api/auth/login-event — the web app calls this once after a
+// successful credential sign-in (see AuthProvider.signIn).
+//
+// ADMINS ONLY. A row per passenger sign-in would be the fastest-growing
+// table on the platform and answers a question nobody asked; every other
+// role is accepted and ignored so the client never has to know the rule.
+//
+// Best-effort in the same sense as logAudit: this must never be the reason
+// somebody cannot sign in, so a failure is logged and still returns 204.
+// requireAuth has already proved the caller is who they say and that their
+// profile row exists, which is what makes the foreign key safe.
+//
+// The client controls WHEN this is called, so a determined admin could
+// record extra sign-ins for themselves. That is not worth defending
+// against: they can already do everything these rows describe, and the
+// alternative (inferring logins server-side from /sync) counts every page
+// refresh as a new sign-in, which makes the feature useless.
+async function recordLoginEvent(req, res) {
+  try {
+    if (req.role !== 'admin') return res.status(204).end();
+
+    const ctx = currentContext();
+    const { error } = await supabase.from('admin_login_events').insert({
+      profile_id: req.userId,
+      email: req.authUser.email,
+      role: req.role,
+      ip: ctx ? ctx.ip : null,
+      user_agent: ctx ? ctx.userAgent : null,
+    });
+    // A missing table (0043 not applied) lands here and is not fatal.
+    if (error) console.error('recordLoginEvent error:', error.message || error);
+  } catch (err) {
+    console.error('recordLoginEvent error:', err.message || err);
+  }
+  return res.status(204).end();
+}
+
 module.exports = {
   signup,
+  recordLoginEvent,
   syncProfile,
   updateProfile,
   createAvatarUploadUrlHandler,

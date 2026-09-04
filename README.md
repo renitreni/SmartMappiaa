@@ -282,6 +282,7 @@ SmartMappiaa/
 | `SHOP_MIN_ORDER` | No | Shop minimum order value (default: `50`) |
 | `SHOP_DELIVERY_FEE` | No | Shop delivery fee (default: `15`) |
 | `SHOP_RADIUS_KM` | No | Shop free delivery radius in km (default: `15`) |
+| `DELIVERY_MAX_RADIUS_KM` | No | Fallback maximum distance in km (default: `50`). Only used until migration 0043 is applied — after that the live limit is the admin setting `app_settings.max_distance_km`, which covers rides and deliveries alike and ships as "no limit" |
 | `SHOP_DEFAULT_MARGIN` | No | Fallback product margin (default: `5`) |
 | `SHOP_LOW_STOCK` | No | Default low-stock threshold (default: `5`) |
 | `SHOP_ORDER_EXPIRY_MINUTES` | No | Unpaid order auto-cancel time (default: `30`) |

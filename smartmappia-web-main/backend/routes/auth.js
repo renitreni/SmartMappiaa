@@ -5,6 +5,7 @@ const { validateBody } = require('../lib/validate');
 const { signupLimiter } = require('../middleware/rateLimiters');
 const {
   signup,
+  recordLoginEvent,
   syncProfile,
   updateProfile,
   createAvatarUploadUrlHandler,
@@ -17,6 +18,11 @@ router.post('/signup', signupLimiter, signup);
 
 // POST /api/auth/sync -> upsert the caller's profile (role + details).
 router.post('/sync', requireToken, syncProfile);
+
+// POST /api/auth/login-event -> record an admin sign-in (0043).
+// Called by the web app right after a successful signInWithPassword. Non-
+// admin callers are accepted and ignored, so the client needs no rule.
+router.post('/login-event', requireAuth, recordLoginEvent);
 
 // PATCH /api/auth/profile -> the Profile page saves name/phones/address/avatar.
 router.patch(

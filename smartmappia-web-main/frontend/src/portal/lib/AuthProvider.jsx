@@ -25,6 +25,13 @@ export function AuthProvider({ children }) {
   const syncedFor = useRef(null);
   const navigate = useNavigate();
 
+  // Set by signIn() and consumed by the sync effect below, so a login is
+  // recorded once per real credential sign-in. It cannot live in the sync
+  // effect alone: syncedFor resets on every mount, so that effect also
+  // fires on a page refresh and on a restored session, and counting those
+  // would make the login log meaningless.
+  const pendingLoginRecord = useRef(false);
+
   async function loadProfile() {
     setProfileLoading(true);
     setProfileError(null);
@@ -75,6 +82,12 @@ export function AuthProvider({ children }) {
         const role = p?.role;
         // Only admins may see diagnostic detail in error popups (notify.js).
         setDiagnosticsAudience(role);
+        // After the profile exists, never before: the backend row keys off
+        // it. Best-effort — a failure here must not disturb the sign-in.
+        if (pendingLoginRecord.current) {
+          pendingLoginRecord.current = false;
+          api.recordLogin().catch(() => {});
+        }
         if (role && role !== 'admin' && role !== 'merchant') ensureLocationPermission();
       });
     } else if (!uid) {
@@ -93,6 +106,9 @@ export function AuthProvider({ children }) {
     profileLoading,
     profileError,
     role: profile?.role || null,
+    // 0043. Absent before the migration is applied, which reads as false —
+    // the correct default, and the server enforces it either way.
+    isSuperAdmin: !!profile?.isSuperAdmin,
     driverApproved: !!profile?.driverApproved,
     loading,
 
@@ -114,6 +130,7 @@ export function AuthProvider({ children }) {
       if (!supabase) throw new Error('Auth is not configured (set VITE_SUPABASE_URL / VITE_SUPABASE_ANON_KEY).');
       const { error } = await supabase.auth.signInWithPassword({ email, password });
       if (error) throw error;
+      pendingLoginRecord.current = true;
     },
 
     async signOut() {
@@ -121,6 +138,7 @@ export function AuthProvider({ children }) {
       if (supabase) await supabase.auth.signOut();
       setProfile(null);
       syncedFor.current = null;
+      pendingLoginRecord.current = false;
       // Leave any role-protected page so a stale URL can't become ?next=/admin
       // and bounce the next account into the wrong area.
       navigate('/', { replace: true });

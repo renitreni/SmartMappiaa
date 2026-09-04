@@ -13,6 +13,8 @@ let extendedProfileColumns = null;
 let extendedCheckedAt = 0;
 let profileV2Columns = null;
 let v2CheckedAt = 0;
+let superAdminColumns = null;
+let superAdminCheckedAt = 0;
 
 // True when we can trust the cached answer: present columns are permanent,
 // absent ones get re-probed once the backoff window expires.
@@ -61,6 +63,28 @@ async function hasProfileV2Columns(supabase) {
   return profileV2Columns;
 }
 
+// Migration 0043: is_super_admin + disabled_at.
+//
+// Probed rather than assumed because requireAuth selects these on EVERY
+// authenticated request. Naming a column that does not exist fails the
+// whole select, so shipping this code before the SQL is applied would 403
+// every user on the platform, not just admins - the same shape as the
+// outage 0019 caused. Until the migration lands the app behaves exactly as
+// it did before: no super admins, nobody deactivated.
+async function hasSuperAdminColumns(supabase) {
+  if (cacheFresh(superAdminColumns, superAdminCheckedAt)) return superAdminColumns;
+  const { error } = await supabase.from('profiles').select('is_super_admin').limit(0);
+  superAdminColumns = !error;
+  superAdminCheckedAt = Date.now();
+  if (!superAdminColumns) {
+    console.warn(
+      '[profiles] Migration backend/migrations/0043_super_admin_settings_and_login_events.sql is missing. ' +
+        'Login still works, but the super-admin tier and account deactivation are inert until you run it in Supabase SQL Editor.'
+    );
+  }
+  return superAdminColumns;
+}
+
 function profileSelectColumns(extended, v2 = false) {
   let cols =
     'id, role, full_name, whatsapp_number, mobile_number, email, driver_approved, service_types';
@@ -104,6 +128,7 @@ module.exports = {
   V2_FIELDS,
   hasExtendedProfileColumns,
   hasProfileV2Columns,
+  hasSuperAdminColumns,
   profileSelectColumns,
   buildProfileUpsert,
 };

@@ -55,6 +55,25 @@ test('a missing distance is not treated as too far', () => {
   }
 });
 
+test('an explicit limit overrides the configured one', () => {
+  // How the admin-set max_distance_km (0043) reaches this rule: the caller
+  // resolves it from lib/settings.js and passes it in, so the same function
+  // serves rides and deliveries without either reading the database.
+  assert.equal(exceedsMaxRadius(30, 30), false, 'the cap stays exclusive when passed in');
+  assert.equal(exceedsMaxRadius(30.01, 30), true);
+  assert.equal(exceedsMaxRadius(80, 30), true);
+  // Higher than the env default: what the default alone would refuse now passes.
+  assert.equal(exceedsMaxRadius(80, 200), false);
+});
+
+test('a null limit means no limit, not zero', () => {
+  // This is the state the platform ships in after 0043, and it is what
+  // "tangal limit" actually resolves to. Reading null as 0 here would
+  // refuse every booking on the platform, so it is worth pinning.
+  assert.equal(exceedsMaxRadius(10, null), false);
+  assert.equal(exceedsMaxRadius(5000, null), false);
+});
+
 test('storefront cards get the terms, not a bare fee they would show as final', () => {
   // Discovery pages have no delivery address, so the honest number is a floor
   // plus the rule. Shipping the base fee alone made every card read as the
