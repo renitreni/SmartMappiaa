@@ -91,14 +91,27 @@ export function toMarketingCards(list, delivery) {
 }
 
 // One request per vertical per page load however many components call the
-// hook, which also makes React StrictMode's double-effect harmless. The
-// settled promise is cached, so a failure is not retried — a marketing page
-// must not retry-storm. Both api calls already pass { silent: true }, so a
-// failure can never raise a popup on a visitor's screen.
+// hook, which also makes React StrictMode's double-effect harmless. Successful
+// responses stay cached for the session. Failed fetches are not pinned, so
+// turning the shop flag on (or a brief outage) can recover on the next mount
+// without a retry storm from a single page.
 const cachedRequests = new Map();
 function loadOnce(key, fetcher) {
   if (!cachedRequests.has(key)) {
-    cachedRequests.set(key, fetcher().catch(() => null));
+    cachedRequests.set(
+      key,
+      fetcher()
+        .then((data) => {
+          // Do not pin a failed or empty-network response — shop 503 while
+          // SHOP_ENABLED is off would otherwise stick for the whole session.
+          if (!data) cachedRequests.delete(key);
+          return data;
+        })
+        .catch(() => {
+          cachedRequests.delete(key);
+          return null;
+        })
+    );
   }
   return cachedRequests.get(key);
 }

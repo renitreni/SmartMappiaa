@@ -22,7 +22,6 @@ import {
 } from "../lib/useMarketingPartners";
 import { notifyMenuUnavailable } from "../portal/lib/notify";
 import { deliveryFeeFromLabel } from "../portal/lib/constants";
-import { FeaturedMerchBanner, featuredMerch } from "../sections/Shop";
 
 const PREVIEW = 8;
 
@@ -256,7 +255,6 @@ const ServicesPage = () => {
                 {(shop.loading || shop.failed ? null : deliveryFeeFromLabel(shop.delivery)) ?? "—"}
               </span>
             </div>
-            <FeaturedMerchBanner merch={featuredMerch} />
             <ListingRail
               listings={shop.partners}
               loading={shop.loading}
