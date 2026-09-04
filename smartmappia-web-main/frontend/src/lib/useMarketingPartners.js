@@ -65,6 +65,9 @@ export function mapMerchantToCard(merchant, delivery) {
     tag: BADGE_LABELS[merchant.badge] || null,
     logo: merchant.logo_url || null,
     tagline: merchant.description || merchant.cuisine_type || '',
+    cuisine: merchant.cuisine_type || '',
+    featured: !!merchant.is_featured,
+    reviewCount: merchant.reviewCount > 0 ? merchant.reviewCount : null,
     hasMenu: merchant.hasMenu !== false,
     // Left undefined rather than defaulted when the response predates these
     // fields — portal/lib/storeHours.js reads an absent `hours` as "cannot
@@ -88,14 +91,27 @@ export function toMarketingCards(list, delivery) {
 }
 
 // One request per vertical per page load however many components call the
-// hook, which also makes React StrictMode's double-effect harmless. The
-// settled promise is cached, so a failure is not retried — a marketing page
-// must not retry-storm. Both api calls already pass { silent: true }, so a
-// failure can never raise a popup on a visitor's screen.
+// hook, which also makes React StrictMode's double-effect harmless. Successful
+// responses stay cached for the session. Failed fetches are not pinned, so
+// turning the shop flag on (or a brief outage) can recover on the next mount
+// without a retry storm from a single page.
 const cachedRequests = new Map();
 function loadOnce(key, fetcher) {
   if (!cachedRequests.has(key)) {
-    cachedRequests.set(key, fetcher().catch(() => null));
+    cachedRequests.set(
+      key,
+      fetcher()
+        .then((data) => {
+          // Do not pin a failed or empty-network response — shop 503 while
+          // SHOP_ENABLED is off would otherwise stick for the whole session.
+          if (!data) cachedRequests.delete(key);
+          return data;
+        })
+        .catch(() => {
+          cachedRequests.delete(key);
+          return null;
+        })
+    );
   }
   return cachedRequests.get(key);
 }
@@ -131,6 +147,8 @@ function useListedMerchants(load, pick) {
     failed: false,
     // The surcharge terms, not a bare number: the card needs to say "from".
     delivery: null,
+    cuisines: [],
+    minOrder: null,
   });
 
   useEffect(() => {
@@ -151,6 +169,8 @@ function useListedMerchants(load, pick) {
         loading: false,
         failed: false,
         delivery,
+        cuisines: data.cuisines || data.categories || [],
+        minOrder: Number.isFinite(Number(data.minOrder)) ? Number(data.minOrder) : null,
       });
     });
     return () => {

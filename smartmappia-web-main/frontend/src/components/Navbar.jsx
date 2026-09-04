@@ -11,6 +11,7 @@ import {
   LogOut,
   LayoutDashboard,
   UserCircle,
+  ShoppingCart,
 } from "lucide-react";
 import { useAuth } from "../portal/lib/AuthProvider";
 import { roleHome } from "../portal/lib/constants";
@@ -75,22 +76,35 @@ function AuthActions({ mobile = false, onNavigate }) {
         )}
 
         {role === "passenger" && (
-          <Link to="/book" onClick={onNavigate}>
-            {mobile ? (
-              <span className="block text-center w-full bg-brand-orange text-white font-black py-4 rounded-2xl text-sm cursor-pointer shadow-lg shadow-brand-orange/25">
-                Book a Ride
-              </span>
-            ) : (
-              <motion.span
-                whileHover={{ scale: 1.05, y: -1 }}
-                whileTap={{ scale: 0.95 }}
-                transition={{ type: "spring", stiffness: 400, damping: 18 }}
-                className="inline-block whitespace-nowrap bg-brand-orange text-white text-xs font-black px-5 py-3 rounded-full cursor-pointer shadow-md shadow-brand-orange/25 hover:shadow-xl hover:shadow-brand-orange/30 transition-shadow duration-300"
-              >
-                Book a Ride
-              </motion.span>
-            )}
-          </Link>
+          <>
+            <Link to="/services/food" onClick={onNavigate}>
+              {mobile ? (
+                <span className="block text-center w-full bg-brand-orange text-white font-black py-4 rounded-2xl text-sm cursor-pointer shadow-lg shadow-brand-orange/25">
+                  Order Now
+                </span>
+              ) : (
+                <motion.span
+                  whileHover={{ scale: 1.05, y: -1 }}
+                  whileTap={{ scale: 0.95 }}
+                  transition={{ type: "spring", stiffness: 400, damping: 18 }}
+                  className="inline-block whitespace-nowrap bg-brand-orange text-white text-xs font-black px-5 py-3 rounded-full cursor-pointer shadow-md shadow-brand-orange/25 hover:shadow-xl hover:shadow-brand-orange/30 transition-shadow duration-300"
+                >
+                  Order Now
+                </motion.span>
+              )}
+            </Link>
+            <Link to="/book" onClick={onNavigate}>
+              {mobile ? (
+                <span className="block text-center w-full font-black py-3.5 rounded-2xl text-sm text-brand-dark border border-brand-border cursor-pointer">
+                  Book a Ride
+                </span>
+              ) : (
+                <span className="inline-block whitespace-nowrap text-xs font-black px-4 py-3 rounded-full cursor-pointer text-brand-dark border border-brand-border hover:border-brand-orange/40 hover:text-brand-orange transition-colors">
+                  Book a Ride
+                </span>
+              )}
+            </Link>
+          </>
         )}
 
         {mobile ? (
@@ -117,7 +131,7 @@ function AuthActions({ mobile = false, onNavigate }) {
           </>
         ) : (
           // Desktop: avatar + name dropdown (My Profile / Order History /
-          // Settings / Logout) — same menu as the portal header.
+          // Payment methods / Logout) — same menu as the portal header.
           <UserMenu />
         )}
       </div>
@@ -137,13 +151,10 @@ function AuthActions({ mobile = false, onNavigate }) {
       >
         Log in
       </Link>
-      {/* Signed-out visitors get account CTAs, not a booking CTA — booking
-          requires an account anyway, so "Book a Ride" only sent them to a
-          login wall. The primary (orange) action is Sign up. */}
-      <Link to="/signup" onClick={onNavigate}>
+      <Link to="/services/food" onClick={onNavigate}>
         {mobile ? (
           <span className="block text-center w-full bg-brand-orange text-white font-black py-4 rounded-2xl text-sm cursor-pointer shadow-lg shadow-brand-orange/25">
-            Sign up
+            Order Now
           </span>
         ) : (
           <motion.span
@@ -152,9 +163,20 @@ function AuthActions({ mobile = false, onNavigate }) {
             transition={{ type: "spring", stiffness: 400, damping: 18 }}
             className="inline-block whitespace-nowrap bg-brand-orange text-white text-xs font-black px-5 py-3 rounded-full cursor-pointer shadow-md shadow-brand-orange/25 hover:shadow-xl hover:shadow-brand-orange/30 transition-shadow duration-300"
           >
-            Sign up
+            Order Now
           </motion.span>
         )}
+      </Link>
+      <Link
+        to="/signup"
+        onClick={onNavigate}
+        className={
+          mobile
+            ? "block text-center w-full font-black py-3 rounded-2xl text-sm text-brand-grey border border-brand-border cursor-pointer"
+            : "whitespace-nowrap text-sm font-bold px-3 py-2 rounded-full cursor-pointer text-brand-grey hover:text-brand-orange transition-colors"
+        }
+      >
+        Sign up
       </Link>
     </div>
   );
@@ -216,7 +238,7 @@ const Navbar = () => {
           </span>
         </Link>
 
-        <div className="hidden lg:flex items-center gap-1 ml-auto mr-0">
+        <div className="hidden 2xl:flex items-center gap-1 ml-auto mr-0">
           <ul className="flex items-center gap-0.5 text-sm font-semibold">
             {menuLinks.map((link, index) => {
               const active = link.to === location.pathname;
@@ -249,33 +271,53 @@ const Navbar = () => {
 
           <span className="w-px h-6 bg-brand-border mx-2" aria-hidden="true" />
 
+          <Link
+            to="/services/food"
+            title="Browse marketplace"
+            aria-label="Browse marketplace"
+            className="inline-flex items-center justify-center w-10 h-10 rounded-full bg-brand-orange/10 text-brand-orange hover:bg-brand-orange hover:text-white transition-colors shrink-0"
+          >
+            <ShoppingCart className="w-4 h-4" />
+          </Link>
+
           <AuthActions />
         </div>
 
-        <button
-          onClick={() => setIsOpen(!isOpen)}
-          aria-label="Toggle menu"
-          className="block lg:hidden focus:outline-none z-50 cursor-pointer
-                     p-2 rounded-xl hover:bg-orange-50 transition-colors"
-        >
-          <div className="w-6 h-[18px] flex flex-col justify-between">
-            <motion.span
-              animate={isOpen ? { rotate: 45, y: 8 } : { rotate: 0, y: 0 }}
-              transition={{ type: "spring", stiffness: 300, damping: 22 }}
-              className="block h-0.5 w-full bg-brand-dark rounded-full"
-            />
-            <motion.span
-              animate={isOpen ? { opacity: 0, scaleX: 0 } : { opacity: 1, scaleX: 1 }}
-              transition={{ duration: 0.18 }}
-              className="block h-0.5 w-full bg-brand-dark rounded-full"
-            />
-            <motion.span
-              animate={isOpen ? { rotate: -45, y: -8 } : { rotate: 0, y: 0 }}
-              transition={{ type: "spring", stiffness: 300, damping: 22 }}
-              className="block h-0.5 w-full bg-brand-dark rounded-full"
-            />
-          </div>
-        </button>
+        <div className="flex items-center gap-1 2xl:hidden">
+          {location.pathname === "/" && (
+            <Link
+              to="/shop"
+              title="Cart"
+              aria-label="Cart"
+              className="inline-flex items-center justify-center w-10 h-10 rounded-xl text-brand-orange hover:bg-orange-50 transition-colors"
+            >
+              <ShoppingCart className="w-5 h-5" />
+            </Link>
+          )}
+          <button
+            onClick={() => setIsOpen(!isOpen)}
+            aria-label="Toggle menu"
+            className="block focus:outline-none z-50 cursor-pointer p-2 rounded-xl hover:bg-orange-50 transition-colors"
+          >
+            <div className="w-6 h-[18px] flex flex-col justify-between">
+              <motion.span
+                animate={isOpen ? { rotate: 45, y: 8 } : { rotate: 0, y: 0 }}
+                transition={{ type: "spring", stiffness: 300, damping: 22 }}
+                className="block h-0.5 w-full bg-brand-dark rounded-full"
+              />
+              <motion.span
+                animate={isOpen ? { opacity: 0, scaleX: 0 } : { opacity: 1, scaleX: 1 }}
+                transition={{ duration: 0.18 }}
+                className="block h-0.5 w-full bg-brand-dark rounded-full"
+              />
+              <motion.span
+                animate={isOpen ? { rotate: -45, y: -8 } : { rotate: 0, y: 0 }}
+                transition={{ type: "spring", stiffness: 300, damping: 22 }}
+                className="block h-0.5 w-full bg-brand-dark rounded-full"
+              />
+            </div>
+          </button>
+        </div>
       </motion.nav>
 
       <AnimatePresence>
@@ -287,7 +329,7 @@ const Navbar = () => {
               exit={{ opacity: 0 }}
               transition={{ duration: 0.22 }}
               onClick={() => setIsOpen(false)}
-              className="fixed inset-0 bg-black/30 z-40 lg:hidden"
+              className="fixed inset-0 bg-black/30 z-40 2xl:hidden"
             />
 
             <motion.div
@@ -297,7 +339,7 @@ const Navbar = () => {
               transition={{ type: "tween", duration: 0.22, ease: "easeOut" }}
               style={{ willChange: "transform" }}
               className="fixed top-0 right-0 h-full w-72 bg-white
-                         rounded-l-3xl z-45 lg:hidden
+                         rounded-l-3xl z-45 2xl:hidden
                          flex flex-col justify-between shadow-2xl overflow-hidden"
             >
               <div className="absolute top-0 left-0 right-0 h-1

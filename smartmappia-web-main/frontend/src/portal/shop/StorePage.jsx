@@ -13,7 +13,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { ShoppingBag, Plus, ShoppingCart, ArrowLeft } from 'lucide-react';
 import { api } from '../lib/api';
 import { useAuth } from '../lib/AuthProvider';
-import { fmtSAR, availabilityMeta, TONE_CLASSES } from '../lib/constants';
+import { fmtSAR, availabilityMeta, TONE_CLASSES, liveProductImage } from '../lib/constants';
 import { PortalShell, Card, Spinner, btnPrimary, btnGhost } from '../components/ui';
 import OpeningHoursCard, { ClosedBanner } from '../components/OpeningHours';
 
@@ -46,8 +46,8 @@ function ProductCard({ product, onAdd, busy, closed = false }) {
       }`}
     >
       <div className="w-20 h-20 shrink-0 rounded-xl bg-brand-surface overflow-hidden flex items-center justify-center">
-        {product.imageUrl ? (
-          <img src={product.imageUrl} alt={product.name} className="w-full h-full object-cover" />
+        {liveProductImage(product.imageUrl) ? (
+          <img src={liveProductImage(product.imageUrl)} alt={product.name} className="w-full h-full object-cover" />
         ) : (
           <ShoppingBag className="w-6 h-6 text-brand-grey/40" />
         )}

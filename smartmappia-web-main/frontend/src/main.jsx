@@ -95,7 +95,7 @@ createRoot(document.getElementById('root')).render(
             <Route path="/reset-password" element={<ResetPasswordPage />} />
 
             {/* Signed-in users land on the multi-service hub. */}
-            <Route path="/home" element={<RequireAuth role="passenger" redirectWrongRole><HomePage /></RequireAuth>} />
+            <Route path="/home" element={<RequireAuth><HomePage /></RequireAuth>} />
             {/* Notification inbox + transaction records (any signed-in user). */}
             <Route path="/notifications" element={<RequireAuth><NotificationsPage /></RequireAuth>} />
             <Route path="/transactions" element={<RequireAuth><TransactionsPage /></RequireAuth>} />

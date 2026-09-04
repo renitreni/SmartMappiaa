@@ -15,8 +15,15 @@ import { compressImage } from './imageCompress';
 const url = import.meta.env.VITE_SUPABASE_URL;
 const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
 
+function isConfigured(value) {
+  if (!value || typeof value !== 'string') return false;
+  const v = value.trim();
+  if (!v) return false;
+  return !/your-project-ref|YOUR-PROJECT-REF|your-anon-public-key-here/i.test(v);
+}
+
 export const supabase =
-  url && anonKey
+  isConfigured(url) && isConfigured(anonKey)
     ? createClient(url, anonKey, {
         auth: {
           // Persist the auth session to localStorage so a page refresh keeps the
