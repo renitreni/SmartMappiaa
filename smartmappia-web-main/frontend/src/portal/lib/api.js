@@ -239,7 +239,7 @@ export const api = {
   // minimum + 15 km radius; a 422 carries failure_reason for the UI.
   foodCheckout: (body, idempotencyKey) =>
     request('/api/food/orders', { method: 'POST', body, headers: idempotencyKey ? { 'Idempotency-Key': idempotencyKey } : {}, silent: true }),
-  foodOrders: () => request('/api/food/orders'),
+  foodOrders: ({ silent } = {}) => request('/api/food/orders', { silent: !!silent }),
   foodOrder: (code) => request(`/api/food/orders/${code}`, { silent: true }), // polled on tracking
   foodOrderContact: (code, contact_phone) =>
     request(`/api/food/orders/${code}/contact`, { method: 'PATCH', body: { contact_phone } }),

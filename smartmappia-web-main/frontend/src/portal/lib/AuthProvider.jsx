@@ -127,9 +127,22 @@ export function AuthProvider({ children }) {
     },
 
     async signIn(email, password) {
-      if (!supabase) throw new Error('Auth is not configured (set VITE_SUPABASE_URL / VITE_SUPABASE_ANON_KEY).');
+      if (!supabase) {
+        throw new Error(
+          'Auth is not configured. In frontend/.env set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY (anon/public key from Supabase → Project Settings → API), then restart npm run dev.'
+        );
+      }
       const { error } = await supabase.auth.signInWithPassword({ email, password });
-      if (error) throw error;
+      if (error) {
+        if (/failed to fetch/i.test(error.message || '')) {
+          throw new Error(
+            'Cannot reach Supabase. Check VITE_SUPABASE_URL in frontend/.env, then restart npm run dev.'
+          );
+        }
+        throw error;
+      }
+      // Only past the throws: a failed attempt is not a sign-in, and
+      // recording one would put a login in the log that never happened.
       pendingLoginRecord.current = true;
     },
 

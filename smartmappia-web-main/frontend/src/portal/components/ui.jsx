@@ -3,7 +3,7 @@
 // ---------------------------------------------------------------------
 import { useEffect, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { ArrowLeft, LogOut, UserCircle, History, Settings, ChevronDown, CreditCard } from 'lucide-react';
+import { ArrowLeft, LogOut, UserCircle, History, ChevronDown, CreditCard } from 'lucide-react';
 import { TONE_CLASSES } from '../lib/constants';
 import { useAuth } from '../lib/AuthProvider';
 import NotificationBell from './NotificationBell';
@@ -16,7 +16,7 @@ function initialsOf(name, email) {
 }
 
 // Avatar (or initials) + name with a dropdown: My Profile / Order History /
-// Settings / Logout. Replaces the old raw-email + logout icon.
+// Payment methods / Logout. Replaces the old raw-email + logout icon.
 export function UserMenu() {
   const { user, profile, signOut } = useAuth();
   const navigate = useNavigate();
@@ -75,9 +75,6 @@ export function UserMenu() {
           <button type="button" onClick={() => go('/payment-methods')} className={itemClass}>
             <CreditCard className="w-4 h-4 text-brand-orange" /> Payment methods
           </button>
-          <button type="button" onClick={() => go('/profile#settings')} className={itemClass}>
-            <Settings className="w-4 h-4 text-brand-orange" /> Settings
-          </button>
           <button
             type="button"
             onClick={() => { setOpen(false); signOut(); }}
@@ -91,12 +88,12 @@ export function UserMenu() {
   );
 }
 
-export function PortalShell({ title, subtitle, right, onBack, children, wide = false }) {
+export function PortalShell({ title, subtitle, right, onBack, children, wide = false, compact = false }) {
   const { user } = useAuth();
   return (
     <div className="min-h-screen bg-brand-muted">
       <header className="sticky top-0 z-30 bg-white/95 backdrop-blur border-b border-brand-border">
-        <div className={`${wide ? 'max-w-7xl' : 'max-w-5xl'} mx-auto px-4 md:px-6 h-16 flex items-center justify-between gap-3`}>
+        <div className={`${wide ? 'max-w-7xl' : 'max-w-5xl'} mx-auto px-4 md:px-6 h-14 sm:h-16 flex items-center justify-between gap-3`}>
           <div className="flex items-center gap-1 shrink-0">
             {onBack && (
               <button
@@ -130,7 +127,7 @@ export function PortalShell({ title, subtitle, right, onBack, children, wide = f
           </div>
         </div>
       </header>
-      <main className={`${wide ? 'max-w-7xl' : 'max-w-5xl'} mx-auto px-4 md:px-6 py-5 md:py-6`}>{children}</main>
+      <main className={`${wide ? 'max-w-7xl' : 'max-w-5xl'} mx-auto px-3 sm:px-4 md:px-6 ${compact ? 'py-3 md:py-6' : 'py-4 md:py-6'}`}>{children}</main>
     </div>
   );
 }

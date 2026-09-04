@@ -193,6 +193,15 @@ export function fmtSAR(amount) {
   return `SAR ${Number(amount ?? 0).toFixed(2)}`;
 }
 
+// Merchant-uploaded photos only. Bundled `/products/*.svg` cartoons and
+// missing local `.jpg` paths are not catalogue photography.
+export function liveProductImage(url) {
+  const u = (url || '').trim();
+  if (!u) return '';
+  if (/^https?:\/\//i.test(u)) return u;
+  return '';
+}
+
 // Absolute timestamps are pinned to Riyadh, not the reader's machine: an
 // admin diagnosing an incident from another timezone has to be able to
 // compare what they see here against the server log and a driver's account
