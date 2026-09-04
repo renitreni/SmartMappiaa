@@ -79,12 +79,17 @@ function exceedsMaxRadius(distanceKm, maxRadiusKm = config.delivery.maxRadiusKm)
 // while surchargeFor above was quietly adding per-km on top at checkout.
 // Returning the terms alongside it lets the UI say "from SAR 10" and print
 // the rule, rather than the frontend hardcoding a copy of these numbers.
-function deliveryTerms(baseFeeSar) {
+// maxRadiusKm is passed in for the same reason exceedsMaxRadius takes it:
+// what the storefront ADVERTISES and what checkout ENFORCES have to be the
+// same number. Reading config here while checkout reads the admin setting
+// would let a card promise a 50 km limit that checkout no longer applies.
+// null means no limit, and is what the platform ships with.
+function deliveryTerms(baseFeeSar, maxRadiusKm = config.delivery.maxRadiusKm) {
   return {
     baseFee: round2(baseFeeSar),
     freeRadiusKm: config.delivery.freeRadiusKm,
     surchargePerKm: config.delivery.surchargePerKm,
-    maxRadiusKm: config.delivery.maxRadiusKm,
+    maxRadiusKm,
   };
 }
 
