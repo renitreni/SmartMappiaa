@@ -10,6 +10,8 @@
 const { supabase } = require('../lib/supabase');
 const { quoteFare } = require('../lib/fare');
 const { haversineKm } = require('../lib/geo');
+const { exceedsMaxRadius } = require('../lib/deliveryPricing');
+const { getMaxDistanceKm } = require('../lib/settings');
 const { addTrackingEvent } = require('../lib/tracking');
 const { pushBookingStatus, announceRequestTaken } = require('../lib/realtime');
 const { logNotification, notifyAdmins } = require('../lib/notifications');
@@ -77,12 +79,30 @@ async function createBooking(req, res) {
     //
     // Distance is straight-line pickup -> dropoff. Both ends are nullable,
     // and haversineKm returns null if either is missing — which quoteFare
-    // reads as "no surcharge" rather than guessing. Rides have no distance
-    // cap: a long airport transfer is legitimate.
+    // reads as "no surcharge" rather than guessing.
     const distanceKm = haversineKm(
       { lat: b.pickup_lat, lng: b.pickup_lng },
       { lat: b.dropoff_lat, lng: b.dropoff_lng }
     );
+
+    // Rides were uncapped until 0043 on the grounds that a long airport
+    // transfer is legitimate. They now answer to the same admin-set
+    // max_distance_km as food and shop, so there is ONE answer on the
+    // platform to "how far is too far". It ships as null (no limit), which
+    // keeps that original behaviour until an admin sets a number.
+    //
+    // A null distance is never "too far" — same rule as exceedsMaxRadius:
+    // we cannot prove it either way, and refusing on missing coordinates
+    // would block every booking made without a map pin.
+    const maxDistanceKm = await getMaxDistanceKm();
+    if (exceedsMaxRadius(distanceKm, maxDistanceKm)) {
+      return res.status(422).json({
+        error: `This trip is about ${Math.round(distanceKm)} km — beyond our ${maxDistanceKm} km limit.`,
+        failure_reason: 'outside_radius',
+        distanceKm: Math.round(distanceKm * 100) / 100,
+        maxRadiusKm: maxDistanceKm,
+      });
+    }
     const { amount, currency, vatAmount, vatRate, totalAmount, distanceSurcharge } = quoteFare({
       routeType: b.route_type,
       distanceKm,

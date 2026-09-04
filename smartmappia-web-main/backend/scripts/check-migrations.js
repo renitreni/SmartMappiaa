@@ -857,6 +857,57 @@ const CHECKS = [
     sqlFile: '0042_error_logs.sql',
   },
   {
+    id: '0043',
+    name: 'super admin, app_settings and admin_login_events',
+    // Without it: requireAuth cannot see is_super_admin so nobody is a
+    // super admin and the whole /admin/admins surface 403s; the distance
+    // limit silently falls back to DELIVERY_MAX_RADIUS_KM; and every admin
+    // sign-in is dropped on the floor by recordLoginEvent.
+    run: async () => {
+      const e1 = (await supabase.from('profiles').select('is_super_admin, disabled_at').limit(0)).error;
+      if (e1) return e1.message;
+      const e2 = (await supabase.from('app_settings').select('key, value, updated_by').limit(0)).error;
+      if (e2) return e2.message;
+      const e3 = (
+        await supabase.from('admin_login_events').select('id, occurred_at, email, ip').limit(0)
+      ).error;
+      if (e3) return e3.message;
+      const { error: e4 } = await supabase.rpc('prune_admin_login_events', { keep_days: 3650 });
+      if (e4) return `prune_admin_login_events missing or not callable: ${e4.message}`;
+      // The seeded row is what makes "no limit" a stored decision rather
+      // than an accident of the row being absent.
+      const { data, error: e5 } = await supabase
+        .from('app_settings')
+        .select('key')
+        .eq('key', 'max_distance_km')
+        .maybeSingle();
+      if (e5) return e5.message;
+      return data ? null : 'app_settings row max_distance_km is missing (section 4 of the migration)';
+    },
+    sqlFile: '0043_super_admin_settings_and_login_events.sql',
+  },
+  {
+    id: '0043-grant',
+    name: 'super admin flag and login IPs stay hidden from the client roles (CRITICAL)',
+    // Two different holes in one check. is_super_admin must not be
+    // writable by `authenticated` or any signed-in user PATCHes themselves
+    // to the top of the platform — the same shape as the 0030 role hole.
+    // admin_login_events must not be readable because it holds admin email
+    // addresses and the IPs they sign in from.
+    grantCheck: true,
+    run: async () => {
+      return (
+        (await assertNoWrite('profiles', { is_super_admin: true })) ||
+        (await assertNoWrite('profiles', { disabled_at: null })) ||
+        (await assertHidden('admin_login_events', 'email')) ||
+        (await assertHidden('admin_login_events', 'ip')) ||
+        (await assertHidden('app_settings', 'value')) ||
+        null
+      );
+    },
+    sqlFile: '0043_super_admin_settings_and_login_events.sql',
+  },
+  {
     id: '0030-priv',
     name: 'write grants revoked from the public client roles (CRITICAL)',
     // The privilege half of 0030. Needs the anon key for the same reason

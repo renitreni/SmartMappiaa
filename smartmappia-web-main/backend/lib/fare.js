@@ -23,8 +23,10 @@
 // intent. It sits beside VAT: inside totalAmount, outside the commission
 // base. The service fee is charged on the base only, not on the surcharge.
 //
-// Rides have NO distance cap. A long airport transfer is legitimate, and
-// exceedsMaxRadius() is a delivery rule — see lib/deliveryPricing.js.
+// quoteFare itself never refuses a distance — it only prices one, and it
+// stays pure so the money tests need no database. The cap is applied by
+// the caller (controllers/bookingsController.js) from the admin-set
+// max_distance_km, which since 0043 governs rides and deliveries alike.
 //
 // Every figure is stored as a SNAPSHOT on the booking and never
 // recalculated after the passenger submits, keeping the agreed price fixed.

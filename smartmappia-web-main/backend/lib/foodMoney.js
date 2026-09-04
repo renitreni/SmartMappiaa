@@ -72,7 +72,10 @@ function markupPerUnit({ unitPrice, netPrice, itemType }) {
 // Returns { ok: true, subtotal, marginTotal, baseDeliveryFee,
 //           deliverySurcharge, deliveryFee, vatRate, vatAmount, total, lines }
 // or      { ok: false, failureReason: 'min_order' | 'outside_radius', ... }.
-function priceOrder({ items, distanceKm }) {
+// maxRadiusKm: the admin-set limit from lib/settings.js, or null for no
+// limit. Defaults to the env value so callers that have not resolved the
+// setting (and the money tests) keep the pre-0043 behaviour.
+function priceOrder({ items, distanceKm, maxRadiusKm = config.delivery.maxRadiusKm }) {
   const lines = items.map((item) => {
     const quantity = Math.trunc(Number(item.quantity));
     const unitPrice = round2(item.unitPrice);
@@ -109,14 +112,14 @@ function priceOrder({ items, distanceKm }) {
 
   // The cut-off is the MAX radius, not the free one: past config.food.radiusKm
   // we still deliver, we just charge for the extra kilometres.
-  if (exceedsMaxRadius(distanceKm)) {
+  if (exceedsMaxRadius(distanceKm, maxRadiusKm)) {
     return {
       ok: false,
       failureReason: 'outside_radius',
       distanceKm: round2(distanceKm),
-      maxRadiusKm: config.delivery.maxRadiusKm,
+      maxRadiusKm,
       // Kept for callers still reading the old field name.
-      radiusKm: config.delivery.maxRadiusKm,
+      radiusKm: maxRadiusKm,
     };
   }
 

@@ -49,16 +49,26 @@ function surchargeFor(distanceKm) {
 
 // Is this leg too far to serve at all?
 //
-// DELIVERIES ONLY. Rides deliberately do not call this: an airport transfer
-// past the cap is a legitimate booking, and refusing it would be a new
-// restriction on a service that never had one. A null distance (no
-// coordinates) is never "too far" — we cannot prove it either way, and
-// refusing on missing data would break checkout for every merchant without
-// a pin.
-function exceedsMaxRadius(distanceKm) {
+// Shared by deliveries AND rides since 0043. Both now answer to the single
+// admin-editable max_distance_km setting rather than rides being uncapped
+// and deliveries reading DELIVERY_MAX_RADIUS_KM — two services quietly
+// disagreeing about how far is too far is what made the limit so hard to
+// pin down in the first place.
+//
+// `maxRadiusKm` of null means NO LIMIT, and is the state the platform
+// ships in. It is a real value, not a missing one: lib/settings.js has
+// already resolved an absent row to the configured default before this is
+// called. The parameter defaults to the env value so the existing
+// single-argument callers and their tests keep their old behaviour.
+//
+// A null distance (no coordinates) is never "too far" — we cannot prove it
+// either way, and refusing on missing data would break checkout for every
+// merchant without a pin.
+function exceedsMaxRadius(distanceKm, maxRadiusKm = config.delivery.maxRadiusKm) {
+  if (maxRadiusKm == null) return false;
   const distance = Number(distanceKm);
   if (distanceKm == null || !Number.isFinite(distance)) return false;
-  return distance > config.delivery.maxRadiusKm;
+  return distance > maxRadiusKm;
 }
 
 // The terms behind a quoted delivery fee, for the storefront to render.

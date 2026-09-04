@@ -11,6 +11,8 @@ import {
   ShoppingBag,
   AlertTriangle,
   BarChart3,
+  ShieldCheck,
+  SlidersHorizontal,
   RefreshCw,
   LogOut,
   Menu,
@@ -123,7 +125,19 @@ export const ADMIN_NAV = [
   { id: 'shop', label: 'Shop', icon: ShoppingBag },
   { id: 'reports', label: 'Reports', icon: BarChart3 },
   { id: 'errors', label: 'Errors', icon: AlertTriangle },
+  // Super admin only. Filtered out of the nav for a plain admin by
+  // adminNavFor below — which is presentation. The control is
+  // requireSuperAdmin on the backend routes, and hiding a tab is not it.
+  { id: 'admins', label: 'Admins', icon: ShieldCheck, superOnly: true },
+  { id: 'settings', label: 'Settings', icon: SlidersHorizontal, superOnly: true },
 ];
+
+// The tabs this account may actually see. Also used by AdminPage to
+// validate ?tab=, so a plain admin deep-linked to ?tab=admins lands on the
+// overview rather than on a tab whose every request would 403.
+export function adminNavFor(isSuperAdmin) {
+  return ADMIN_NAV.filter((n) => !n.superOnly || isSuperAdmin);
+}
 
 const PAGE_COPY = {
   overview: {
@@ -157,6 +171,14 @@ const PAGE_COPY = {
   errors: {
     title: 'Errors',
     subtitle: 'Backend errors, who hit them, and when.',
+  },
+  admins: {
+    title: 'Admins',
+    subtitle: 'Who has the portal, and who has been signing in.',
+  },
+  settings: {
+    title: 'Settings',
+    subtitle: 'Platform-wide rules that apply without a deploy.',
   },
 };
 
@@ -211,7 +233,7 @@ function SidebarBrand({ expanded = false }) {
 }
 
 export default function AdminLayout({ activeTab, onTabChange, onRefresh, children }) {
-  const { user, signOut } = useAuth();
+  const { user, signOut, isSuperAdmin } = useAuth();
   const [mobileNav, setMobileNav] = useState(false);
   const copy = PAGE_COPY[activeTab] || PAGE_COPY.overview;
   const initial = (user?.email || 'A')[0].toUpperCase();
@@ -221,7 +243,9 @@ export default function AdminLayout({ activeTab, onTabChange, onRefresh, childre
     setMobileNav(false);
   }
 
-  const nav = ADMIN_NAV.map(({ id, label, icon }) => (
+  const visibleNav = adminNavFor(isSuperAdmin);
+
+  const nav = visibleNav.map(({ id, label, icon }) => (
     <NavButton
       key={id}
       id={id}
@@ -345,7 +369,7 @@ export default function AdminLayout({ activeTab, onTabChange, onRefresh, childre
                 </button>
               </div>
               <nav className="flex-1 p-3 space-y-1 overflow-y-auto">
-                {ADMIN_NAV.map(({ id, label, icon: Icon }) => (
+                {visibleNav.map(({ id, label, icon: Icon }) => (
                   <button
                     key={id}
                     type="button"

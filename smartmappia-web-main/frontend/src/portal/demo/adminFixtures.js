@@ -501,6 +501,73 @@ const errors = Array.from({ length: 18 }, (_, i) => {
 
 errors.sort((a, b) => new Date(b.occurred_at) - new Date(a.occurred_at));
 
+// --- admins + login activity (0043) -----------------------------------
+// Invented people, so the demo can show the Admins tab without exposing
+// who the real admins are or what addresses they sign in from.
+const admins = [
+  {
+    id: 'demo-admin-1',
+    email: 'ferdzsabado@smartmappia.com',
+    full_name: 'Ferdz Sabado',
+    mobile_number: '+966 50 000 0001',
+    whatsapp_number: '+966 50 000 0001',
+    role: 'admin',
+    is_super_admin: true,
+    disabled_at: null,
+    disabled_by: null,
+    env_managed: false,
+    created_at: new Date(Date.now() - 240 * 86400000).toISOString(),
+  },
+  {
+    id: 'demo-admin-2',
+    email: 'operations@smartmappia.com',
+    full_name: 'Operations Desk',
+    mobile_number: '+966 50 000 0002',
+    whatsapp_number: null,
+    role: 'admin',
+    is_super_admin: false,
+    disabled_at: null,
+    disabled_by: null,
+    env_managed: true,
+    created_at: new Date(Date.now() - 120 * 86400000).toISOString(),
+  },
+  {
+    id: 'demo-admin-3',
+    email: 'night.shift@smartmappia.com',
+    full_name: 'Night Shift',
+    mobile_number: null,
+    whatsapp_number: null,
+    role: 'admin',
+    is_super_admin: false,
+    disabled_at: new Date(Date.now() - 9 * 86400000).toISOString(),
+    disabled_by: 'demo-admin-1',
+    env_managed: false,
+    created_at: new Date(Date.now() - 60 * 86400000).toISOString(),
+  },
+];
+
+// A month of sign-ins, weighted so the two active accounts dominate and
+// the deactivated one stops appearing nine days ago.
+const loginEvents = [];
+for (let i = 0; i < 90; i++) {
+  const daysAgo = rand() * 30;
+  const who =
+    daysAgo > 9 && rand() < 0.25 ? admins[2] : rand() < 0.55 ? admins[0] : admins[1];
+  loginEvents.push({
+    id: `demo-login-${i}`,
+    occurred_at: new Date(Date.now() - daysAgo * 86400000).toISOString(),
+    profile_id: who.id,
+    email: who.email,
+    role: 'admin',
+    ip: `10.0.${Math.floor(rand() * 5)}.${Math.floor(rand() * 250) + 2}`,
+    user_agent:
+      rand() < 0.5
+        ? 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/140.0 Safari/537.36'
+        : 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) Safari/605.1.15',
+  });
+}
+loginEvents.sort((a, b) => new Date(b.occurred_at) - new Date(a.occurred_at));
+
 // Mutable on purpose: demo mutations (approve a driver, verify a payment)
 // write here so the change sticks on screen instead of snapping back.
 export const store = {
@@ -511,6 +578,8 @@ export const store = {
   foodOrders,
   shopOrders,
   errors,
+  admins,
+  loginEvents,
   menusByMerchant,
   cataloguesByStore,
   monthlyRevenue: MONTHLY_REVENUE,

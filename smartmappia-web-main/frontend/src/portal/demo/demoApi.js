@@ -613,6 +613,41 @@ function setShopOrder(code, patch) {
 // --- routing table ----------------------------------------------------
 // First match wins, so the literal paths sit above the :id patterns.
 
+// --- admins, settings, login activity (0043) ---------------------------
+
+function listLoginEvents(path) {
+  const q = query(path);
+  const limit = Math.min(Number(q.get('limit')) || 50, 200);
+  const offset = Math.max(Number(q.get('offset')) || 0, 0);
+  const rows = store.loginEvents;
+  return { events: rows.slice(offset, offset + limit), total: rows.length, limit, offset };
+}
+
+// Same aggregation the real controller does, over the same fixture rows,
+// so the stat cards and the table cannot disagree.
+function loginSummary(path) {
+  const days = Math.min(Number(query(path).get('days')) || 30, 180);
+  const since = Date.now() - days * 86400000;
+  const rows = store.loginEvents.filter((e) => new Date(e.occurred_at).getTime() >= since);
+
+  const dayAgo = Date.now() - 86400000;
+  const byAdmin = new Map();
+  for (const row of rows) {
+    const key = row.profile_id || row.email;
+    const entry = byAdmin.get(key);
+    if (entry) entry.logins += 1;
+    else byAdmin.set(key, { profile_id: row.profile_id, email: row.email, logins: 1, last_login: row.occurred_at });
+  }
+  const admins = [...byAdmin.values()].sort((a, b) => b.logins - a.logins);
+  return {
+    window_days: days,
+    total_logins: rows.length,
+    distinct_admins: admins.length,
+    active_last_24h: admins.filter((a) => Date.parse(a.last_login) >= dayAgo).length,
+    admins,
+  };
+}
+
 const ROUTES = [
   ['GET', /^\/api\/admin\/stats$/, () => stats()],
   ['GET', /^\/api\/admin\/reports/, (p) => reports(query(p).get('range'))],
@@ -645,6 +680,10 @@ const ROUTES = [
     return { driverId: driver.id, ...driverCashView(driver) };
   }],
 
+  ['GET', /^\/api\/admin\/admins$/, () => ({ admins: store.admins })],
+  ['GET', /^\/api\/admin\/settings$/, () => ({ max_distance_km: null })],
+  ['GET', /^\/api\/admin\/login-events\/summary$/, (p) => loginSummary(p)],
+  ['GET', /^\/api\/admin\/login-events$/, (p) => listLoginEvents(p)],
   ['GET', /^\/api\/admin\/errors$/, (p) => listErrors(p)],
   ['GET', /^\/api\/admin\/errors\/summary$/, () => errorSummary()],
   ['GET', /^\/api\/admin\/errors\/([^/?]+)$/, (p, m) => errorDetail(m[1])],

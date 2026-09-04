@@ -76,6 +76,10 @@ export const api = {
 
   // --- auth ---
   authSignup: (body) => request('/api/auth/signup', { method: 'POST', body }),
+  // Fire-and-forget: called once after a real credential sign-in so the
+  // super admin can see who signed in and when. Silent because a failure
+  // here must never surface as a popup on an otherwise successful login.
+  recordLogin: () => request('/api/auth/login-event', { method: 'POST', silent: true }),
   authSync: (body = {}) => request('/api/auth/sync', { method: 'POST', body, silent: true }),
   // Profile page: name / phones / address / avatar (email + password go
   // through Supabase Auth on the client).
@@ -172,6 +176,21 @@ export const api = {
   adminErrorDetail: (id) => request(`/api/admin/errors/${id}`),
   adminResolveError: (id, resolved = true) =>
     request(`/api/admin/errors/${id}/resolve`, { method: 'POST', body: { resolved } }),
+
+  // --- super admin (0043): admins, settings, login activity ---------
+  // Every one of these 403s for a plain admin server-side; hiding the tab
+  // is presentation, not the control.
+  adminAdmins: () => request('/api/admin/admins'),
+  adminCreateAdmin: (body) => request('/api/admin/admins', { method: 'POST', body }),
+  adminUpdateAdmin: (id, body) => request(`/api/admin/admins/${id}`, { method: 'PATCH', body }),
+  adminResetAdminPassword: (id) =>
+    request(`/api/admin/admins/${id}/password`, { method: 'POST' }),
+  adminDeactivateAdmin: (id) => request(`/api/admin/admins/${id}/deactivate`, { method: 'POST' }),
+  adminReactivateAdmin: (id) => request(`/api/admin/admins/${id}/reactivate`, { method: 'POST' }),
+  adminSettings: () => request('/api/admin/settings'),
+  adminUpdateSettings: (body) => request('/api/admin/settings', { method: 'PATCH', body }),
+  adminLoginEvents: (query = '') => request(`/api/admin/login-events${query}`),
+  adminLoginSummary: (days = 30) => request(`/api/admin/login-events/summary?days=${days}`),
 
   adminDriverCash: () => request('/api/admin/drivers/cash'),
   adminSettleDriverCash: (driverId, body) =>

@@ -98,7 +98,9 @@ function availableUnits(product, variant) {
 // Returns { ok: true, subtotal, marginTotal, deliveryFee, vatRate,
 //           vatAmount, total, lines }
 // or      { ok: false, failureReason: 'min_order' | 'outside_radius', ... }
-function priceShopOrder({ items, distanceKm }) {
+// maxRadiusKm: as in foodMoney.priceOrder — the admin-set limit, null for
+// no limit, defaulting to the env value.
+function priceShopOrder({ items, distanceKm, maxRadiusKm = config.delivery.maxRadiusKm }) {
   const lines = items.map((item) => {
     const quantity = Math.trunc(Number(item.quantity));
     const unitPrice = round2(item.unitPrice);
@@ -131,13 +133,13 @@ function priceShopOrder({ items, distanceKm }) {
   }
 
   // The cut-off is the MAX radius, not the free one — see foodMoney.
-  if (exceedsMaxRadius(distanceKm)) {
+  if (exceedsMaxRadius(distanceKm, maxRadiusKm)) {
     return {
       ok: false,
       failureReason: 'outside_radius',
       distanceKm: round2(distanceKm),
-      maxRadiusKm: config.delivery.maxRadiusKm,
-      radiusKm: config.delivery.maxRadiusKm,
+      maxRadiusKm,
+      radiusKm: maxRadiusKm,
     };
   }
 

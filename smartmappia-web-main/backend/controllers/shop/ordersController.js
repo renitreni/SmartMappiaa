@@ -33,6 +33,7 @@ const { haversineKm } = require('../../lib/geo');
 const { travelEtaMinutes, deliveryEtaBand } = require('../../lib/eta');
 const { latestDriverFix } = require('../../lib/tracking');
 const { priceShopOrder, resolveUnitPricing } = require('../../lib/shopMoney');
+const { getMaxDistanceKm } = require('../../lib/settings');
 const { placeShopOrder } = require('../../lib/stock');
 const { logShopEvent } = require('../../lib/foodEvents');
 const { logAudit } = require('../../lib/audit');
@@ -195,7 +196,7 @@ async function checkout(req, res) {
         ? haversineKm({ lat: store.lat, lng: store.lng }, { lat: b.delivery_lat, lng: b.delivery_lng })
         : null;
 
-    const priced = priceShopOrder({ items, distanceKm });
+    const priced = priceShopOrder({ items, distanceKm, maxRadiusKm: await getMaxDistanceKm() });
     if (!priced.ok) {
       logShopEvent({
         eventName: 'checkout_attempt',

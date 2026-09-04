@@ -4,7 +4,7 @@
 // ---------------------------------------------------------------------
 import { useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import AdminLayout, { ADMIN_NAV } from './AdminLayout';
+import AdminLayout, { adminNavFor } from './AdminLayout';
 import Dashboard from './Dashboard';
 import BookingsView from './BookingsView';
 import DriversView from './DriversView';
@@ -13,6 +13,9 @@ import FoodAdmin from './FoodAdmin';
 import ShopAdmin from './ShopAdmin';
 import ReportsView from './ReportsView';
 import ErrorsView from './ErrorsView';
+import AdminsView from './AdminsView';
+import SettingsView from './SettingsView';
+import { useAuth } from '../lib/AuthProvider';
 
 export default function AdminPage() {
   // Notifications deep-link to a tab with ?tab= (see portal/lib/notifications.js).
@@ -20,9 +23,13 @@ export default function AdminPage() {
   // overview instead of an empty workspace. Read once on mount only — after
   // that the tab is local state, so clicking around does not rewrite the URL.
   const [params] = useSearchParams();
+  const { isSuperAdmin } = useAuth();
+  // Validated against the tabs THIS account may see, so a plain admin who
+  // follows ?tab=admins lands on the overview rather than on a tab whose
+  // every request would 403.
   const [tab, setTab] = useState(() => {
     const wanted = params.get('tab');
-    return ADMIN_NAV.some((n) => n.id === wanted) ? wanted : 'overview';
+    return adminNavFor(isSuperAdmin).some((n) => n.id === wanted) ? wanted : 'overview';
   });
   const [tick, setTick] = useState(0);
 
@@ -40,6 +47,8 @@ export default function AdminPage() {
       {tab === 'shop' && <ShopAdmin key={`s${tick}`} />}
       {tab === 'reports' && <ReportsView key={`r${tick}`} />}
       {tab === 'errors' && <ErrorsView key={`e${tick}`} />}
+      {tab === 'admins' && isSuperAdmin && <AdminsView key={`a${tick}`} />}
+      {tab === 'settings' && isSuperAdmin && <SettingsView key={`st${tick}`} />}
     </AdminLayout>
   );
 }
