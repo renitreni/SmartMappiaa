@@ -110,8 +110,10 @@ async function run() {
   console.log('\nSuper admin ready. Sign in at /login:\n');
   console.log(`  ${SUPER_ADMIN.full_name} (${note})`);
   console.log(`     email:    ${email}`);
-  console.log(`     password: ${password}`);
-  console.log('\nChange this password on first login.');
+  // A password the operator chose is one they already have; echoing it only
+  // puts it in the shell history and the scrollback for no benefit.
+  console.log(`     password: ${generated ? password : '(the SUPER_ADMIN_PASSWORD you set)'}`);
+  if (generated) console.log('\nChange this password on first login.');
   console.log('Do NOT add this address to ADMIN_EMAILS - see the header of this script.\n');
 }
 

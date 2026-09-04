@@ -14,6 +14,7 @@ const { config } = require('../lib/config');
 const {
   hasExtendedProfileColumns,
   hasProfileV2Columns,
+  hasSuperAdminColumns,
   profileSelectColumns,
   buildProfileUpsert,
 } = require('../lib/profileSchema');
@@ -232,6 +233,7 @@ async function syncProfile(req, res) {
 
     const extended = await hasExtendedProfileColumns(supabase);
     const v2 = await hasProfileV2Columns(supabase);
+    const tiered = await hasSuperAdminColumns(supabase);
     const upsertRow = buildProfileUpsert({
       id,
       role,
@@ -245,7 +247,7 @@ async function syncProfile(req, res) {
     const { data: profile, error } = await supabase
       .from('profiles')
       .upsert(upsertRow, { onConflict: 'id' })
-      .select(profileSelectColumns(extended, v2))
+      .select(profileSelectColumns(extended, v2, tiered))
       .single();
 
     if (error) {
@@ -312,11 +314,12 @@ async function updateProfile(req, res) {
     }
 
     const extended = await hasExtendedProfileColumns(supabase);
+    const tiered = await hasSuperAdminColumns(supabase);
     const { data: profile, error } = await supabase
       .from('profiles')
       .update(patch)
       .eq('id', req.userId)
-      .select(profileSelectColumns(extended, v2))
+      .select(profileSelectColumns(extended, v2, tiered))
       .single();
     if (error || !profile) {
       console.error('updateProfile error:', error);
