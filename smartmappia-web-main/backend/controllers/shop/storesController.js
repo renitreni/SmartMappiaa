@@ -22,6 +22,7 @@ const { logShopEvent } = require('../../lib/foodEvents');
 const { availabilityBand } = require('../../lib/shopMoney');
 const { publicHoursState, groupHoursByMerchant } = require('../../lib/storeHours');
 const { deliveryTerms } = require('../../lib/deliveryPricing');
+const { getMaxDistanceKm } = require('../../lib/settings');
 
 const PUBLIC_STORE_FIELDS =
   'id, name, cuisine_type, description, logo_url, address, lat, lng, service_radius_km, is_featured, badge, accepting_orders';
@@ -156,7 +157,7 @@ async function listStores(req, res) {
       // carries the surcharge terms so the card can say "from" rather than
       // presenting a floor as the final price.
       deliveryFee: config.shop.deliveryFeeSar,
-      delivery: deliveryTerms(config.shop.deliveryFeeSar),
+      delivery: deliveryTerms(config.shop.deliveryFeeSar, await getMaxDistanceKm()),
       minOrder: config.shop.minOrderSar,
     });
   } catch (err) {
@@ -233,7 +234,7 @@ async function getStore(req, res) {
       categories: categories || [],
       products: (products || []).map(publicProduct),
       deliveryFee: config.shop.deliveryFeeSar,
-      delivery: deliveryTerms(config.shop.deliveryFeeSar),
+      delivery: deliveryTerms(config.shop.deliveryFeeSar, await getMaxDistanceKm()),
       minOrder: config.shop.minOrderSar,
     });
   } catch (err) {
