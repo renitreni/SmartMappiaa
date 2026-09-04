@@ -144,14 +144,14 @@ function SlideRail({ title, children, count = 0 }) {
   );
 }
 
-function ClosedSection({ title }) {
+function ClosedSection({ title, headline, body }) {
   return (
     <section className="mt-8">
       {title && <h2 className="text-lg sm:text-xl font-black text-brand-black tracking-tight mb-4">{title}</h2>}
       <div className="rounded-3xl border border-dashed border-brand-border bg-white px-6 py-14 text-center">
-        <p className="text-brand-dark text-sm font-black">{CLOSED_COPY}</p>
+        <p className="text-brand-dark text-sm font-black">{headline || CLOSED_COPY}</p>
         <p className="text-brand-grey text-sm font-medium mt-1">
-          Check back soon — this service is not taking orders yet.
+          {body || 'Check back soon — this service is not taking orders yet.'}
         </p>
       </div>
     </section>
@@ -426,13 +426,19 @@ const FoodServicePage = () => {
               </section>
             )}
             {activeTab === 'groceries' && shop.failed && (
-              <section className="mt-2">
-                <div className="rounded-3xl border border-dashed border-brand-border bg-white px-6 py-14 text-center">
-                  <p className="text-brand-dark text-sm font-bold">Listings could not be loaded right now</p>
-                </div>
-              </section>
+              <ClosedSection
+                title="Groceries"
+                headline="We're still fixing this problem"
+                body="Groceries could not be loaded right now. Please check back soon."
+              />
             )}
-            {activeTab === 'groceries' && shopClosed && <ClosedSection title="Groceries" />}
+            {activeTab === 'groceries' && shopClosed && (
+              <ClosedSection
+                title="Groceries"
+                headline="We're still fixing this problem"
+                body="Groceries are not available yet. Please check back soon."
+              />
+            )}
             {activeTab === 'groceries' && shopReady && (
               <section className="mt-2">
                 <SlideRail title="Groceries" count={shop.partners.length}>
@@ -466,13 +472,19 @@ const FoodServicePage = () => {
               </section>
             )}
             {activeTab === 'shops' && shop.failed && (
-              <section className="mt-2">
-                <div className="rounded-3xl border border-dashed border-brand-border bg-white px-6 py-14 text-center">
-                  <p className="text-brand-dark text-sm font-bold">Listings could not be loaded right now</p>
-                </div>
-              </section>
+              <ClosedSection
+                title="Shops"
+                headline="We're still fixing this problem"
+                body="This shop section could not be loaded right now. Please check back soon."
+              />
             )}
-            {activeTab === 'shops' && shopClosed && <ClosedSection title="Shops" />}
+            {activeTab === 'shops' && shopClosed && (
+              <ClosedSection
+                title="Shops"
+                headline="We're still fixing this problem"
+                body="This shop section is not taking orders yet. Please check back soon."
+              />
+            )}
             {activeTab === 'shops' && shopReady && (
               <section className="mt-2">
                 <SlideRail title="Shops" count={shop.partners.length}>

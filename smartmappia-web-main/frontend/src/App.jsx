@@ -18,14 +18,16 @@ function App() {
 
       <main>
         <Hero />
-        <PopularNearYou />
-        <Services />
-        <PromoBanners />
-        <VideoShowcase />
-        <HowItWorks />
-        <SponsoredReel />
-        <AboutUs />
-        <FAQ />
+        <div className="hidden 2xl:block">
+          <PopularNearYou />
+          <Services />
+          <PromoBanners />
+          <VideoShowcase />
+          <HowItWorks />
+          <SponsoredReel />
+          <AboutUs />
+          <FAQ />
+        </div>
         <Footer />
       </main>
     </div>

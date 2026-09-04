@@ -238,7 +238,7 @@ const Navbar = () => {
           </span>
         </Link>
 
-        <div className="hidden lg:flex items-center gap-1 ml-auto mr-0">
+        <div className="hidden 2xl:flex items-center gap-1 ml-auto mr-0">
           <ul className="flex items-center gap-0.5 text-sm font-semibold">
             {menuLinks.map((link, index) => {
               const active = link.to === location.pathname;
@@ -283,30 +283,41 @@ const Navbar = () => {
           <AuthActions />
         </div>
 
-        <button
-          onClick={() => setIsOpen(!isOpen)}
-          aria-label="Toggle menu"
-          className="block lg:hidden focus:outline-none z-50 cursor-pointer
-                     p-2 rounded-xl hover:bg-orange-50 transition-colors"
-        >
-          <div className="w-6 h-[18px] flex flex-col justify-between">
-            <motion.span
-              animate={isOpen ? { rotate: 45, y: 8 } : { rotate: 0, y: 0 }}
-              transition={{ type: "spring", stiffness: 300, damping: 22 }}
-              className="block h-0.5 w-full bg-brand-dark rounded-full"
-            />
-            <motion.span
-              animate={isOpen ? { opacity: 0, scaleX: 0 } : { opacity: 1, scaleX: 1 }}
-              transition={{ duration: 0.18 }}
-              className="block h-0.5 w-full bg-brand-dark rounded-full"
-            />
-            <motion.span
-              animate={isOpen ? { rotate: -45, y: -8 } : { rotate: 0, y: 0 }}
-              transition={{ type: "spring", stiffness: 300, damping: 22 }}
-              className="block h-0.5 w-full bg-brand-dark rounded-full"
-            />
-          </div>
-        </button>
+        <div className="flex items-center gap-1 2xl:hidden">
+          {location.pathname === "/" && (
+            <Link
+              to="/shop"
+              title="Cart"
+              aria-label="Cart"
+              className="inline-flex items-center justify-center w-10 h-10 rounded-xl text-brand-orange hover:bg-orange-50 transition-colors"
+            >
+              <ShoppingCart className="w-5 h-5" />
+            </Link>
+          )}
+          <button
+            onClick={() => setIsOpen(!isOpen)}
+            aria-label="Toggle menu"
+            className="block focus:outline-none z-50 cursor-pointer p-2 rounded-xl hover:bg-orange-50 transition-colors"
+          >
+            <div className="w-6 h-[18px] flex flex-col justify-between">
+              <motion.span
+                animate={isOpen ? { rotate: 45, y: 8 } : { rotate: 0, y: 0 }}
+                transition={{ type: "spring", stiffness: 300, damping: 22 }}
+                className="block h-0.5 w-full bg-brand-dark rounded-full"
+              />
+              <motion.span
+                animate={isOpen ? { opacity: 0, scaleX: 0 } : { opacity: 1, scaleX: 1 }}
+                transition={{ duration: 0.18 }}
+                className="block h-0.5 w-full bg-brand-dark rounded-full"
+              />
+              <motion.span
+                animate={isOpen ? { rotate: -45, y: -8 } : { rotate: 0, y: 0 }}
+                transition={{ type: "spring", stiffness: 300, damping: 22 }}
+                className="block h-0.5 w-full bg-brand-dark rounded-full"
+              />
+            </div>
+          </button>
+        </div>
       </motion.nav>
 
       <AnimatePresence>
@@ -318,7 +329,7 @@ const Navbar = () => {
               exit={{ opacity: 0 }}
               transition={{ duration: 0.22 }}
               onClick={() => setIsOpen(false)}
-              className="fixed inset-0 bg-black/30 z-40 lg:hidden"
+              className="fixed inset-0 bg-black/30 z-40 2xl:hidden"
             />
 
             <motion.div
@@ -328,7 +339,7 @@ const Navbar = () => {
               transition={{ type: "tween", duration: 0.22, ease: "easeOut" }}
               style={{ willChange: "transform" }}
               className="fixed top-0 right-0 h-full w-72 bg-white
-                         rounded-l-3xl z-45 lg:hidden
+                         rounded-l-3xl z-45 2xl:hidden
                          flex flex-col justify-between shadow-2xl overflow-hidden"
             >
               <div className="absolute top-0 left-0 right-0 h-1

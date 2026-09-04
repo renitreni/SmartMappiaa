@@ -79,7 +79,80 @@ const Footer = () => {
         />
       </div>
 
-      <div className="relative z-10 border-b border-white/8">
+      <div className="2xl:hidden relative z-10 px-5 pt-8 pb-7">
+        <Link to="/" className="flex items-center gap-2.5 w-fit">
+          <img src="/mappia-new-logo.png" alt="" className="w-9 h-9 object-contain" />
+          <span className="text-base font-black tracking-tight">
+            Smart <span className="text-brand-orange">Mappia</span>
+          </span>
+        </Link>
+        <p className="text-xs text-white/50 mt-3 leading-relaxed">
+          Food, groceries, and airport rides across Riyadh.
+        </p>
+
+        <div className="grid grid-cols-3 gap-2 mt-5">
+          {[
+            { to: "/services/food", label: "Food" },
+            { to: "/shop", label: "Shop" },
+            { to: "/book", label: "Ride" },
+          ].map((item) => (
+            <Link
+              key={item.to}
+              to={item.to}
+              className="text-center text-xs font-black text-white bg-white/5 border border-white/10 rounded-xl py-2.5"
+            >
+              {item.label}
+            </Link>
+          ))}
+        </div>
+
+        <div className="flex gap-2 mt-5">
+          {socialLinks.map(({ label, path, href }) => (
+            <a
+              key={label}
+              href={href}
+              aria-label={label}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="w-9 h-9 rounded-xl flex items-center justify-center border border-white/10 bg-white/5 text-white/55"
+            >
+              <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 24 24">
+                <path d={path} />
+              </svg>
+            </a>
+          ))}
+        </div>
+
+        <div className="mt-6 pt-5 border-t border-white/10 flex flex-col gap-3">
+          <Link to="/support" className="text-xs font-bold text-white/70">
+            Help & support
+          </Link>
+          <div className="flex flex-wrap gap-x-4 gap-y-2">
+            {legalLinks.map(({ label, kind }) =>
+              kind ? (
+                <button
+                  key={label}
+                  type="button"
+                  onClick={() => openLegalModal(kind)}
+                  className="text-[11px] text-white/40 cursor-pointer"
+                >
+                  {label}
+                </button>
+              ) : (
+                <a key={label} href="#" className="text-[11px] text-white/40">
+                  {label}
+                </a>
+              )
+            )}
+          </div>
+          <p className="text-[11px] text-white/30">
+            © 2026 Smart Mappia. All rights reserved.
+          </p>
+        </div>
+      </div>
+
+      <div className="hidden 2xl:block">
+        <div className="relative z-10 border-b border-white/8">
         <div className="max-w-7xl mx-auto px-6 md:px-8 py-10 flex flex-col md:flex-row items-center justify-between gap-6">
           <div className="text-center md:text-left">
             <p className="text-xs font-bold tracking-widest uppercase text-brand-orange mb-1">
@@ -387,6 +460,7 @@ const Footer = () => {
             ))}
           </div>
         </div>
+      </div>
       </div>
     </footer>
   );

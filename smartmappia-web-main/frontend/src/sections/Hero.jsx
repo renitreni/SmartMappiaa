@@ -1,8 +1,9 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { motion } from "framer-motion";
 import { Link, useNavigate } from "react-router-dom";
 import PhoneMockup from "../components/PhoneMockup";
 import MarketplaceCategories from "./MarketplaceCategories";
+import MobileMarketplaceHome from "./MobileMarketplaceHome";
 
 const stats = [
   { value: "500+", label: "Restaurants & stores" },
@@ -10,15 +11,37 @@ const stats = [
   { value: "50k+", label: "Orders delivered" },
 ];
 
+// 2xl (1536px): phones and tablets — including iPad Pro landscape (~1366px) —
+// get the storefront. Laptops and desktops keep the marketing hero + phone mockup.
+function useDesktopUp() {
+  const [matches, setMatches] = useState(() =>
+    typeof window !== "undefined" ? window.matchMedia("(min-width: 1536px)").matches : true
+  );
+
+  useEffect(() => {
+    const mq = window.matchMedia("(min-width: 1536px)");
+    const onChange = () => setMatches(mq.matches);
+    mq.addEventListener("change", onChange);
+    return () => mq.removeEventListener("change", onChange);
+  }, []);
+
+  return matches;
+}
+
 const Hero = () => {
   const navigate = useNavigate();
   const [query, setQuery] = useState("");
+  const desktop = useDesktopUp();
 
   const submitSearch = (e) => {
     e.preventDefault();
     const q = query.trim();
     navigate(q ? `/services/food?q=${encodeURIComponent(q)}` : "/services/food");
   };
+
+  if (!desktop) {
+    return <MobileMarketplaceHome />;
+  }
 
   return (
     <section
