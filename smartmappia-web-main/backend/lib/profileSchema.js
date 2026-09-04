@@ -85,11 +85,20 @@ async function hasSuperAdminColumns(supabase) {
   return superAdminColumns;
 }
 
-function profileSelectColumns(extended, v2 = false) {
+// `tiered` is hasSuperAdminColumns(): the 0043 columns cannot be named
+// before the migration is applied, or the whole select fails.
+//
+// Leaving them out was a real bug, not a cosmetic one. This list is what
+// /api/auth/sync returns, profileJson maps is_super_admin off that row, and
+// the portal decides whether to show the super-admin tabs from it — so a
+// seeded, correctly flagged super admin still saw no tabs, and no error
+// anywhere said why.
+function profileSelectColumns(extended, v2 = false, tiered = false) {
   let cols =
     'id, role, full_name, whatsapp_number, mobile_number, email, driver_approved, service_types';
   if (extended) cols += `, ${EXTENDED_FIELDS.join(', ')}`;
   if (v2) cols += `, ${V2_FIELDS.join(', ')}`;
+  if (tiered) cols += ', is_super_admin, disabled_at';
   return cols;
 }
 
