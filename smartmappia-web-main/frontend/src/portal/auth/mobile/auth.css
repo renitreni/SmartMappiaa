@@ -11,6 +11,7 @@
   --auth-border: #ece6e2;
   --auth-input-bg: #f7f5f3;
   --auth-link: #f7891f;
+  --auth-error: #d93025;
   --auth-footer-text: #8a8a8a;
   --auth-font:
     -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial,
@@ -143,6 +144,27 @@
   border: 1px solid var(--auth-border);
   border-radius: 12px;
   transition: border-color 0.15s ease;
+}
+
+.auth-input-wrap--error {
+  border-color: var(--auth-error);
+}
+
+.auth-step-hint {
+  margin: 10px 0 0;
+  text-align: center;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--auth-text-body);
+}
+
+.auth-field__error {
+  display: block;
+  margin-top: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.4;
+  color: var(--auth-error);
 }
 
 .auth-input-wrap:focus-within {
