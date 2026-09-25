@@ -25,7 +25,12 @@ const {
   deleteAvatarFolder,
 } = require('../lib/storage');
 const { opsError } = require('../lib/opsError');
-const { MIN_PASSWORD_LENGTH, MAX_PASSWORD_LENGTH } = require('../lib/validate');
+const {
+  MIN_PASSWORD_LENGTH,
+  MAX_PASSWORD_LENGTH,
+  emailError,
+  nameError,
+} = require('../lib/validate');
 const { currentContext } = require('../lib/requestContext');
 
 // The camelCase profile JSON every auth endpoint returns to the UI.
@@ -53,11 +58,6 @@ function profileJson(profile, merchant = null) {
 // Merchant (restaurant owner) accounts are provisioned by admins after partnership
 // approval — not via public self-registration (see adminFoodController.setMerchantOwner).
 const SELF_ROLES = ['passenger', 'driver'];
-
-// Basic email shape enforced at the public signup boundary. The password
-// bounds live in lib/validate.js — the admin merchant-owner endpoints apply
-// the same ones.
-const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 function merchantPayload(body, ownerId) {
   const name = String(body.business_name || body.merchant_name || '').trim();
@@ -110,8 +110,16 @@ async function signup(req, res) {
     if (!email || !password) {
       return res.status(400).json({ error: 'email and password are required' });
     }
-    if (!EMAIL_RE.test(email) || email.length > 200) {
-      return res.status(400).json({ error: 'Please enter a valid email address' });
+    const badEmail = emailError(email);
+    if (badEmail) {
+      return res.status(400).json({ error: badEmail });
+    }
+    // full_name is written to user_metadata below and again to profiles by
+    // /sync. The column is bare text, so without this an unbounded string
+    // from the form lands in the database.
+    const badName = nameError(b.full_name, 'Name');
+    if (badName) {
+      return res.status(400).json({ error: badName });
     }
     if (String(password).length < MIN_PASSWORD_LENGTH) {
       return res.status(400).json({ error: `Password must be at least ${MIN_PASSWORD_LENGTH} characters` });
@@ -149,13 +157,27 @@ async function signup(req, res) {
     if (error) {
       const msg = (error.message || '').toLowerCase();
       if (msg.includes('already') || error.status === 422) {
-        return res.status(409).json({ error: 'An account with this email already exists. Please sign in.' });
+        // DELIBERATELY NOT a 409 saying the account exists. This endpoint is
+        // public and rate-limited only to 30/hour, so a distinguishable
+        // response here is an account-existence oracle: an attacker learns
+        // which addresses are registered and feeds them to a credential
+        // stuffing list. Answer exactly as a fresh signup does and let the
+        // caller find out at sign-in, which is uniform, or through
+        // forgot-password, which is already non-enumerating.
+        //
+        // The frontend signs in right after this returns, so a real owner
+        // typing their real password still lands signed in; anyone else gets
+        // the generic "email or password is incorrect".
+        //
+        // Do not "improve" this back into a friendly 409.
+        return res.status(201).json({ email });
       }
       console.error('signup error:', error);
       return res.status(500).json({ error: 'Could not create the account. Please try again.' });
     }
 
-    return res.status(201).json({ id: data.user.id, email: data.user.email });
+    // Same shape as the already-exists branch above, on purpose.
+    return res.status(201).json({ email: data.user.email });
   } catch (err) {
     console.error('signup error:', err);
     return res.status(500).json({ error: 'Unexpected server error' });
@@ -167,6 +189,15 @@ async function syncProfile(req, res) {
     const { id, email } = req.authUser;
     const b = req.body || {};
     const emailLc = (email || '').toLowerCase();
+
+    // /sync takes an open body (buildProfileUpsert reads many optional
+    // fields), so it cannot use validateBody, which rejects unknown keys.
+    // full_name still needs the same cap the PATCH /profile route applies —
+    // this is the other path that writes it.
+    const badName = nameError(b.full_name, 'Name');
+    if (badName) {
+      return res.status(400).json({ error: badName });
+    }
     const isAdminEmail = config.adminEmails.includes(emailLc);
 
     const { data: existing } = await supabase
