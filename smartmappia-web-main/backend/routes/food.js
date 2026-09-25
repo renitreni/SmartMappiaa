@@ -73,7 +73,7 @@ router.post(
     // Food is STC Pay only at ORDER CREATION. Card is chosen on the payment
     // step via /orders/:code/charge, never as a checkout method, so an order
     // can never be created against a gateway that might be unconfigured.
-    payment_method: { type: 'string', enum: ['stcpay'] },
+    payment_method: { type: 'string', enum: ['stcpay', 'tap'] },
   }),
   checkout
 );

@@ -16,11 +16,11 @@ import {
   Smartphone,
   Banknote,
 } from 'lucide-react';
+import useCardAvailable from '../lib/useCardAvailable';
 import { api } from '../lib/api';
 import { uploadProofFile } from '../lib/supabaseClient';
 import { AIRPORTS, fareBreakdown, airportDropdownOptions } from '../lib/constants';
 import { PortalShell, Card, Field, inputClass, btnPrimary, btnGhost, Spinner } from '../components/ui';
-import CardNextStepNote from '../components/CardNextStepNote';
 import LocationPicker from '../components/LocationPicker';
 import CustomDropdown from '../../components/CustomDropdown';
 import DateTimePicker from '../../components/DateTimePicker';
@@ -37,7 +37,24 @@ import CardPaySection from '../components/CardPaySection';
 const FARE = fareBreakdown();
 const AIRPORT_OPTIONS = airportDropdownOptions();
 
+const PAY_METHODS = [
+  { id: 'stcpay_manual', label: 'STC Pay', hint: 'Transfer + upload the screenshot', icon: Smartphone },
+  { id: 'cash', label: 'Cash', hint: 'Pay your driver in cash at pickup', icon: Banknote },
+];
+
+// See the note in food/FoodCheckoutPage.jsx - same rule, same server check.
+const CARD_METHOD = {
+  id: 'tap',
+  label: 'Card',
+  hint: 'Pay now with a card, Apple Pay or mada',
+  icon: CreditCard,
+};
+
 export default function BookPage() {
+  // Card is offered only when the gateway is live; the server re-checks on
+  // create, because a picker is a suggestion and a stale tab is not evidence.
+  const cardOn = useCardAvailable();
+  const payMethods = cardOn ? [...PAY_METHODS, CARD_METHOD] : PAY_METHODS;
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const { profile } = useAuth();
@@ -80,6 +97,13 @@ export default function BookPage() {
   // STC Pay manual transfer is a super-admin switch (0044). Absent means
   // on, so an older backend that does not send the field still shows it.
   const stcOn = instructions?.stcPayAvailable !== false;
+  // The payment step shows ONE method: the one chosen at booking. Stacking
+  // the card form on top of the transfer details asked the customer to
+  // decide a second time, having already decided.
+  //
+  // Bookings placed before card was a picker option carry 'stcpay_manual',
+  // so they still land on the transfer details - what they were promised.
+  const chosenCard = instructions?.paymentMethod === 'tap';
   const [file, setFile] = useState(null);
   const [copied, setCopied] = useState(null);
 
@@ -290,10 +314,7 @@ export default function BookPage() {
               <div>
                 <p className="text-xs font-bold text-brand-grey uppercase tracking-wide mb-2">How would you like to pay?</p>
                 <div className="space-y-2">
-                  {[
-                    { id: 'stcpay_manual', label: 'STC Pay', hint: 'Transfer + upload the screenshot', icon: Smartphone },
-                    { id: 'cash', label: 'Cash', hint: 'Pay your driver in cash at pickup', icon: Banknote },
-                  ].map(({ id, label, hint, icon: Icon }) => (
+                  {payMethods.map(({ id, label, hint, icon: Icon }) => (
                     <button
                       key={id}
                       type="button"
@@ -319,7 +340,6 @@ export default function BookPage() {
                     </button>
                   ))}
                 </div>
-                <CardNextStepNote />
               </div>
 
               <FareSummary
@@ -370,17 +390,19 @@ export default function BookPage() {
 
             <div className="p-6 space-y-6">
               <div>
-                <CardPaySection
-                  code={booking.bookingCode}
-                  amount={instructions.fare?.total ?? instructions.amount}
-                  available={instructions.cardAvailable}
-                  charge={(code, body, key) => api.bookingCardCharge(code, body, key)}
-                  // A card payment confirms the booking and starts the driver
-                  // dispatch immediately, so go straight to tracking.
-                  onPaid={() => navigate(`/track/${booking.bookingCode}`)}
-                  onError={setError}
-                />
-                {stcOn && (
+                {chosenCard && (
+                  <CardPaySection
+                    code={booking.bookingCode}
+                    amount={instructions.fare?.total ?? instructions.amount}
+                    available={instructions.cardAvailable}
+                    charge={(code, body, key) => api.bookingCardCharge(code, body, key)}
+                    // A card payment confirms the booking and starts the driver
+                    // dispatch immediately, so go straight to tracking.
+                    onPaid={() => navigate(`/track/${booking.bookingCode}`)}
+                    onError={setError}
+                  />
+                )}
+                {!chosenCard && stcOn && (
                 <div className="relative my-5 text-center">
                   <div className="absolute inset-0 flex items-center"><div className="w-full border-t border-brand-border" /></div>
                   <span className="relative bg-white px-3 text-xs font-bold uppercase tracking-wider text-brand-grey">or pay manually</span>
@@ -388,7 +410,7 @@ export default function BookPage() {
                 )}
               </div>
 
-              {stcOn && (
+              {!chosenCard && stcOn && (
                 <>
               <div>
                 <div className="flex items-center gap-2 mb-4">
@@ -492,7 +514,7 @@ export default function BookPage() {
                 </p>
               )}
 
-              {!stcOn && !instructions.cardAvailable && (
+              {!chosenCard && !stcOn && (
                 <p className="text-sm text-brand-grey bg-brand-warm border border-brand-border rounded-xl px-4 py-3">
                   Online payment is unavailable right now. Your booking is held — pay the driver in cash, or contact support.
                 </p>

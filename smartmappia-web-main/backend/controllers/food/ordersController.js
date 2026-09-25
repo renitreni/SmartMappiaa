@@ -27,6 +27,7 @@ const { travelEtaMinutes, deliveryEtaBand } = require('../../lib/eta');
 const { latestDriverFix } = require('../../lib/tracking');
 const { priceOrder } = require('../../lib/foodMoney');
 const { getMaxDistanceKm, getStcPayEnabled } = require('../../lib/settings');
+const { tapConfigured } = require('../../lib/tap');
 const { merchantOpenState, CLOSED_RESPONSE } = require('../../lib/storeHours');
 const { findSizeOption } = require('../../lib/foodSizes');
 const { logFoodEvent } = require('../../lib/foodEvents');
@@ -80,6 +81,16 @@ function assertOwner(req, res, order) {
 async function checkout(req, res) {
   try {
     const b = req.body; // validated by the route schema
+
+    // Card at order creation used to be refused outright by the route enum,
+    // because an order must never be created against a gateway that might be
+    // unconfigured. That invariant still holds - it is checked explicitly
+    // here now, rather than by refusing the method for everyone. The picker
+    // only offers card when GET /api/payments/config says it is live, so
+    // reaching this means a stale client or a key rotated out mid-session.
+    if (b.payment_method === 'tap' && !tapConfigured()) {
+      return res.status(400).json({ error: 'Card payment is not available right now' });
+    }
 
     const { data: merchant, error: mErr } = await supabase
       .from('merchants')
