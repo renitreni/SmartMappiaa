@@ -14,6 +14,7 @@ import { Capacitor } from '@capacitor/core';
 import MobileLoginScreen from './mobile/screens/LoginScreen';
 import PasswordInput from '../components/PasswordInput';
 import { getAuthErrorMessage } from './mobile/authErrorMessages';
+import { getEmailError, getRequiredError, isClean } from '../lib/fieldValidation';
 
 const features = [
   { icon: Utensils, text: 'Order food from 500+ restaurants' },
@@ -34,6 +35,7 @@ export default function LoginPage() {
   const [password, setPassword] = useState('');
   const [error, setError] = useState(null);
   const [busy, setBusy] = useState(false);
+  const [fieldErrors, setFieldErrors] = useState({});
 
   // mobile-only error state, kept separate from the web `error` banner above
   const [showPassword, setShowPassword] = useState(false);
@@ -57,8 +59,23 @@ export default function LoginPage() {
   async function submit(e) {
   e.preventDefault();
   setError(null);
+  setFieldErrors({});
   setMobileFieldErrors({});
   setMobileBannerError(null);
+
+  // Validate before the request, not after: an empty password or a malformed
+  // address never needed a round trip to be known wrong, and going through
+  // signIn() for it burns a Supabase rate-limit slot per keystroke-fix.
+  const invalid = {
+    email: getEmailError(email),
+    password: getRequiredError(password, 'Password'),
+  };
+  if (!isClean(invalid)) {
+    if (Capacitor.isNativePlatform()) setMobileFieldErrors(invalid);
+    else setFieldErrors(invalid);
+    return;
+  }
+
   setBusy(true);
   try {
     await signIn(email.trim(), password);
@@ -221,8 +238,8 @@ if (Capacitor.isNativePlatform()) {
                 </motion.div>
               )}
 
-              <form onSubmit={submit} className="space-y-5">
-                <Field label="Email Address">
+              <form onSubmit={submit} noValidate className="space-y-5">
+                <Field label="Email Address" error={fieldErrors.email}>
                   <div className="relative">
                     <Mail className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-brand-grey pointer-events-none" />
                     <input
@@ -231,19 +248,19 @@ if (Capacitor.isNativePlatform()) {
                       value={email}
                       onChange={(e) => setEmail(e.target.value)}
                       placeholder="email"
-                      required
                       autoComplete="email"
+                      aria-invalid={fieldErrors.email ? 'true' : undefined}
                     />
                   </div>
                 </Field>
 
-                <Field label="Password">
+                <Field label="Password" error={fieldErrors.password}>
                   <PasswordInput
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
                     placeholder="Enter your password"
                     autoComplete="current-password"
-                    required
+                    hasError={!!fieldErrors.password}
                   />
                 </Field>
 

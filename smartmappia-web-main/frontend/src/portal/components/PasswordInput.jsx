@@ -27,6 +27,7 @@ export default function PasswordInput({
         placeholder={placeholder}
         autoComplete={autoComplete}
         required={required}
+        aria-invalid={hasError ? 'true' : undefined}
       />
       <button
         type="button"
