@@ -55,6 +55,10 @@ export default function PaymentPanel({ code, onPaid, vertical = 'food' }) {
     calls.paymentInfo(code).then(setInfo).catch((e) => setLoadErr(e.message));
   }, [code, calls]);
 
+  // STC Pay manual transfer is a super-admin switch (0044). Absent means
+  // on, so an older backend that does not send the field still shows it.
+  const stcOn = info?.stcPayAvailable !== false;
+
   async function submitProof() {
     if (!file) return setError('Please choose a screenshot of your STC Pay transfer.');
     const check = validateUploadFile(file);
@@ -117,11 +121,13 @@ export default function PaymentPanel({ code, onPaid, vertical = 'food' }) {
           onPaid={onPaid}
           onError={setError}
         />
-        {info.cardAvailable && (
+        {info.cardAvailable && stcOn && (
           <p className="text-center text-xs text-brand-grey mt-3 mb-1">or pay with STC Pay</p>
         )}
       </div>
 
+      {stcOn && (
+        <>
       <div className="bg-brand-warm border border-brand-border rounded-xl p-4 space-y-2 text-sm">
         <div className="flex justify-between"><span className="text-brand-grey">Send via STC Pay to</span><span className="font-bold">{info.stcPay?.number || 'Number pending'}</span></div>
         <div className="flex justify-between"><span className="text-brand-grey">Recipient</span><span className="font-bold">{info.stcPay?.recipientName}</span></div>
@@ -155,6 +161,14 @@ export default function PaymentPanel({ code, onPaid, vertical = 'food' }) {
           </p>
         )}
       </div>
+        </>
+      )}
+
+      {!stcOn && !info.cardAvailable && (
+        <p className="text-sm text-brand-grey bg-brand-warm border border-brand-border rounded-xl px-4 py-3">
+          Online payment is unavailable right now. Your order is held — pay cash on delivery, or contact support.
+        </p>
+      )}
     </Card>
   );
 }
