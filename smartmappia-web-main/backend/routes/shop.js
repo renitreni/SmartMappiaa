@@ -78,7 +78,7 @@ router.post(
     // payment method whose gateway is unconfigured.
     // required: the RPC inserts this into a NOT NULL column, so omitting it
     // surfaced as a generic 500 instead of a 400 naming the missing field.
-    payment_method: { type: 'string', required: true, enum: ['stcpay', 'cash'] },
+    payment_method: { type: 'string', required: true, enum: ['stcpay', 'cash', 'tap'] },
   }),
   checkout
 );

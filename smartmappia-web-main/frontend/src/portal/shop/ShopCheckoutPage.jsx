@@ -12,12 +12,12 @@
 // ---------------------------------------------------------------------
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { Banknote, Smartphone, AlertTriangle } from 'lucide-react';
+import { Banknote, Smartphone, AlertTriangle, CreditCard } from 'lucide-react';
+import useCardAvailable from '../lib/useCardAvailable';
 import { api } from '../lib/api';
 import { useAuth } from '../lib/AuthProvider';
 import { fmtSAR } from '../lib/constants';
 import { PortalShell, Card, Field, Spinner, inputClass, btnPrimary } from '../components/ui';
-import CardNextStepNote from '../components/CardNextStepNote';
 import LocationPicker from '../components/LocationPicker';
 import PaymentPanel from '../food/PaymentPanel';
 
@@ -36,7 +36,19 @@ const PAY_METHODS = [
   },
 ];
 
+// See the note in food/FoodCheckoutPage.jsx - same rule, same server check.
+const CARD_METHOD = {
+  id: 'tap',
+  label: 'Card',
+  hint: 'Pay now with a card, Apple Pay or mada',
+  icon: CreditCard,
+};
+
 export default function ShopCheckoutPage() {
+  // Card is offered only when the gateway is live; the server re-checks on
+  // create, because a picker is a suggestion and a stale tab is not evidence.
+  const cardOn = useCardAvailable();
+  const payMethods = cardOn ? [...PAY_METHODS, CARD_METHOD] : PAY_METHODS;
   const [params] = useSearchParams();
   const storeId = params.get('s') || '';
   const navigate = useNavigate();
@@ -182,7 +194,7 @@ export default function ShopCheckoutPage() {
 
       <p className="font-bold text-brand-black mb-2">Payment method</p>
       <div className="space-y-2 mb-4">
-        {PAY_METHODS.map((m) => {
+        {payMethods.map((m) => {
           const Icon = m.icon;
           return (
             <button
@@ -208,7 +220,6 @@ export default function ShopCheckoutPage() {
           );
         })}
       </div>
-      <CardNextStepNote />
 
       {cart && (
         <Card className="p-4 space-y-2 text-sm mb-4">
