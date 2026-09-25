@@ -26,7 +26,7 @@ const { haversineKm } = require('../../lib/geo');
 const { travelEtaMinutes, deliveryEtaBand } = require('../../lib/eta');
 const { latestDriverFix } = require('../../lib/tracking');
 const { priceOrder } = require('../../lib/foodMoney');
-const { getMaxDistanceKm } = require('../../lib/settings');
+const { getMaxDistanceKm, getStcPayEnabled } = require('../../lib/settings');
 const { merchantOpenState, CLOSED_RESPONSE } = require('../../lib/storeHours');
 const { findSizeOption } = require('../../lib/foodSizes');
 const { logFoodEvent } = require('../../lib/foodEvents');
@@ -515,16 +515,22 @@ async function getPaymentInfo(req, res) {
       });
     }
 
+    const stcPayAvailable = await getStcPayEnabled();
+
     return res.json({
       orderCode: order.order_code,
       paymentStatus: order.payment_status,
       paymentMethod: order.payment_method,
       amount: order.total,
       currency: 'SAR',
-      stcPay: {
-        number: config.stcPay.number,
-        recipientName: config.stcPay.recipientName,
-      },
+      // See the note in controllers/paymentsController.js - one switch (0044).
+      stcPayAvailable,
+      stcPay: stcPayAvailable
+        ? {
+            number: config.stcPay.number,
+            recipientName: config.stcPay.recipientName,
+          }
+        : null,
       // The order code IS the transfer note so payments can be matched.
       reference: order.order_code,
       // Whether to offer the card option at all. Only the PUBLIC key is
@@ -532,12 +538,14 @@ async function getPaymentInfo(req, res) {
       cardAvailable: !!config.tap.secretKey,
       tapPublicKey: config.tap.publicKey || null,
       applePayEnabled: !!config.tap.applePayEnabled,
-      instructions: [
-        `Open STC Pay and send SAR ${Number(order.total).toFixed(2)} to ${config.stcPay.number} (${config.stcPay.recipientName}).`,
-        `Put your order code ${order.order_code} in the transfer note.`,
-        'Take a screenshot of the successful transfer.',
-        'Upload that screenshot below to confirm your order.',
-      ],
+      instructions: stcPayAvailable
+        ? [
+            `Open STC Pay and send SAR ${Number(order.total).toFixed(2)} to ${config.stcPay.number} (${config.stcPay.recipientName}).`,
+            `Put your order code ${order.order_code} in the transfer note.`,
+            'Take a screenshot of the successful transfer.',
+            'Upload that screenshot below to confirm your order.',
+          ]
+        : [],
       testMode: config.autoVerifyTestMode,
     });
   } catch (err) {

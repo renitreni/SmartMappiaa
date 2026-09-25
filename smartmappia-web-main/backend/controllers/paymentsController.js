@@ -14,6 +14,7 @@ const { fareBreakdown, payableAmount, bookingVat } = require('../lib/fare');
 const { addTrackingEvent } = require('../lib/tracking');
 const { verifyBookingPayment } = require('../lib/payments');
 const { pushBookingStatus, pingAdmin } = require('../lib/realtime');
+const { getStcPayEnabled } = require('../lib/settings');
 const {
   buildProofPath,
   createProofUploadUrl,
@@ -55,6 +56,8 @@ async function getPaymentInstructions(req, res) {
     }
     if (cashBlocked(res, booking)) return;
 
+    const stcPayAvailable = await getStcPayEnabled();
+
     // Breakdown runs on the EX-VAT fare; VAT is a separate snapshot line.
     const fare = fareBreakdown(booking.fare_amount);
     const vatAmount = bookingVat(booking);
@@ -80,10 +83,18 @@ async function getPaymentInstructions(req, res) {
         total: payable,
         currency: fare.currency,
       },
-      stcPay: {
-        number: config.stcPay.number,
-        recipientName: config.stcPay.recipientName,
-      },
+      // Manual STC Pay transfer, which a super admin can retire from the
+      // admin portal once card is settling reliably (0044). The details and
+      // the instructions are withheld together with the flag - leaving the
+      // account number in a response the UI no longer renders is how a
+      // retired payment method comes back through a stale client.
+      stcPayAvailable,
+      stcPay: stcPayAvailable
+        ? {
+            number: config.stcPay.number,
+            recipientName: config.stcPay.recipientName,
+          }
+        : null,
       // The booking code IS the transfer note so we can match the payment.
       reference: booking.booking_code,
       // Whether to offer the card option at all. Only the PUBLIC key is
@@ -91,12 +102,14 @@ async function getPaymentInstructions(req, res) {
       cardAvailable: !!config.tap.secretKey,
       tapPublicKey: config.tap.publicKey || null,
       applePayEnabled: !!config.tap.applePayEnabled,
-      instructions: [
-        `Open STC Pay and send ${payable} ${booking.currency} to ${config.stcPay.number} (${config.stcPay.recipientName}).`,
-        `Put your booking code ${booking.booking_code} in the transfer note.`,
-        'Take a screenshot of the successful transfer.',
-        'Upload that screenshot as your payment proof to confirm your booking.',
-      ],
+      instructions: stcPayAvailable
+        ? [
+            `Open STC Pay and send ${payable} ${booking.currency} to ${config.stcPay.number} (${config.stcPay.recipientName}).`,
+            `Put your booking code ${booking.booking_code} in the transfer note.`,
+            'Take a screenshot of the successful transfer.',
+            'Upload that screenshot as your payment proof to confirm your booking.',
+          ]
+        : [],
       testMode: config.autoVerifyTestMode,
     });
   } catch (err) {

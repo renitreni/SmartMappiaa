@@ -29,7 +29,12 @@ const crypto = require('crypto');
 const { supabase } = require('../lib/supabase');
 const { config } = require('../lib/config');
 const { logAudit } = require('../lib/audit');
-const { getMaxDistanceKm, setMaxDistanceKm } = require('../lib/settings');
+const {
+  getMaxDistanceKm,
+  setMaxDistanceKm,
+  getStcPayEnabled,
+  setStcPayEnabled,
+} = require('../lib/settings');
 
 const ADMIN_SELECT =
   'id, email, full_name, mobile_number, whatsapp_number, role, is_super_admin, ' +
@@ -354,36 +359,72 @@ async function reactivateAdmin(req, res) {
 }
 
 // --- Settings ---------------------------------------------------------
+async function currentSettings() {
+  return {
+    max_distance_km: await getMaxDistanceKm(),
+    stcpay_enabled: await getStcPayEnabled(),
+  };
+}
+
 async function getSettings(req, res) {
   try {
-    return res.json({ max_distance_km: await getMaxDistanceKm() });
+    return res.json(await currentSettings());
   } catch (err) {
     console.error('getSettings error:', err);
     return res.status(500).json({ error: 'Unexpected server error' });
   }
 }
 
+// PATCH semantics: a field that is not sent is not changed. That matters
+// more than it looks now that there is more than one setting - a client
+// that PATCHes only stcpay_enabled must not silently clear the distance
+// limit, and `undefined` is the only value that can mean "not sent",
+// because null is a real stored value for max_distance_km.
 async function updateSettings(req, res) {
   try {
     const b = req.body;
-    // null is meaningful (no limit), so `undefined` is the only "not sent".
-    if (b.max_distance_km === undefined) {
-      return res.status(400).json({ error: 'max_distance_km is required (a number, or null for no limit)' });
-    }
-    const value = b.max_distance_km === null ? null : Number(b.max_distance_km);
-    if (value !== null && (!Number.isFinite(value) || value <= 0)) {
-      return res.status(400).json({ error: 'max_distance_km must be a positive number, or null for no limit' });
+    const touchesDistance = b.max_distance_km !== undefined;
+    const touchesStcPay = b.stcpay_enabled !== undefined;
+
+    if (!touchesDistance && !touchesStcPay) {
+      return res.status(400).json({
+        error: 'Send max_distance_km (a number, or null for no limit) or stcpay_enabled (a boolean)',
+      });
     }
 
-    await setMaxDistanceKm(value, req.superAdminId);
-    await logAudit({
-      actorId: req.superAdminId,
-      action: 'settings.update',
-      resourceType: 'app_settings',
-      resourceId: 'max_distance_km',
-      meta: { max_distance_km: value },
-    });
-    return res.json({ max_distance_km: await getMaxDistanceKm() });
+    const changed = {};
+
+    if (touchesDistance) {
+      const value = b.max_distance_km === null ? null : Number(b.max_distance_km);
+      if (value !== null && (!Number.isFinite(value) || value <= 0)) {
+        return res.status(400).json({ error: 'max_distance_km must be a positive number, or null for no limit' });
+      }
+      await setMaxDistanceKm(value, req.superAdminId);
+      changed.max_distance_km = value;
+    }
+
+    if (touchesStcPay) {
+      if (typeof b.stcpay_enabled !== 'boolean') {
+        return res.status(400).json({ error: 'stcpay_enabled must be true or false' });
+      }
+      await setStcPayEnabled(b.stcpay_enabled, req.superAdminId);
+      changed.stcpay_enabled = b.stcpay_enabled;
+    }
+
+    // One audit row per setting touched, not one per request: resourceId is
+    // the setting key, and a row naming two keys at once cannot answer
+    // "who turned STC Pay off" without parsing meta.
+    for (const [key, value] of Object.entries(changed)) {
+      await logAudit({
+        actorId: req.superAdminId,
+        action: 'settings.update',
+        resourceType: 'app_settings',
+        resourceId: key,
+        meta: { [key]: value },
+      });
+    }
+
+    return res.json(await currentSettings());
   } catch (err) {
     console.error('updateSettings error:', err);
     return res.status(500).json({ error: 'Could not save the setting' });

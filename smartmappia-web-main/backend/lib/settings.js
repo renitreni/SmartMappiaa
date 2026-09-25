@@ -90,10 +90,47 @@ async function setMaxDistanceKm(value, actorId = null) {
   cache.delete('max_distance_km');
 }
 
+// Whether checkout offers STC Pay manual transfer (0044).
+//
+// Returns a boolean. A missing row or table reads as TRUE — the state the
+// platform shipped in before the setting existed — so an un-applied 0044
+// changes nothing, same rule as max_distance_km above. Only an explicit
+// stored `false` hides it; anything unrecognised is treated as "leave it
+// on", because failing closed here would mean silently removing a payment
+// method from live customers over a bad write.
+async function getStcPayEnabled() {
+  const raw = await readSetting('stcpay_enabled');
+  if (raw === undefined || raw === null) return true;
+  return raw !== false;
+}
+
+async function setStcPayEnabled(value, actorId = null) {
+  const { error } = await supabase
+    .from('app_settings')
+    .upsert(
+      {
+        key: 'stcpay_enabled',
+        value: !!value,
+        updated_at: new Date().toISOString(),
+        updated_by: actorId,
+      },
+      { onConflict: 'key' }
+    );
+  if (error) throw error;
+  cache.delete('stcpay_enabled');
+}
+
 // Exposed for tests, and for anything that changes a setting through a
 // path other than the setters above.
 function clearSettingsCache() {
   cache.clear();
 }
 
-module.exports = { getMaxDistanceKm, setMaxDistanceKm, clearSettingsCache, CACHE_TTL_MS };
+module.exports = {
+  getMaxDistanceKm,
+  setMaxDistanceKm,
+  getStcPayEnabled,
+  setStcPayEnabled,
+  clearSettingsCache,
+  CACHE_TTL_MS,
+};

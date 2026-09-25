@@ -887,6 +887,24 @@ const CHECKS = [
     sqlFile: '0043_super_admin_settings_and_login_events.sql',
   },
   {
+    id: '0044',
+    name: 'STC Pay visibility switch',
+    // Without it: getStcPayEnabled() falls back to true, so STC Pay stays
+    // visible and the super admin's toggle appears to save but has nothing
+    // to read back. Deliberately harmless - the fallback is ON for exactly
+    // this reason - but the toggle is a lie until the row exists.
+    run: async () => {
+      const { data, error } = await supabase
+        .from('app_settings')
+        .select('key')
+        .eq('key', 'stcpay_enabled')
+        .maybeSingle();
+      if (error) return error.message;
+      return data ? null : 'app_settings row stcpay_enabled is missing (section 1 of the migration)';
+    },
+    sqlFile: '0044_stcpay_visibility.sql',
+  },
+  {
     id: '0043-grant',
     name: 'super admin flag and login IPs stay hidden from the client roles (CRITICAL)',
     // Two different holes in one check. is_super_admin must not be

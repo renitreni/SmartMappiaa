@@ -77,6 +77,9 @@ export default function BookPage() {
 
   const [booking, setBooking] = useState(null);
   const [instructions, setInstructions] = useState(null);
+  // STC Pay manual transfer is a super-admin switch (0044). Absent means
+  // on, so an older backend that does not send the field still shows it.
+  const stcOn = instructions?.stcPayAvailable !== false;
   const [file, setFile] = useState(null);
   const [copied, setCopied] = useState(null);
 
@@ -377,12 +380,16 @@ export default function BookPage() {
                   onPaid={() => navigate(`/track/${booking.bookingCode}`)}
                   onError={setError}
                 />
+                {stcOn && (
                 <div className="relative my-5 text-center">
                   <div className="absolute inset-0 flex items-center"><div className="w-full border-t border-brand-border" /></div>
                   <span className="relative bg-white px-3 text-xs font-bold uppercase tracking-wider text-brand-grey">or pay manually</span>
                 </div>
+                )}
               </div>
 
+              {stcOn && (
+                <>
               <div>
                 <div className="flex items-center gap-2 mb-4">
                   <span className="w-8 h-8 rounded-xl bg-brand-warm text-brand-orange flex items-center justify-center">
@@ -396,8 +403,8 @@ export default function BookPage() {
 
                 <div className="rounded-2xl border border-brand-border divide-y divide-brand-border overflow-hidden">
                   {[
-                    { key: 'number', label: 'STC Pay number', value: instructions.stcPay.number || '—' },
-                    { key: 'name', label: 'Recipient', value: instructions.stcPay.recipientName },
+                    { key: 'number', label: 'STC Pay number', value: instructions.stcPay?.number || '—' },
+                    { key: 'name', label: 'Recipient', value: instructions.stcPay?.recipientName },
                     { key: 'ref', label: 'Reference (add as note)', value: instructions.reference, mono: true },
                   ].map(({ key, label, value, mono }) => (
                     <div key={key} className="flex items-center justify-between gap-3 px-4 py-3 bg-white">
@@ -476,10 +483,18 @@ export default function BookPage() {
               <button onClick={submitProof} disabled={busy || !file} className={btnPrimary + ' w-full py-4'}>
                 {busy ? <Spinner className="!border-white/40 !border-t-white" /> : <><Upload className="w-4 h-4" /> Submit proof & start tracking</>}
               </button>
+                </>
+              )}
 
-              {instructions.testMode && (
+              {stcOn && instructions.testMode && (
                 <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-xl px-4 py-2.5 text-center font-medium">
                   Test mode is ON — your payment will auto-verify instantly.
+                </p>
+              )}
+
+              {!stcOn && !instructions.cardAvailable && (
+                <p className="text-sm text-brand-grey bg-brand-warm border border-brand-border rounded-xl px-4 py-3">
+                  Online payment is unavailable right now. Your booking is held — pay the driver in cash, or contact support.
                 </p>
               )}
             </div>

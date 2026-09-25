@@ -17,6 +17,9 @@ export default function PayPage() {
   const { code } = useParams();
   const navigate = useNavigate();
   const [instructions, setInstructions] = useState(null);
+  // STC Pay manual transfer is a super-admin switch (0044). Absent means
+  // on, so an older backend that does not send the field still shows it.
+  const stcOn = instructions?.stcPayAvailable !== false;
   const [loadErr, setLoadErr] = useState(null);
   const [error, setError] = useState(null);
   const [file, setFile] = useState(null);
@@ -71,14 +74,16 @@ export default function PayPage() {
               onPaid={() => navigate(`/track/${code}`)}
               onError={setError}
             />
+            {stcOn && (
+              <>
             <div className="relative my-5 text-center">
               <div className="absolute inset-0 flex items-center"><div className="w-full border-t border-brand-border" /></div>
               <span className="relative bg-white px-3 text-xs font-bold uppercase tracking-wider text-brand-grey">or pay manually</span>
             </div>
 
             <div className="bg-brand-warm border border-brand-border rounded-xl p-4 space-y-2 text-sm">
-              <div className="flex justify-between"><span className="text-brand-grey">Send via STC Pay to</span><span className="font-bold">{instructions.stcPay.number || '—'}</span></div>
-              <div className="flex justify-between"><span className="text-brand-grey">Recipient</span><span className="font-bold">{instructions.stcPay.recipientName}</span></div>
+              <div className="flex justify-between"><span className="text-brand-grey">Send via STC Pay to</span><span className="font-bold">{instructions.stcPay?.number || '—'}</span></div>
+              <div className="flex justify-between"><span className="text-brand-grey">Recipient</span><span className="font-bold">{instructions.stcPay?.recipientName}</span></div>
               {instructions.fare && (
                 <>
                   <div className="flex justify-between"><span className="text-brand-grey">Base fare</span><span>SAR {instructions.fare.base.toFixed(2)}</span></div>
@@ -114,6 +119,14 @@ export default function PayPage() {
                 </p>
               )}
             </div>
+              </>
+            )}
+
+            {!stcOn && !instructions.cardAvailable && (
+              <p className="text-sm text-brand-grey bg-brand-warm border border-brand-border rounded-xl px-4 py-3">
+                Online payment is unavailable right now. Your booking is held — pay the driver in cash, or contact support.
+              </p>
+            )}
           </Card>
         </div>
       )}

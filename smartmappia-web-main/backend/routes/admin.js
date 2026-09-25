@@ -108,7 +108,10 @@ router.get('/settings', supers.getSettings);
 router.patch(
   '/settings',
   requireSuperAdmin,
-  validateBody({ max_distance_km: { type: 'number', min: 0.1, max: 100000, nullable: true } }),
+  validateBody({
+    max_distance_km: { type: 'number', min: 0.1, max: 100000, nullable: true },
+    stcpay_enabled: { type: 'boolean' },
+  }),
   supers.updateSettings
 );
 
