@@ -28,6 +28,7 @@ import { roleHome } from '../lib/constants';
 import { Field, btnPrimary, btnGhost, Spinner } from '../components/ui';
 import PasswordFields from '../components/PasswordFields';
 import { isPasswordValid, getPasswordValidationError } from '../lib/passwordValidation';
+import { getEmailError, getNameError, MAX_NAME_LENGTH } from '../lib/fieldValidation';
 import { COMPANY } from '../../config/company';
 
 import { Capacitor } from '@capacitor/core';
@@ -88,7 +89,7 @@ const inputWithIconClass =
 
 // Names may only contain letters (incl. accented), spaces, hyphens and apostrophes
 // (e.g. "Al-Rashid", "O'Brien") — digits and other symbols are stripped as the user types.
-const sanitizeName = (v) => v.replace(/[^\p{L}\s'-]/gu, '');
+const sanitizeName = (v) => v.replace(/[^\p{L}\s'-]/gu, '').slice(0, MAX_NAME_LENGTH);
 
 const selectTriggerClass =
   'w-full bg-white border rounded-xl text-sm transition-all cursor-pointer ' +
@@ -471,8 +472,8 @@ export default function SignupPage() {
   const dateOfBirth = buildDateOfBirth(birthDay, birthMonth, birthYear);
 
   const step2Complete =
-    !!firstName.trim() &&
-    !!lastName.trim() &&
+    !getNameError(firstName, 'First name') &&
+    !getNameError(lastName, 'Last name') &&
     isValidLocalPhone(mobileLocal) &&
     (whatsappSameAsMobile || isValidLocalPhone(whatsappLocal)) &&
     !!birthDay &&
@@ -481,7 +482,7 @@ export default function SignupPage() {
     !!gender;
 
   const step3Complete =
-    !!email.trim() &&
+    !getEmailError(email) &&
     isPasswordValid(password) &&
     password === confirmPassword &&
     acceptedTerms &&
@@ -492,7 +493,10 @@ export default function SignupPage() {
     if (n === 1) return null;
 
     if (n === 2) {
-      if (!firstName.trim() || !lastName.trim()) return 'Please enter your first and last name.';
+      const firstNameError = getNameError(firstName, 'First name');
+      if (firstNameError) return firstNameError;
+      const lastNameError = getNameError(lastName, 'Last name');
+      if (lastNameError) return lastNameError;
       if (!isValidLocalPhone(mobileLocal)) return 'Please enter a valid mobile number.';
       if (!whatsappSameAsMobile && !isValidLocalPhone(whatsappLocal)) {
         return 'Please enter a valid WhatsApp number.';
@@ -503,7 +507,8 @@ export default function SignupPage() {
     }
 
     if (n === 3) {
-      if (!email.trim()) return 'Please enter your email address.';
+      const emailError = getEmailError(email);
+      if (emailError) return emailError;
       const passwordError = getPasswordValidationError(password);
       if (passwordError) return passwordError;
       if (password !== confirmPassword) return 'Passwords do not match.';
@@ -825,20 +830,22 @@ export default function SignupPage() {
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                       <Field label="First name *">
                         <input
-                          className={`${inputClass} ${showStepErrors && !firstName.trim() ? 'border-red-300 ring-2 ring-red-100' : ''}`}
+                          className={`${inputClass} ${showStepErrors && getNameError(firstName, 'First name') ? 'border-red-300 ring-2 ring-red-100' : ''}`}
                           value={firstName}
                           onChange={(e) => setFirstName(sanitizeName(e.target.value))}
                           placeholder="Ahmed"
                           autoComplete="given-name"
+                          maxLength={MAX_NAME_LENGTH}
                         />
                       </Field>
                       <Field label="Last name *">
                         <input
-                          className={`${inputClass} ${showStepErrors && !lastName.trim() ? 'border-red-300 ring-2 ring-red-100' : ''}`}
+                          className={`${inputClass} ${showStepErrors && getNameError(lastName, 'Last name') ? 'border-red-300 ring-2 ring-red-100' : ''}`}
                           value={lastName}
                           onChange={(e) => setLastName(sanitizeName(e.target.value))}
                           placeholder="Al-Rashid"
                           autoComplete="family-name"
+                          maxLength={MAX_NAME_LENGTH}
                         />
                       </Field>
                     </div>
@@ -943,7 +950,7 @@ export default function SignupPage() {
                         <Mail className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-brand-grey pointer-events-none" />
                         <input
                           type="email"
-                          className={`${inputWithIconClass} ${showStepErrors && !email.trim() ? 'border-red-300 ring-2 ring-red-100' : ''}`}
+                          className={`${inputWithIconClass} ${showStepErrors && getEmailError(email) ? 'border-red-300 ring-2 ring-red-100' : ''}`}
                           value={email}
                           onChange={(e) => setEmail(e.target.value)}
                           placeholder="email"

@@ -43,6 +43,7 @@ import {
   Undo2,
 } from 'lucide-react';
 import { api } from '../lib/api';
+import { MAX_NAME_LENGTH } from '../lib/fieldValidation';
 import { toCsv, downloadCsv } from '../lib/csv';
 import { useBroadcast } from '../lib/useBroadcast';
 import { formatAddressDetail } from '../lib/address';
@@ -836,6 +837,7 @@ function MerchantsSection({ onError }) {
                             onChange={(e) => setOwnerForm((f) => ({ ...f, full_name: e.target.value }))}
                             className={inputClass + ' !py-2'}
                             placeholder="Full name (optional)"
+                            maxLength={MAX_NAME_LENGTH}
                           />
                           <input
                             value={ownerForm.phone}

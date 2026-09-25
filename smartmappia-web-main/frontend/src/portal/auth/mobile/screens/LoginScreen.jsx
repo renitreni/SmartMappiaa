@@ -17,7 +17,7 @@ export default function MobileLoginScreen({
         <div className="auth-field__error" style={{ marginBottom: 16 }}>{bannerError}</div>
       )}
 
-      <form onSubmit={onSubmit}>
+      <form onSubmit={onSubmit} noValidate>
         <AuthInput
           id="email" label="Email Address" type="email"
           value={email} onChange={setEmail} autoComplete="username"

@@ -4,6 +4,7 @@ import AuthButton from '../AuthButton';
 import PhoneInput from '../PhoneInput';
 import { UserIcon, MailIcon, LockIcon, EyeIcon, EyeOffIcon } from '../icons';
 import { daysInMonth } from '../../authHelpers';
+import { getEmailError, getNameError, MAX_NAME_LENGTH } from '../../../lib/fieldValidation';
 import { COMPANY } from '../../../../config/company';
 import { useState } from 'react';
 
@@ -170,10 +171,10 @@ if (partnerPanel) {
       )}
 
       {step === 2 && (
-        <form onSubmit={(e) => { e.preventDefault(); goNext(); }}>
+        <form onSubmit={(e) => { e.preventDefault(); goNext(); }} noValidate>
 <div style={{ display: 'flex', flexDirection: 'column', gap: 0 }}>
-  <AuthInput id="firstName" label="First name *" value={firstName} onChange={setFirstName} placeholder="Ahmed" error={showStepErrors && !firstName.trim() ? 'Required' : null} />
-  <AuthInput id="lastName" label="Last name *" value={lastName} onChange={setLastName} placeholder="Al-Rashid" error={showStepErrors && !lastName.trim() ? 'Required' : null} />
+  <AuthInput id="firstName" label="First name *" value={firstName} onChange={setFirstName} placeholder="Ahmed" maxLength={MAX_NAME_LENGTH} error={showStepErrors ? getNameError(firstName, 'First name') : null} />
+  <AuthInput id="lastName" label="Last name *" value={lastName} onChange={setLastName} placeholder="Al-Rashid" maxLength={MAX_NAME_LENGTH} error={showStepErrors ? getNameError(lastName, 'Last name') : null} />
 </div>
 
           <PhoneInput countryCode={mobileRegion} onCountryChange={setMobileRegion} value={mobileLocal} onChange={setMobileLocal} />
@@ -220,12 +221,13 @@ if (partnerPanel) {
           </div>
 
           <AuthButton type="submit" icon={null} disabled={!step2Complete}>Continue</AuthButton>
+          {!step2Complete && <p className="auth-step-hint">Please fill in all required fields to continue.</p>}
         </form>
       )}
 
       {step === 3 && (
-        <form onSubmit={submit}>
-          <AuthInput id="email" label="Email address *" icon={<MailIcon />} type="email" value={email} onChange={setEmail} />
+        <form onSubmit={submit} noValidate>
+          <AuthInput id="email" label="Email address *" icon={<MailIcon />} type="email" value={email} onChange={setEmail} error={showStepErrors ? getEmailError(email) : null} />
 <AuthInput
   id="password"
   label="Password *"
@@ -275,6 +277,7 @@ if (partnerPanel) {
           <AuthButton type="submit" icon={null} disabled={busy || !step3Complete}>
             {busy ? 'Creating account…' : 'Create account'}
           </AuthButton>
+          {!step3Complete && !busy && <p className="auth-step-hint">Please fill in all required fields to continue.</p>}
         </form>
       )}
 
