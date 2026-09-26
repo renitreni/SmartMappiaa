@@ -17,19 +17,19 @@ jobs:
           node-version: 20
 
       - name: Install frontend dependencies
-        working-directory: frontend
+        working-directory: smartmappia-web-main/frontend
         run: npm ci
 
       - name: Build web app
-        working-directory: frontend
+        working-directory: smartmappia-web-main/frontend
         run: npm run build
 
       - name: Sync Capacitor iOS
-        working-directory: frontend
+        working-directory: smartmappia-web-main/frontend
         run: npx cap sync ios
 
       - name: Resolve Swift Package dependencies
-        working-directory: frontend
+        working-directory: smartmappia-web-main/frontend
         run: |
           xcodebuild \
             -project ios/App/App.xcodeproj \
@@ -37,7 +37,7 @@ jobs:
             -resolvePackageDependencies
 
       - name: Build iOS app
-        working-directory: frontend
+        working-directory: smartmappia-web-main/frontend
         run: |
           xcodebuild \
             -project ios/App/App.xcodeproj \
