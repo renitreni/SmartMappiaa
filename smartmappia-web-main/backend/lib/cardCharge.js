@@ -35,6 +35,19 @@ function idempotencyKeyFrom(req) {
   return UUID_RE.test(header) ? header : crypto.randomUUID();
 }
 
+// The customer only ever sees "please try again", so this line is the only
+// place the real reason survives. detail is Tap's errors array or a network
+// message, never card data.
+function logFailure(stage, err, { vertical, code }) {
+  console.error(`cardCharge: ${stage} failed`, {
+    vertical,
+    code,
+    kind: (err && err.kind) || null,
+    message: (err && err.message) || String(err),
+    detail: (err && (err.detail || err.code)) || null,
+  });
+}
+
 // Result shapes the controllers map onto HTTP:
 //   { kind: 'redirect', url }              -> 201 { code, url }
 //   { kind: 'paid', chargeId }             -> 201 { code, paymentStatus: 'paid' }
@@ -92,6 +105,7 @@ async function chargeForOrder({
         clientIp: req.ip,
       });
     } catch (err) {
+      logFailure('saved card token', err, { vertical, code });
       // Tap refusing to tokenise a card we hold means the card is gone at
       // the issuer or was revoked. Retire it so it stops being offered.
       await savedCards.retireMethod(method.id, 'gateway refused to tokenise');
@@ -119,6 +133,7 @@ async function chargeForOrder({
         redirectPath,
       });
     } catch (err) {
+      logFailure('saved card charge', err, { vertical, code });
       return {
         kind: 'error',
         status: 502,
@@ -135,6 +150,7 @@ async function chargeForOrder({
   try {
     customerId = await savedCards.ensureCustomer(profile);
   } catch (err) {
+    logFailure('customer', err, { vertical, code });
     return { kind: 'error', status: 502, error: 'Could not start the card payment. Please try again.' };
   }
 
@@ -166,6 +182,7 @@ async function chargeForOrder({
       redirectPath,
     });
   } catch (err) {
+    logFailure('new card charge', err, { vertical, code });
     return { kind: 'error', status: 502, error: 'Could not start the card payment. Please try again.' };
   }
   return interpretCharge(charge);

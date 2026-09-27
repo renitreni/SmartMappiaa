@@ -84,12 +84,16 @@ async function loadOwnedMethod(userId, methodId) {
 // requires a customer on every request, so this runs on the first card
 // payment and never again.
 async function ensureCustomer(profile) {
-  const { data: existing } = await supabase
+  const { data: existing, error: readErr } = await supabase
     .from('payment_customers')
     .select('gateway_customer_id')
     .eq('user_id', profile.id)
     .eq('provider', 'tap')
     .maybeSingle();
+  // A failed read is not "no customer yet". Carrying on would create a Tap
+  // customer the insert below can't save either, and a fresh orphan at Tap
+  // on every retry.
+  if (readErr) throw readErr;
   if (existing && existing.gateway_customer_id) return existing.gateway_customer_id;
 
   const customer = await tap.createCustomer(profile);
