@@ -90,6 +90,9 @@ export default function ShopCheckoutPage() {
   async function placeOrder() {
     if (!address.trim()) return setError('Please set your delivery address.');
     if (!point) return setError('Please drop a pin on your delivery location.');
+    if (!street.trim() || !buildingNumber.trim()) {
+      return setError('Please enter the street and building / house number so the rider can find you.');
+    }
 
     setError(null);
     setBusy(true);
@@ -100,8 +103,8 @@ export default function ShopCheckoutPage() {
           delivery_address: address.trim(),
           delivery_lat: point.lat,
           delivery_lng: point.lng,
-          delivery_street: street.trim() || null,
-          delivery_building: buildingNumber.trim() || null,
+          delivery_street: street.trim(),
+          delivery_building: buildingNumber.trim(),
           contact_phone: phone || null,
           payment_method: method,
         },
@@ -171,6 +174,7 @@ export default function ShopCheckoutPage() {
           coords={point}
           street={street}
           buildingNumber={buildingNumber}
+          requireStreetAndBuilding
           onChange={({ address: nextAddress, coords: nextCoords, street: nextStreet, buildingNumber: nextBuilding }) => {
             setAddress(nextAddress || '');
             setPoint(nextCoords || null);

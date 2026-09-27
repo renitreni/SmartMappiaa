@@ -72,6 +72,9 @@ export default function FoodCheckoutPage() {
   async function placeOrder() {
     if (!address.trim()) return setError('Please enter your delivery address.');
     if (!coords) return setError('Please tap "Use my location" so we can check the delivery radius.');
+    if (!street.trim() || !buildingNumber.trim()) {
+      return setError('Please enter the street and building / house number so the rider can find you.');
+    }
     if (!contactPhone.trim()) return setError('Please enter a contact number for the rider.');
 
     setError(null);
@@ -83,8 +86,8 @@ export default function FoodCheckoutPage() {
           delivery_address: address.trim(),
           delivery_lat: coords.lat,
           delivery_lng: coords.lng,
-          delivery_street: street.trim() || null,
-          delivery_building: buildingNumber.trim() || null,
+          delivery_street: street.trim(),
+          delivery_building: buildingNumber.trim(),
           contact_phone: contactPhone.trim(),
           payment_method: method,
         },
@@ -181,6 +184,7 @@ export default function FoodCheckoutPage() {
                 coords={coords}
                 street={street}
                 buildingNumber={buildingNumber}
+                requireStreetAndBuilding
                 onChange={({ address: nextAddress, coords: nextCoords, street: nextStreet, buildingNumber: nextBuilding }) => {
                   setAddress(nextAddress);
                   setCoords(nextCoords);

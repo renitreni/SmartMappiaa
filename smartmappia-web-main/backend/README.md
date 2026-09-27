@@ -147,6 +147,7 @@ webhook is shared.
 **Maps proxies** (public, rate-limited, 60-second LRU cache)
 - `GET /api/route` — Google Routes API
 - `GET /api/locations/search` · `/details` · `/reverse` · `/nearby` — Places and Geocoding
+  (`/reverse` also returns `street` and `buildingNumber`, used to prefill the checkout address)
 
 The browser never holds a key with server privileges — `GOOGLE_MAPS_SERVER_KEY` stays here.
 
