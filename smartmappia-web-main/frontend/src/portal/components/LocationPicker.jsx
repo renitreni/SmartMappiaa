@@ -19,6 +19,7 @@ export default function LocationPicker({
   buildingNumber,
   onChange,
   showMap = true,
+  requireStreetAndBuilding = false,
   className = '',
 }) {
   const [query, setQuery] = useState(address || '');
@@ -28,6 +29,9 @@ export default function LocationPicker({
   const [locating, setLocating] = useState(false);
   const [copied, setCopied] = useState(false);
   const [error, setError] = useState(null);
+  // The last "use current location" or confirmed pin had no street name, so
+  // the address is only coordinates until the customer types the rest.
+  const [lookupFailed, setLookupFailed] = useState(false);
 
   // Street/building are fully controlled by the parent — no local mirror, so
   // there is nothing to keep in sync and no stale copy to leak into onChange.
@@ -41,6 +45,7 @@ export default function LocationPicker({
   const [adjusting, setAdjusting] = useState(false);
   const [pendingCoords, setPendingCoords] = useState(null);
   const [pendingAddress, setPendingAddress] = useState('');
+  const [pendingParts, setPendingParts] = useState({});
   const [pendingLoading, setPendingLoading] = useState(false);
   const [pendingFailed, setPendingFailed] = useState(false);
   // Frozen at open: the map reads its camera once at creation, so this must
@@ -156,6 +161,7 @@ export default function LocationPicker({
         return;
       }
       setQuery(finalAddress);
+      setLookupFailed(false);
       onChange?.({ address: finalAddress, coords: coordsOut, street: streetInput, buildingNumber: buildingInput });
     } catch (err) {
       setError(err.message || 'Could not pin that place.');
@@ -173,15 +179,18 @@ export default function LocationPicker({
     try {
       const pos = await getCurrentPositionOnce();
       const nextCoords = { lat: pos.lat, lng: pos.lng };
-      let nextAddress = 'My current location';
+      let found = {};
       try {
         const data = await api.locationReverse(nextCoords.lat, nextCoords.lng);
-        nextAddress = data.place?.address || data.place?.name || nextAddress;
+        found = data.place || {};
       } catch {
         /* GPS still works even if reverse geocoding fails. */
       }
+      const resolved = found.address || found.name || '';
+      const nextAddress = resolved || coordLabel(nextCoords);
+      setLookupFailed(!resolved);
       setQuery(nextAddress);
-      onChange?.({ address: nextAddress, coords: nextCoords, street: streetInput, buildingNumber: buildingInput });
+      onChange?.({ address: nextAddress, coords: nextCoords, ...withLookedUpParts(found) });
     } catch (err) {
       setError(err.message || 'Could not get your location. Please allow location access and try again.');
     } finally {
@@ -202,6 +211,16 @@ export default function LocationPicker({
     }
   }
 
+  // Google's street and building number fill the fields only when they are
+  // empty: in KSA its numbers are estimates, and what the customer typed is
+  // the better answer.
+  function withLookedUpParts(found) {
+    return {
+      street: streetInput || found.street || '',
+      buildingNumber: buildingInput || found.buildingNumber || '',
+    };
+  }
+
   function handleStreetChange(value) {
     onChange?.({ address, coords, street: value, buildingNumber: buildingInput });
   }
@@ -215,6 +234,7 @@ export default function LocationPicker({
     const seed = coords?.lat && coords?.lng ? { lat: coords.lat, lng: coords.lng } : null;
     setPendingCoords(seed);
     setPendingAddress(address || '');
+    setPendingParts({});
     // The map is created at this center, so the opening `idle` reports it back
     // — recording it here is what lets handleMapIdle skip that first lookup.
     lastReverseRef.current = seed;
@@ -226,6 +246,7 @@ export default function LocationPicker({
     setAdjusting(false);
     setPendingCoords(null);
     setPendingAddress('');
+    setPendingParts({});
     setPendingFailed(false);
     lastReverseRef.current = null;
   }
@@ -260,6 +281,7 @@ export default function LocationPicker({
       if (reverseSeqRef.current !== seq) return;
       const resolved = data.place?.address || data.place?.name || '';
       setPendingAddress(resolved || coordLabel({ lat, lng }));
+      setPendingParts(data.place || {});
       setPendingFailed(!resolved);
     } catch {
       // Geocoding is down, rate-limited, or the spot has no street address.
@@ -267,6 +289,7 @@ export default function LocationPicker({
       // resolved a name we did not.
       if (reverseSeqRef.current === seq) {
         setPendingAddress(coordLabel({ lat, lng }));
+        setPendingParts({});
         setPendingFailed(true);
       }
     } finally {
@@ -278,17 +301,22 @@ export default function LocationPicker({
     if (!pendingCoords) return;
     const finalAddress = pendingAddress || coordLabel(pendingCoords);
     setQuery(finalAddress);
-    onChange?.({
-      address: finalAddress,
-      coords: pendingCoords,
-      street: streetInput,
-      buildingNumber: buildingInput,
-    });
+    setLookupFailed(pendingFailed);
+    onChange?.({ address: finalAddress, coords: pendingCoords, ...withLookedUpParts(pendingParts) });
     setAdjusting(false);
     setPendingCoords(null);
     setPendingAddress('');
+    setPendingParts({});
     setPendingFailed(false);
   }
+
+  const optional = requireStreetAndBuilding ? ' *' : ' (optional)';
+  const streetHint = (
+    <p className="text-xs font-bold text-amber-700">
+      We could not look up a street name here. The pin itself is still exact — add the street and
+      building number above so your rider can find you.
+    </p>
+  );
 
   return (
     <div className={`space-y-3 ${className}`}>
@@ -303,6 +331,7 @@ export default function LocationPicker({
             value={query}
             onChange={(e) => {
               setQuery(e.target.value);
+              setLookupFailed(false);
               // A hand-typed string is not a geocoded point — drop any stale coords so
               // coordinates only ever come from picking a result or "Use current location".
               onChange?.({ address: e.target.value, coords: null, street: streetInput, buildingNumber: buildingInput });
@@ -315,6 +344,7 @@ export default function LocationPicker({
               onClick={() => {
                 setQuery('');
                 setResults([]);
+                setLookupFailed(false);
                 onChange?.({ address: '', coords: null, street: streetInput, buildingNumber: buildingInput });
               }}
               className="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 rounded-lg text-brand-grey hover:bg-brand-surface"
@@ -327,23 +357,28 @@ export default function LocationPicker({
       </div>
 
       <div className="grid grid-cols-2 gap-2">
-        <Field label="Street (optional)">
+        <Field label={`Street${optional}`}>
           <input
             className={inputClass}
             value={streetInput}
             onChange={(e) => handleStreetChange(e.target.value)}
             placeholder="e.g. King Fahd Rd"
+            required={requireStreetAndBuilding}
+            aria-required={requireStreetAndBuilding}
           />
         </Field>
-        <Field label="Building / house no. (optional)">
+        <Field label={`Building / house no.${optional}`}>
           <input
             className={inputClass}
             value={buildingInput}
             onChange={(e) => handleBuildingChange(e.target.value)}
             placeholder="e.g. 12"
+            required={requireStreetAndBuilding}
+            aria-required={requireStreetAndBuilding}
           />
         </Field>
       </div>
+      {lookupFailed && !adjusting && !(streetInput.trim() && buildingInput.trim()) && streetHint}
 
       <div className="flex flex-col sm:flex-row gap-2">
         <button type="button" onClick={useCurrentLocation} disabled={locating} className={btnGhost + ' flex-1'}>
@@ -394,12 +429,7 @@ export default function LocationPicker({
           <p className="text-xs text-brand-grey min-h-[1em]">
             {pendingLoading ? 'Locating...' : pendingAddress || 'Pan the map to drop the pin.'}
           </p>
-          {pendingFailed && !pendingLoading && (
-            <p className="text-xs font-bold text-amber-700">
-              We could not look up a street name here. The pin itself is still exact — add the
-              street and building number above so your rider can find you.
-            </p>
-          )}
+          {pendingFailed && !pendingLoading && streetHint}
           <div className="flex gap-2">
             <button type="button" onClick={cancelAdjusting} className={btnGhost + ' flex-1'}>
               Cancel

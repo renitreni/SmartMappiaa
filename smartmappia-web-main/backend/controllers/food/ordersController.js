@@ -240,8 +240,8 @@ async function checkout(req, res) {
         delivery_address: b.delivery_address,
         delivery_lat: b.delivery_lat ?? null,
         delivery_lng: b.delivery_lng ?? null,
-        delivery_street: b.delivery_street || null,
-        delivery_building: b.delivery_building || null,
+        delivery_street: b.delivery_street,
+        delivery_building: b.delivery_building,
         contact_phone: b.contact_phone || null,
         payment_method: b.payment_method || 'stcpay',
       })

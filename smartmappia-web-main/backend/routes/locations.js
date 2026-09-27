@@ -5,6 +5,7 @@ const {
   locationReverseLimiter,
   locationNearbyLimiter,
 } = require('../middleware/rateLimiters');
+const { placeFromReverseGeocode } = require('../lib/geo');
 
 // ---------------------------------------------------------------------
 // Location endpoints backed by Google Maps Platform (replaces the old
@@ -212,17 +213,14 @@ router.get('/reverse', locationReverseLimiter, async (req, res) => {
     const gres = await fetch(`${GEOCODE_URL}?${params}`);
     if (!gres.ok) throw new Error(`Geocoding ${gres.status}`);
     const data = await gres.json();
-    const top = (data.results || [])[0];
-    if (!top) return res.status(404).json({ error: 'No address found for this location' });
-
-    const place = {
-      id: String(top.place_id || `${lat},${lng}`),
-      name: top.formatted_address?.split(',')[0] || 'Selected location',
-      address: top.formatted_address || '',
-      lat: num(top.geometry?.location?.lat, lat),
-      lng: num(top.geometry?.location?.lng, lng),
-      type: (top.types && top.types[0]) || 'place',
-    };
+    // Geocoding reports a disabled API or a bad key as HTTP 200 with a status
+    // and zero results. Read as "no address here", that hid a broken key
+    // behind a 404 nobody logged.
+    if (data.status !== 'OK' && data.status !== 'ZERO_RESULTS') {
+      throw new Error(`Geocoding ${data.status}: ${data.error_message || 'no message'}`);
+    }
+    const place = placeFromReverseGeocode(data.results, lat, lng);
+    if (!place) return res.status(404).json({ error: 'No address found for this location' });
     cacheSet(cacheKey, place);
     return res.json({ place });
   } catch (err) {
