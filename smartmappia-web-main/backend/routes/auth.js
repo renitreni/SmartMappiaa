@@ -33,6 +33,10 @@ router.patch(
     mobile_number: { type: 'string', maxLength: 40, nullable: true },
     whatsapp_number: { type: 'string', maxLength: 40, nullable: true },
     address: { type: 'string', maxLength: 500, nullable: true },
+    delivery_lat: { type: 'number', min: -90, max: 90, nullable: true },
+    delivery_lng: { type: 'number', min: -180, max: 180, nullable: true },
+    delivery_street: { type: 'string', maxLength: 200, nullable: true },
+    delivery_building: { type: 'string', maxLength: 100, nullable: true },
     avatar_url: { type: 'string', maxLength: 500, nullable: true },
   }),
   updateProfile

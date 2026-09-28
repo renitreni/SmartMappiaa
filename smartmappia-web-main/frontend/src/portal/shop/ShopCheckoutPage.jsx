@@ -55,12 +55,21 @@ export default function ShopCheckoutPage() {
   const { profile } = useAuth();
 
   const [cart, setCart] = useState(null);
-  const [loading, setLoading] = useState(true);
-  const [address, setAddress] = useState('');
-  const [point, setPoint] = useState(null);
-  const [street, setStreet] = useState('');
-  const [buildingNumber, setBuildingNumber] = useState('');
-  const [phone, setPhone] = useState(profile?.mobile || '');
+  const [loading, setLoading] = useState(Boolean(storeId));
+  const [addressOverride, setAddress] = useState(undefined);
+  const [pointOverride, setPoint] = useState(undefined);
+  const [streetOverride, setStreet] = useState(undefined);
+  const [buildingOverride, setBuildingNumber] = useState(undefined);
+  const [phoneOverride, setPhone] = useState(undefined);
+  const address = addressOverride ?? profile?.address ?? '';
+  const point = pointOverride !== undefined
+    ? pointOverride
+    : profile?.deliveryLat != null && profile?.deliveryLng != null
+      ? { lat: profile.deliveryLat, lng: profile.deliveryLng }
+      : null;
+  const street = streetOverride ?? profile?.deliveryStreet ?? '';
+  const buildingNumber = buildingOverride ?? profile?.deliveryBuilding ?? '';
+  const phone = phoneOverride ?? profile?.mobile ?? '';
   const [method, setMethod] = useState('stcpay');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
@@ -73,7 +82,6 @@ export default function ShopCheckoutPage() {
 
   useEffect(() => {
     if (!storeId) {
-      setLoading(false);
       return;
     }
     api
@@ -82,10 +90,6 @@ export default function ShopCheckoutPage() {
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false));
   }, [storeId]);
-
-  useEffect(() => {
-    if (profile?.mobile && !phone) setPhone(profile.mobile);
-  }, [profile]); // eslint-disable-line react-hooks/exhaustive-deps
 
   async function placeOrder() {
     if (!address.trim()) return setError('Please set your delivery address.');

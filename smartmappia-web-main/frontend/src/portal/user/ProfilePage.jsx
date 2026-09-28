@@ -5,7 +5,7 @@
 // /api/auth/profile then refreshes the AuthProvider profile so the navbar
 // picks the changes up instantly.
 // ---------------------------------------------------------------------
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Camera, User, Phone, MapPin, Mail, KeyRound, Save, History, Trash2 } from 'lucide-react';
 import { api } from '../lib/api';
@@ -16,6 +16,7 @@ import { compressImage } from '../lib/imageCompress';
 import { notifySuccess, notifyError, confirmAction } from '../lib/notify';
 import { getPasswordValidationError } from '../lib/passwordValidation';
 import { PortalShell, Card, Field, Spinner, inputClass, btnPrimary, btnGhost } from '../components/ui';
+import LocationPicker from '../components/LocationPicker';
 
 function initialsOf(name, email) {
   const source = (name || email || '?').trim();
@@ -33,6 +34,11 @@ export default function ProfilePage() {
     mobile: profile?.mobile || '',
     whatsapp: profile?.whatsapp || '',
     address: profile?.address || '',
+    coords: profile?.deliveryLat != null && profile?.deliveryLng != null
+      ? { lat: profile.deliveryLat, lng: profile.deliveryLng }
+      : null,
+    street: profile?.deliveryStreet || '',
+    buildingNumber: profile?.deliveryBuilding || '',
   });
   const [savingInfo, setSavingInfo] = useState(false);
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
@@ -46,8 +52,34 @@ export default function ProfilePage() {
 
   const set = (k) => (e) => setForm((f) => ({ ...f, [k]: e.target.value }));
 
+  // A direct visit can render just before AuthProvider finishes loading the
+  // profile. Hydrate once when it arrives, without later overwriting edits.
+  const hydratedProfileRef = useRef(null);
+  useEffect(() => {
+    if (!profile?.id || hydratedProfileRef.current === profile.id) return;
+    hydratedProfileRef.current = profile.id;
+    setForm({
+      fullName: profile.fullName || '',
+      mobile: profile.mobile || '',
+      whatsapp: profile.whatsapp || '',
+      address: profile.address || '',
+      coords: profile.deliveryLat != null && profile.deliveryLng != null
+        ? { lat: profile.deliveryLat, lng: profile.deliveryLng }
+        : null,
+      street: profile.deliveryStreet || '',
+      buildingNumber: profile.deliveryBuilding || '',
+    });
+  }, [profile]);
+
   async function saveInfo(e) {
     e.preventDefault();
+    const hasAnyLocation = Boolean(
+      form.address.trim() || form.coords || form.street.trim() || form.buildingNumber.trim()
+    );
+    if (hasAnyLocation && (!form.address.trim() || !form.coords || !form.street.trim() || !form.buildingNumber.trim())) {
+      notifyError('Complete the delivery address, street, building number, and map pin before saving.');
+      return;
+    }
     setSavingInfo(true);
     try {
       await api.updateProfile({
@@ -55,6 +87,10 @@ export default function ProfilePage() {
         mobile_number: form.mobile.trim() || null,
         whatsapp_number: form.whatsapp.trim() || null,
         address: form.address.trim() || null,
+        delivery_lat: form.coords?.lat ?? null,
+        delivery_lng: form.coords?.lng ?? null,
+        delivery_street: form.street.trim() || null,
+        delivery_building: form.buildingNumber.trim() || null,
       });
       await refreshProfile();
       notifySuccess('Profile updated', 'Your information was saved.');
@@ -236,18 +272,32 @@ export default function ProfilePage() {
                 </div>
               </Field>
             </div>
-            <Field label="Delivery address">
-              <div className="relative">
-                <MapPin className="w-4 h-4 text-brand-grey absolute left-3.5 top-3.5" />
-                <textarea
-                  value={form.address}
-                  onChange={set('address')}
-                  rows={2}
-                  className={inputClass + ' !pl-10 resize-none'}
-                  placeholder="Building, street, district, city"
-                />
-              </div>
-            </Field>
+            <div className="pt-2 border-t border-brand-border">
+              <p className="font-black text-brand-black mb-1 flex items-center gap-2">
+                <MapPin className="w-4 h-4 text-brand-orange" /> Saved delivery location
+              </p>
+              <p className="text-xs text-brand-grey mb-3">
+                Food and shop checkout will automatically use this address and map pin.
+              </p>
+              <LocationPicker
+                label="Delivery address"
+                placeholder="Search nearby places, streets, or districts"
+                address={form.address}
+                coords={form.coords}
+                street={form.street}
+                buildingNumber={form.buildingNumber}
+                requireStreetAndBuilding
+                onChange={({ address, coords, street, buildingNumber }) => {
+                  setForm((current) => ({
+                    ...current,
+                    address: address || '',
+                    coords: coords || null,
+                    street: street || '',
+                    buildingNumber: buildingNumber || '',
+                  }));
+                }}
+              />
+            </div>
             <button type="submit" disabled={savingInfo} className={btnPrimary + ' w-full'}>
               {savingInfo ? <Spinner className="!border-white/40 !border-t-white" /> : (<><Save className="w-4 h-4" /> Save changes</>)}
             </button>

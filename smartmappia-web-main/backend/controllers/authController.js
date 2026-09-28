@@ -14,6 +14,7 @@ const { config } = require('../lib/config');
 const {
   hasExtendedProfileColumns,
   hasProfileV2Columns,
+  hasSavedDeliveryColumns,
   hasSuperAdminColumns,
   profileSelectColumns,
   buildProfileUpsert,
@@ -50,6 +51,10 @@ function profileJson(profile, merchant = null) {
     serviceTypes: profile.service_types,
     avatarUrl: profile.avatar_url ?? null,
     address: profile.address ?? null,
+    deliveryLat: profile.delivery_lat ?? null,
+    deliveryLng: profile.delivery_lng ?? null,
+    deliveryStreet: profile.delivery_street ?? null,
+    deliveryBuilding: profile.delivery_building ?? null,
     merchant,
   };
 }
@@ -264,6 +269,7 @@ async function syncProfile(req, res) {
 
     const extended = await hasExtendedProfileColumns(supabase);
     const v2 = await hasProfileV2Columns(supabase);
+    const savedDelivery = await hasSavedDeliveryColumns(supabase);
     const tiered = await hasSuperAdminColumns(supabase);
     const upsertRow = buildProfileUpsert({
       id,
@@ -278,7 +284,7 @@ async function syncProfile(req, res) {
     const { data: profile, error } = await supabase
       .from('profiles')
       .upsert(upsertRow, { onConflict: 'id' })
-      .select(profileSelectColumns(extended, v2, tiered))
+      .select(profileSelectColumns(extended, v2, tiered, savedDelivery))
       .single();
 
     if (error) {
@@ -322,6 +328,7 @@ async function updateProfile(req, res) {
   try {
     const b = req.body; // whitelisted by the route schema
     const v2 = await hasProfileV2Columns(supabase);
+    const savedDelivery = await hasSavedDeliveryColumns(supabase);
 
     const patch = {};
     for (const key of ['full_name', 'mobile_number', 'whatsapp_number']) {
@@ -340,6 +347,25 @@ async function updateProfile(req, res) {
         )
       );
     }
+    const deliveryKeys = [
+      'delivery_lat',
+      'delivery_lng',
+      'delivery_street',
+      'delivery_building',
+    ];
+    if (savedDelivery) {
+      for (const key of deliveryKeys) {
+        if (key in b) patch[key] = b[key] ?? null;
+      }
+    } else if (deliveryKeys.some((key) => key in b)) {
+      return res.status(409).json(
+        opsError(
+          req,
+          'Saved map pins are temporarily unavailable. Your other details were not changed.',
+          'Run backend/migrations/0045_saved_delivery_location.sql in the Supabase SQL Editor.'
+        )
+      );
+    }
     if (Object.keys(patch).length === 0) {
       return res.status(400).json({ error: 'Nothing to update' });
     }
@@ -350,7 +376,7 @@ async function updateProfile(req, res) {
       .from('profiles')
       .update(patch)
       .eq('id', req.userId)
-      .select(profileSelectColumns(extended, v2, tiered))
+      .select(profileSelectColumns(extended, v2, tiered, savedDelivery))
       .single();
     if (error || !profile) {
       console.error('updateProfile error:', error);
