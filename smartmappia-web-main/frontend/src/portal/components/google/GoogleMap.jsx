@@ -7,13 +7,13 @@
 // both the website and the Capacitor APK webview — no native Google Maps SDK.
 //
 // The brand pins (teardrops, rotating driver car) are reused unchanged from the
-// old renderer's pinHtml.js — they are plain DOM elements, which Google's
+// shared pinHtml.js — they are plain DOM elements, which Google's
 // AdvancedMarkerElement takes directly as marker content.
 // ---------------------------------------------------------------------
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { RIYADH_CENTER } from '../../lib/constants';
 import { haversineKm, pathMetrics, projectOnPath, pointAlongPath } from '../../lib/geo';
-import { buildPinEl, refreshPinEl, updateDriverHeading, pinSignature } from '../maplibre/pinHtml';
+import { buildPinEl, refreshPinEl, updateDriverHeading, pinSignature } from '../map/pinHtml';
 
 const BROWSER_KEY = import.meta.env.VITE_GOOGLE_MAPS_BROWSER_KEY;
 const MAP_ID = import.meta.env.VITE_GOOGLE_MAP_ID;

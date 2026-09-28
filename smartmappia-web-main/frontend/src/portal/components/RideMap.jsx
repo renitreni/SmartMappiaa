@@ -1,9 +1,9 @@
 // ---------------------------------------------------------------------
 // RideMap — the shared map for every screen (tracking, booking, driver,
 // food, location picker). This is a thin SHELL: the actual renderer is the
-// Google Maps JS API living in ./google/GoogleMap.jsx, lazy-loaded so the
-// map engine is only downloaded on screens that actually show a map. One
-// integration serves the website AND the Capacitor APK webview.
+// selected provider, lazy-loaded so the map engine is only downloaded on
+// screens that actually show a map. One integration serves the website AND
+// the Capacitor APK webview.
 //
 // The prop contract is unchanged from the old Leaflet/MapLibre versions —
 // markers, line, height, className, legend, follow, followTarget — so no
@@ -12,8 +12,21 @@
 // "adjust pin on map" flow (LocationPicker draws its own fixed center pin).
 // ---------------------------------------------------------------------
 import { lazy, Suspense } from 'react';
+import { mapConfiguration } from '../lib/mapProvider';
 
 const GoogleMap = lazy(() => import('./google/GoogleMap.jsx'));
+const MapboxMap = lazy(() => import('./mapbox/MapboxMap.jsx'));
+
+function MapConfigurationError({ detail }) {
+  console.error(`Map configuration error: ${detail}`);
+  return (
+    <div className="w-full h-full flex items-center justify-center" style={{ background: '#F3F4F6' }}>
+      <p className="text-sm font-bold text-brand-grey px-6 text-center">
+        The map is not configured. Please contact support.
+      </p>
+    </div>
+  );
+}
 
 function MapLegend({ items }) {
   if (!items?.length) return null;
@@ -51,6 +64,8 @@ export default function RideMap({
   initialCenter = null,
   children = null,
 }) {
+  const MapRenderer = mapConfiguration.provider === 'mapbox' ? MapboxMap : GoogleMap;
+
   return (
     <div
       className={`relative isolate rounded-2xl overflow-hidden border border-brand-border bg-brand-surface shadow-inner ${className}`}
@@ -59,15 +74,19 @@ export default function RideMap({
       <Suspense
         fallback={<div className="w-full h-full animate-pulse" style={{ background: '#F3F4F6' }} />}
       >
-        <GoogleMap
-          markers={markers}
-          line={line}
-          follow={follow}
-          followTarget={followTarget}
-          interactive={interactive}
-          onIdle={onIdle}
-          initialCenter={initialCenter}
-        />
+        {mapConfiguration.error ? (
+          <MapConfigurationError detail={mapConfiguration.error} />
+        ) : (
+          <MapRenderer
+            markers={markers}
+            line={line}
+            follow={follow}
+            followTarget={followTarget}
+            interactive={interactive}
+            onIdle={onIdle}
+            initialCenter={initialCenter}
+          />
+        )}
       </Suspense>
 
       {legend && <MapLegend items={legend} />}
