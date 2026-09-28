@@ -905,18 +905,6 @@ const CHECKS = [
     sqlFile: '0044_stcpay_visibility.sql',
   },
   {
-    id: '0045',
-    name: 'saved delivery address map pin',
-    run: async () => {
-      const { error } = await supabase
-        .from('profiles')
-        .select('delivery_lat, delivery_lng, delivery_street, delivery_building')
-        .limit(0);
-      return error ? error.message : null;
-    },
-    sqlFile: '0045_saved_delivery_location.sql',
-  },
-  {
     id: '0043-grant',
     name: 'super admin flag and login IPs stay hidden from the client roles (CRITICAL)',
     // Two different holes in one check. is_super_admin must not be

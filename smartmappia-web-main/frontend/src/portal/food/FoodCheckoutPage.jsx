@@ -47,23 +47,11 @@ export default function FoodCheckoutPage() {
 
   const [cart, setCart] = useState(null);
   const [loadErr, setLoadErr] = useState(null);
-  // `undefined` means the customer has not touched this checkout field yet,
-  // so a profile that finishes loading after mount can still supply it.
-  // Once edited (including clearing to ''/null), the local value wins.
-  const [addressOverride, setAddress] = useState(undefined);
-  const [coordsOverride, setCoords] = useState(undefined);
-  const [streetOverride, setStreet] = useState(undefined);
-  const [buildingOverride, setBuildingNumber] = useState(undefined);
-  const [phoneOverride, setContactPhone] = useState(undefined);
-  const address = addressOverride ?? profile?.address ?? '';
-  const coords = coordsOverride !== undefined
-    ? coordsOverride
-    : profile?.deliveryLat != null && profile?.deliveryLng != null
-      ? { lat: profile.deliveryLat, lng: profile.deliveryLng }
-      : null;
-  const street = streetOverride ?? profile?.deliveryStreet ?? '';
-  const buildingNumber = buildingOverride ?? profile?.deliveryBuilding ?? '';
-  const contactPhone = phoneOverride ?? profile?.mobile ?? '';
+  const [address, setAddress] = useState('');
+  const [coords, setCoords] = useState(null); // { lat, lng }
+  const [street, setStreet] = useState('');
+  const [buildingNumber, setBuildingNumber] = useState('');
+  const [contactPhone, setContactPhone] = useState(profile?.mobile || '');
   const [method, setMethod] = useState('stcpay');
   const [error, setError] = useState(null);
   const [busy, setBusy] = useState(false);
@@ -75,6 +63,11 @@ export default function FoodCheckoutPage() {
     if (!merchantId) return;
     api.foodCart(merchantId).then(setCart).catch((e) => setLoadErr(e.message));
   }, [merchantId]);
+
+  // Prefill the contact number from the profile once it loads.
+  useEffect(() => {
+    if (profile?.mobile) setContactPhone((v) => v || profile.mobile);
+  }, [profile?.mobile]);
 
   async function placeOrder() {
     if (!address.trim()) return setError('Please enter your delivery address.');

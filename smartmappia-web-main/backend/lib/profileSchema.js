@@ -13,8 +13,6 @@ let extendedProfileColumns = null;
 let extendedCheckedAt = 0;
 let profileV2Columns = null;
 let v2CheckedAt = 0;
-let savedDeliveryColumns = null;
-let savedDeliveryCheckedAt = 0;
 let superAdminColumns = null;
 let superAdminCheckedAt = 0;
 
@@ -36,12 +34,6 @@ const EXTENDED_FIELDS = [
 
 // Migration 0024: avatar_url + address (Profile page).
 const V2_FIELDS = ['avatar_url', 'address'];
-const SAVED_DELIVERY_FIELDS = [
-  'delivery_lat',
-  'delivery_lng',
-  'delivery_street',
-  'delivery_building',
-];
 
 async function hasExtendedProfileColumns(supabase) {
   if (cacheFresh(extendedProfileColumns, extendedCheckedAt)) return extendedProfileColumns;
@@ -69,24 +61,6 @@ async function hasProfileV2Columns(supabase) {
     );
   }
   return profileV2Columns;
-}
-
-// Migration 0045: the rest of a reusable delivery location. `address` was
-// already present in 0024, but checkout also needs an exact pin plus the
-// street/building details. Probe this independently so deploying the API
-// before the migration cannot break sign-in for every account.
-async function hasSavedDeliveryColumns(supabase) {
-  if (cacheFresh(savedDeliveryColumns, savedDeliveryCheckedAt)) return savedDeliveryColumns;
-  const { error } = await supabase.from('profiles').select('delivery_lat').limit(0);
-  savedDeliveryColumns = !error;
-  savedDeliveryCheckedAt = Date.now();
-  if (!savedDeliveryColumns) {
-    console.warn(
-      '[profiles] Migration backend/migrations/0045_saved_delivery_location.sql is missing. ' +
-        'Login still works, but delivery map pins cannot be saved until it is applied.'
-    );
-  }
-  return savedDeliveryColumns;
 }
 
 // Migration 0043: is_super_admin + disabled_at.
@@ -119,12 +93,11 @@ async function hasSuperAdminColumns(supabase) {
 // the portal decides whether to show the super-admin tabs from it — so a
 // seeded, correctly flagged super admin still saw no tabs, and no error
 // anywhere said why.
-function profileSelectColumns(extended, v2 = false, tiered = false, savedDelivery = false) {
+function profileSelectColumns(extended, v2 = false, tiered = false) {
   let cols =
     'id, role, full_name, whatsapp_number, mobile_number, email, driver_approved, service_types';
   if (extended) cols += `, ${EXTENDED_FIELDS.join(', ')}`;
   if (v2) cols += `, ${V2_FIELDS.join(', ')}`;
-  if (savedDelivery) cols += `, ${SAVED_DELIVERY_FIELDS.join(', ')}`;
   if (tiered) cols += ', is_super_admin, disabled_at';
   return cols;
 }
@@ -162,10 +135,8 @@ function buildProfileUpsert({ id, role, email, driverApproved, existing, body, e
 module.exports = {
   EXTENDED_FIELDS,
   V2_FIELDS,
-  SAVED_DELIVERY_FIELDS,
   hasExtendedProfileColumns,
   hasProfileV2Columns,
-  hasSavedDeliveryColumns,
   hasSuperAdminColumns,
   profileSelectColumns,
   buildProfileUpsert,
