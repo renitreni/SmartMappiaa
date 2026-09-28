@@ -17,6 +17,16 @@ export default function PayPage() {
   const { code } = useParams();
   const navigate = useNavigate();
   const [instructions, setInstructions] = useState(null);
+  // STC Pay manual transfer is a super-admin switch (0044). Absent means
+  // on, so an older backend that does not send the field still shows it.
+  const stcOn = instructions?.stcPayAvailable !== false;
+  // The payment step shows ONE method: the one chosen at booking. Stacking
+  // the card form on top of the transfer details asked the customer to
+  // decide a second time, having already decided.
+  //
+  // Bookings placed before card was a picker option carry 'stcpay_manual',
+  // so they still land on the transfer details - what they were promised.
+  const chosenCard = instructions?.paymentMethod === 'tap';
   const [loadErr, setLoadErr] = useState(null);
   const [error, setError] = useState(null);
   const [file, setFile] = useState(null);
@@ -61,24 +71,28 @@ export default function PayPage() {
               Booking code <span className="font-mono font-bold text-brand-dark">{code}</span>
             </p>
 
-            <CardPaySection
-              code={code}
-              amount={instructions.fare?.total ?? instructions.amount}
-              available={instructions.cardAvailable}
-              charge={(code, body, key) => api.bookingCardCharge(code, body, key)}
-              // A card payment confirms the booking and starts dispatch on
-              // the spot, so go straight to tracking rather than back here.
-              onPaid={() => navigate(`/track/${code}`)}
-              onError={setError}
-            />
+            {chosenCard && (
+              <CardPaySection
+                code={code}
+                amount={instructions.fare?.total ?? instructions.amount}
+                available={instructions.cardAvailable}
+                charge={(code, body, key) => api.bookingCardCharge(code, body, key)}
+                // A card payment confirms the booking and starts dispatch on
+                // the spot, so go straight to tracking rather than back here.
+                onPaid={() => navigate(`/track/${code}`)}
+                onError={setError}
+              />
+            )}
+            {!chosenCard && stcOn && (
+              <>
             <div className="relative my-5 text-center">
               <div className="absolute inset-0 flex items-center"><div className="w-full border-t border-brand-border" /></div>
               <span className="relative bg-white px-3 text-xs font-bold uppercase tracking-wider text-brand-grey">or pay manually</span>
             </div>
 
             <div className="bg-brand-warm border border-brand-border rounded-xl p-4 space-y-2 text-sm">
-              <div className="flex justify-between"><span className="text-brand-grey">Send via STC Pay to</span><span className="font-bold">{instructions.stcPay.number || '—'}</span></div>
-              <div className="flex justify-between"><span className="text-brand-grey">Recipient</span><span className="font-bold">{instructions.stcPay.recipientName}</span></div>
+              <div className="flex justify-between"><span className="text-brand-grey">Send via STC Pay to</span><span className="font-bold">{instructions.stcPay?.number || '—'}</span></div>
+              <div className="flex justify-between"><span className="text-brand-grey">Recipient</span><span className="font-bold">{instructions.stcPay?.recipientName}</span></div>
               {instructions.fare && (
                 <>
                   <div className="flex justify-between"><span className="text-brand-grey">Base fare</span><span>SAR {instructions.fare.base.toFixed(2)}</span></div>
@@ -114,6 +128,14 @@ export default function PayPage() {
                 </p>
               )}
             </div>
+              </>
+            )}
+
+            {!chosenCard && !stcOn && (
+              <p className="text-sm text-brand-grey bg-brand-warm border border-brand-border rounded-xl px-4 py-3">
+                Online payment is unavailable right now. Your booking is held — pay the driver in cash, or contact support.
+              </p>
+            )}
           </Card>
         </div>
       )}

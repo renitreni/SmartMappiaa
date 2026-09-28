@@ -160,13 +160,18 @@ export function Card({ children, className = '' }) {
   );
 }
 
-export function Field({ label, children }) {
+export function Field({ label, children, error }) {
   return (
     <label className="block">
       <span className="text-xs font-bold text-brand-grey uppercase tracking-wider block mb-1.5">
         {label}
       </span>
       {children}
+      {error && (
+        <span className="block mt-1.5 text-sm font-semibold text-red-600" role="alert">
+          {error}
+        </span>
+      )}
     </label>
   );
 }

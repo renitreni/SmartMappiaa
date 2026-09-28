@@ -33,7 +33,7 @@ require.cache[supabasePath] = {
   },
 };
 
-const { getMaxDistanceKm, clearSettingsCache } = require('../lib/settings');
+const { getMaxDistanceKm, getStcPayEnabled, clearSettingsCache } = require('../lib/settings');
 const { config } = require('../lib/config');
 
 function given(result) {
@@ -93,4 +93,47 @@ test('the answer is cached, and the cache can be cleared', async () => {
   // it, which is the trap 0019 fell into.
   clearSettingsCache();
   assert.equal(await getMaxDistanceKm(), 99);
+});
+
+// --- STC Pay visibility (0044) ---------------------------------------
+//
+// The direction of the fallback is the whole point: this switch controls
+// whether a PAYMENT METHOD is offered, so every uncertain case must leave
+// it ON. Failing closed here would silently remove a payment method from
+// live customers because of a missing row or a bad write.
+
+test('a missing row leaves STC Pay ON', async () => {
+  // The state before 0044 is pasted. Applying the code without the SQL
+  // must change nothing at all.
+  given({ data: null, error: null });
+  assert.equal(await getStcPayEnabled(), true);
+});
+
+test('a missing table leaves STC Pay ON', async () => {
+  given({ data: null, error: { message: 'relation "app_settings" does not exist' } });
+  assert.equal(await getStcPayEnabled(), true);
+});
+
+test('a stored false hides STC Pay', async () => {
+  // The only thing that turns it off, and the only thing that should.
+  given({ data: { value: false }, error: null });
+  assert.equal(await getStcPayEnabled(), false);
+});
+
+test('a stored true shows STC Pay', async () => {
+  given({ data: { value: true }, error: null });
+  assert.equal(await getStcPayEnabled(), true);
+});
+
+test('a stored json null leaves STC Pay ON', async () => {
+  // Distinct from max_distance_km, where null is a meaningful "no limit".
+  // Here there is no third state, so null is just an unset row.
+  given({ data: { value: null }, error: null });
+  assert.equal(await getStcPayEnabled(), true);
+});
+
+test('an unrecognised stored value leaves STC Pay ON', async () => {
+  // A bad write must not take a payment method away from customers.
+  given({ data: { value: 'no' }, error: null });
+  assert.equal(await getStcPayEnabled(), true);
 });

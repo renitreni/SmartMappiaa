@@ -10,6 +10,7 @@ import { useNavigate } from 'react-router-dom';
 import { Camera, User, Phone, MapPin, Mail, KeyRound, Save, History, Trash2 } from 'lucide-react';
 import { api } from '../lib/api';
 import { useAuth } from '../lib/AuthProvider';
+import { MAX_NAME_LENGTH } from '../lib/fieldValidation';
 import { supabase, uploadProofFile } from '../lib/supabaseClient';
 import { compressImage } from '../lib/imageCompress';
 import { notifySuccess, notifyError, confirmAction } from '../lib/notify';
@@ -219,7 +220,7 @@ export default function ProfilePage() {
           </p>
           <form onSubmit={saveInfo} className="space-y-3">
             <Field label="Full name">
-              <input value={form.fullName} onChange={set('fullName')} className={inputClass} placeholder="Your name" />
+              <input value={form.fullName} onChange={set('fullName')} className={inputClass} placeholder="Your name" maxLength={MAX_NAME_LENGTH} />
             </Field>
             <div className="grid sm:grid-cols-2 gap-3">
               <Field label="Mobile number">

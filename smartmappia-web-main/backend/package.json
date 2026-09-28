@@ -20,6 +20,7 @@
     "seed:aling-marias": "node scripts/seed-aling-marias.js",
     "check:migrations": "node scripts/check-migrations.js",
     "check:shop": "node scripts/check-shop.js",
+    "check:tap": "node scripts/check-tap.js",
     "check:hours": "node scripts/check-store-hours.js",
     "setup:buckets": "node scripts/setup-buckets.js",
     "reset:orders": "node scripts/reset-orders.js",

@@ -7,24 +7,39 @@
 // ---------------------------------------------------------------------
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useSearchParams, Link } from 'react-router-dom';
-import { MapPin, AlertCircle, ArrowRight, Smartphone, Phone } from 'lucide-react';
+import { MapPin, AlertCircle, ArrowRight, Smartphone, Phone, CreditCard } from 'lucide-react';
+import useCardAvailable from '../lib/useCardAvailable';
 import { api } from '../lib/api';
 import { useAuth } from '../lib/AuthProvider';
 import { fmtSAR, vatLabel, FOOD_RADIUS_KM } from '../lib/constants';
 import { PortalShell, Card, Spinner, inputClass, btnPrimary, btnGhost } from '../components/ui';
 import LocationPicker from '../components/LocationPicker';
 import PaymentPanel from './PaymentPanel';
-import CardNextStepNote from '../components/CardNextStepNote';
 
 // How the ORDER is created. Card is deliberately absent: the backend enum
-// (routes/food.js) accepts stcpay only, because an order must never be
-// created against a gateway that might be unconfigured. Paying by card is a
-// real option, just one step later — CardNextStepNote below says so.
+// Card is chosen HERE now, not one screen later. The old rule - the route
+// enum accepted stcpay only - existed so an order could never be created
+// against a gateway that might be unconfigured. That still holds; the server
+// checks tapConfigured() explicitly instead of refusing the method outright.
 const PAY_METHODS = [
   { id: 'stcpay', label: 'STC Pay', hint: 'Transfer + upload the screenshot', icon: Smartphone },
 ];
 
+// Card is offered here only when the gateway is actually live. The server
+// checks the same thing again on create (tapConfigured), because a picker
+// is a suggestion and a stale tab is not evidence.
+const CARD_METHOD = {
+  id: 'tap',
+  label: 'Card',
+  hint: 'Pay now with a card, Apple Pay or mada',
+  icon: CreditCard,
+};
+
 export default function FoodCheckoutPage() {
+  // Card is offered only when the gateway is live; the server re-checks on
+  // create, because a picker is a suggestion and a stale tab is not evidence.
+  const cardOn = useCardAvailable();
+  const payMethods = cardOn ? [...PAY_METHODS, CARD_METHOD] : PAY_METHODS;
   const navigate = useNavigate();
   const [params] = useSearchParams();
   const merchantId = params.get('m');
@@ -57,6 +72,9 @@ export default function FoodCheckoutPage() {
   async function placeOrder() {
     if (!address.trim()) return setError('Please enter your delivery address.');
     if (!coords) return setError('Please tap "Use my location" so we can check the delivery radius.');
+    if (!street.trim() || !buildingNumber.trim()) {
+      return setError('Please enter the street and building / house number so the rider can find you.');
+    }
     if (!contactPhone.trim()) return setError('Please enter a contact number for the rider.');
 
     setError(null);
@@ -68,8 +86,8 @@ export default function FoodCheckoutPage() {
           delivery_address: address.trim(),
           delivery_lat: coords.lat,
           delivery_lng: coords.lng,
-          delivery_street: street.trim() || null,
-          delivery_building: buildingNumber.trim() || null,
+          delivery_street: street.trim(),
+          delivery_building: buildingNumber.trim(),
           contact_phone: contactPhone.trim(),
           payment_method: method,
         },
@@ -166,6 +184,7 @@ export default function FoodCheckoutPage() {
                 coords={coords}
                 street={street}
                 buildingNumber={buildingNumber}
+                requireStreetAndBuilding
                 onChange={({ address: nextAddress, coords: nextCoords, street: nextStreet, buildingNumber: nextBuilding }) => {
                   setAddress(nextAddress);
                   setCoords(nextCoords);
@@ -201,7 +220,7 @@ export default function FoodCheckoutPage() {
             <Card className="p-5">
               <p className="font-black text-brand-black mb-3">How would you like to pay?</p>
               <div className="space-y-2">
-                {PAY_METHODS.map(({ id, label, hint, icon: Icon }) => (
+                {payMethods.map(({ id, label, hint, icon: Icon }) => (
                   <button
                     key={id}
                     type="button"
@@ -227,7 +246,6 @@ export default function FoodCheckoutPage() {
                   </button>
                 ))}
               </div>
-              <CardNextStepNote />
             </Card>
 
             <Card className="p-5">

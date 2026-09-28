@@ -26,7 +26,8 @@ const { haversineKm } = require('../../lib/geo');
 const { travelEtaMinutes, deliveryEtaBand } = require('../../lib/eta');
 const { latestDriverFix } = require('../../lib/tracking');
 const { priceOrder } = require('../../lib/foodMoney');
-const { getMaxDistanceKm } = require('../../lib/settings');
+const { getMaxDistanceKm, getStcPayEnabled } = require('../../lib/settings');
+const { tapConfigured } = require('../../lib/tap');
 const { merchantOpenState, CLOSED_RESPONSE } = require('../../lib/storeHours');
 const { findSizeOption } = require('../../lib/foodSizes');
 const { logFoodEvent } = require('../../lib/foodEvents');
@@ -80,6 +81,16 @@ function assertOwner(req, res, order) {
 async function checkout(req, res) {
   try {
     const b = req.body; // validated by the route schema
+
+    // Card at order creation used to be refused outright by the route enum,
+    // because an order must never be created against a gateway that might be
+    // unconfigured. That invariant still holds - it is checked explicitly
+    // here now, rather than by refusing the method for everyone. The picker
+    // only offers card when GET /api/payments/config says it is live, so
+    // reaching this means a stale client or a key rotated out mid-session.
+    if (b.payment_method === 'tap' && !tapConfigured()) {
+      return res.status(400).json({ error: 'Card payment is not available right now' });
+    }
 
     const { data: merchant, error: mErr } = await supabase
       .from('merchants')
@@ -229,8 +240,8 @@ async function checkout(req, res) {
         delivery_address: b.delivery_address,
         delivery_lat: b.delivery_lat ?? null,
         delivery_lng: b.delivery_lng ?? null,
-        delivery_street: b.delivery_street || null,
-        delivery_building: b.delivery_building || null,
+        delivery_street: b.delivery_street,
+        delivery_building: b.delivery_building,
         contact_phone: b.contact_phone || null,
         payment_method: b.payment_method || 'stcpay',
       })
@@ -515,16 +526,22 @@ async function getPaymentInfo(req, res) {
       });
     }
 
+    const stcPayAvailable = await getStcPayEnabled();
+
     return res.json({
       orderCode: order.order_code,
       paymentStatus: order.payment_status,
       paymentMethod: order.payment_method,
       amount: order.total,
       currency: 'SAR',
-      stcPay: {
-        number: config.stcPay.number,
-        recipientName: config.stcPay.recipientName,
-      },
+      // See the note in controllers/paymentsController.js - one switch (0044).
+      stcPayAvailable,
+      stcPay: stcPayAvailable
+        ? {
+            number: config.stcPay.number,
+            recipientName: config.stcPay.recipientName,
+          }
+        : null,
       // The order code IS the transfer note so payments can be matched.
       reference: order.order_code,
       // Whether to offer the card option at all. Only the PUBLIC key is
@@ -532,12 +549,14 @@ async function getPaymentInfo(req, res) {
       cardAvailable: !!config.tap.secretKey,
       tapPublicKey: config.tap.publicKey || null,
       applePayEnabled: !!config.tap.applePayEnabled,
-      instructions: [
-        `Open STC Pay and send SAR ${Number(order.total).toFixed(2)} to ${config.stcPay.number} (${config.stcPay.recipientName}).`,
-        `Put your order code ${order.order_code} in the transfer note.`,
-        'Take a screenshot of the successful transfer.',
-        'Upload that screenshot below to confirm your order.',
-      ],
+      instructions: stcPayAvailable
+        ? [
+            `Open STC Pay and send SAR ${Number(order.total).toFixed(2)} to ${config.stcPay.number} (${config.stcPay.recipientName}).`,
+            `Put your order code ${order.order_code} in the transfer note.`,
+            'Take a screenshot of the successful transfer.',
+            'Upload that screenshot below to confirm your order.',
+          ]
+        : [],
       testMode: config.autoVerifyTestMode,
     });
   } catch (err) {

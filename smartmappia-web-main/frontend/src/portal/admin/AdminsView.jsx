@@ -22,6 +22,7 @@ import {
   UserCheck,
 } from 'lucide-react';
 import { api } from '../lib/api';
+import { MAX_NAME_LENGTH } from '../lib/fieldValidation';
 import { notifySuccess, notifyError } from '../lib/notify';
 import { toCsv, downloadCsv } from '../lib/csv';
 import { Card, Field, Badge, Spinner, inputClass, btnPrimary, btnGhost } from '../components/ui';
@@ -116,7 +117,7 @@ function AdminForm({ initial, isNew, busy, onSave, onCancel }) {
             </Field>
           )}
           <Field label="Full name">
-            <input className={inputClass} value={form.full_name} onChange={set('full_name')} required />
+            <input className={inputClass} value={form.full_name} onChange={set('full_name')} required maxLength={MAX_NAME_LENGTH} />
           </Field>
           <Field label="Mobile">
             <input className={inputClass} value={form.mobile_number} onChange={set('mobile_number')} />

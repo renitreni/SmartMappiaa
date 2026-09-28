@@ -161,6 +161,37 @@ function passwordError(value) {
   return null;
 }
 
+// Email shape at any public boundary. Hoisted out of authController so the
+// signup check and the frontend validator read from one expression — they had
+// drifted apart once, and the client accepting what the server rejects shows
+// up as a bare 400 with no field attached to it.
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const MAX_EMAIL_LENGTH = 200;
+
+function emailError(value) {
+  const email = typeof value === 'string' ? value.trim() : '';
+  if (!email) return 'email is required';
+  if (email.length > MAX_EMAIL_LENGTH) {
+    return `Email must be at most ${MAX_EMAIL_LENGTH} characters`;
+  }
+  if (!EMAIL_RE.test(email)) return 'Please enter a valid email address';
+  return null;
+}
+
+// Matches the cap already applied to full_name on PATCH /api/auth/profile and
+// the admin routes. The profiles column is bare `text`, so this is the only
+// thing standing between the form and an unbounded write.
+const MAX_NAME_LENGTH = 120;
+
+function nameError(value, label = 'Name') {
+  if (value === undefined || value === null || value === '') return null;
+  const name = String(value).trim();
+  if (name.length > MAX_NAME_LENGTH) {
+    return `${label} must be at most ${MAX_NAME_LENGTH} characters`;
+  }
+  return null;
+}
+
 function validateBody(schema) {
   return (req, res, next) => {
     const body = req.body || {};
@@ -185,4 +216,14 @@ function validateBody(schema) {
   };
 }
 
-module.exports = { validateBody, passwordError, MIN_PASSWORD_LENGTH, MAX_PASSWORD_LENGTH };
+module.exports = {
+  validateBody,
+  passwordError,
+  MIN_PASSWORD_LENGTH,
+  MAX_PASSWORD_LENGTH,
+  emailError,
+  nameError,
+  EMAIL_RE,
+  MAX_EMAIL_LENGTH,
+  MAX_NAME_LENGTH,
+};

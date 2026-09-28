@@ -1,5 +1,9 @@
 {
   "appId": "com.smartmappia",
   "appName": "Smart Mappia",
-  "webDir": "dist"
+  "webDir": "dist",
+  "ios": {
+    "scheme": "capacitor",
+    "contentInset": "always"
+  }
 }
