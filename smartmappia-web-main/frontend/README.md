@@ -5,8 +5,9 @@ portals for all three service lines: Pick & Drop airport transfers, Food Deliver
 (partner stores selling physical goods, behind a feature flag until the first store trades).
 
 **React 19 + Vite 8 + Tailwind CSS 4 + React Router 7.** Supabase for auth, realtime, and uploads.
-**Google Maps Platform** for maps, routing, geocoding, and places. The same build is wrapped with
-**Capacitor 8** to ship the Android app.
+**Google Maps or Mapbox** for the browser map renderer; Google Maps Platform remains the backend
+provider for routing, geocoding, and places. The same build is wrapped with **Capacitor 8** to ship
+the Android app.
 
 **Live:** https://smartmappia.com (talks to `https://api.smartmappia.com`).
 
@@ -30,6 +31,7 @@ Start the backend separately (`cd ../backend && npm run dev`).
 npm run build            # static files land in dist/
 npm run preview          # serve the build locally
 npm run lint             # ESLint 10 flat config
+npm test                 # provider configuration tests
 ```
 
 The frontend only ever uses the Supabase **anon** key. The service-role key stays in the backend.
@@ -46,8 +48,11 @@ Compiled in at **build** time — a change requires a rebuild, not a restart.
 | `VITE_API_BASE` | Backend base URL |
 | `VITE_SUPABASE_URL` | Supabase project URL |
 | `VITE_SUPABASE_ANON_KEY` | **Anon key only** — never the service-role key |
-| `VITE_GOOGLE_MAPS_BROWSER_KEY` | Maps JS API. Restrict by HTTP referrer in Google Cloud. |
-| `VITE_GOOGLE_MAP_ID` | **Required** — a vector Map ID, needed for `AdvancedMarkerElement` |
+| `VITE_MAP_PROVIDER` | Browser renderer: `google` (default) or `mapbox` |
+| `VITE_GOOGLE_MAPS_BROWSER_KEY` | Required in Google mode. Maps JS API key restricted by HTTP referrer. |
+| `VITE_GOOGLE_MAP_ID` | Required in Google mode. Vector Map ID for `AdvancedMarkerElement`. |
+| `VITE_MAPBOX_ACCESS_TOKEN` | Required in Mapbox mode. Public (`pk.`) browser token only. |
+| `VITE_MAPBOX_STYLE` | Optional Mapbox style URL; defaults to Mapbox Streets v12. |
 | `VITE_TAP_PUBLIC_KEY` | Optional. Tap publishable key, needed only by the Apple Pay Web SDK. Public by design. |
 | `VITE_APP_VERSION` | Optional. Recorded on push-subscription rows for debugging. |
 
@@ -61,7 +66,7 @@ Compiled in at **build** time — a change requires a rebuild, not a restart.
 |---|---|
 | `VITE_TAP_ENABLED` | `GET /api/payments/config` |
 | `VITE_OSRM_BASE` | The backend `/api/route` proxy |
-| `VITE_MAP_STYLE_URL` | Google Maps SDK tiles (still read by the dead `MapLibreMap.jsx`) |
+| `VITE_MAP_STYLE_URL` | Retired self-hosted/MapLibre renderer; no longer read |
 
 **Card availability is not a client flag and must never become one again.** The frontend asks
 `GET /api/payments/config` (`portal/lib/useCardAvailable.js`), and the whole `/api/payments` router
@@ -167,19 +172,21 @@ dropped saw a frozen order list with nothing to indicate it. If you add a live s
 
 ## Maps
 
-**Google Maps Platform**, migrated July 2026 from MapLibre + self-hosted OSRM.
+The browser renderer is selected at build time with `VITE_MAP_PROVIDER`. Routing, ETA, address
+search, reverse geocoding, and nearby places still use the backend Google proxies in either mode.
 
 ```
-RideMap.jsx          shell: border, height, legend, React.lazy(GoogleMap)
-  └─ google/GoogleMap.jsx   the renderer (lazy chunk, hand-rolled script loader)
+RideMap.jsx          shell: border, height, legend, provider selection
+  ├─ google/GoogleMap.jsx   Google renderer (lazy chunk, script loader)
+  └─ mapbox/MapboxMap.jsx   Mapbox GL renderer (lazy chunk)
 RoutedRideMap.jsx    RideMap + fetchRoute(), refetch gated on a ~100 m signature
 ```
 
 **No page imports a map vendor.** Consumers use `RideMap` or `RoutedRideMap`, and the vendor lives
 behind them. This seam survived the last migration unchanged — **keep it that way.**
 
-- Markers are `AdvancedMarkerElement` (hence the required Map ID), reconciled by key so they update
-  rather than leak.
+- Both renderers use the same DOM pin factory and reconcile markers by key. Google uses
+  `AdvancedMarkerElement`; Mapbox uses DOM `Marker` instances.
 - Routing goes through `portal/lib/osrm.js` — **filename retained, provider is now Google** — which
   calls the backend `/api/route` proxy and decodes the polyline inline.
 - Geocoding and places are **never called from the browser**; `LocationPicker` uses `/api/locations/*`
@@ -307,12 +314,8 @@ git pull && npm install && npm run build
 ## Known gaps
 
 - **No 404 route** — `main.jsx` has no `*` catch-all, so an unknown path renders blank.
-- **No frontend tests.** The backend has a small money suite (`cd ../backend && node --test`); this
-  project has none, and ESLint is not run in any gate.
-- **Maps migration cleanup unfinished:** `portal/components/maplibre/MapLibreMap.jsx` is dead code,
-  `maplibre-gl` and `pmtiles` are still dependencies, and residual `.maplibregl-*` CSS remains in
-  `index.css`. (`maplibre/pinHtml.js` beside it **is** live and correct — only the folder name is
-  misleading.)
+- **Minimal frontend tests.** Provider configuration is covered, but user flows and renderer
+  behavior do not yet have automated browser tests. ESLint is not run in any gate.
 - **Android assets were synced before the Google Maps migration** — run `npm run build && npx cap
   sync` before the next APK.
 - **Tabs instead of nested routes** in the driver, merchant, and admin portals — screens are not
