@@ -35,8 +35,8 @@ test('the optional column sets are independent of each other', () => {
   assert.ok(!cols.includes('date_of_birth'));
   assert.ok(cols.includes('is_super_admin'));
 
-  const all = profileSelectColumns(true, true, true);
-  for (const required of ['date_of_birth', 'avatar_url', 'is_super_admin']) {
+  const all = profileSelectColumns(true, true, true, true);
+  for (const required of ['date_of_birth', 'avatar_url', 'is_super_admin', 'delivery_lat', 'delivery_building']) {
     assert.ok(all.includes(required), `${required} missing when everything is applied`);
   }
 });
