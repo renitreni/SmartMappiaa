@@ -12,6 +12,7 @@ const { quoteFare } = require('../lib/fare');
 const { haversineKm } = require('../lib/geo');
 const { exceedsMaxRadius } = require('../lib/deliveryPricing');
 const { getMaxDistanceKm } = require('../lib/settings');
+const { tapConfigured } = require('../lib/tap');
 const { addTrackingEvent } = require('../lib/tracking');
 const { pushBookingStatus, announceRequestTaken } = require('../lib/realtime');
 const { logNotification, notifyAdmins } = require('../lib/notifications');
@@ -61,10 +62,18 @@ async function createBooking(req, res) {
         errors.push(`${field} must be a string of at most ${max} characters`);
       }
     }
-    // Tap isn't live yet: rides are manual STC Pay or cash to the driver.
     const paymentMethod = b.payment_method ?? 'stcpay_manual';
-    if (!['stcpay_manual', 'cash'].includes(paymentMethod)) {
-      errors.push('payment_method must be "stcpay_manual" or "cash"');
+    if (!['stcpay_manual', 'cash', 'tap'].includes(paymentMethod)) {
+      errors.push('payment_method must be "stcpay_manual", "cash" or "tap"');
+    }
+    // Card at order creation used to be refused outright, because an order
+    // must never be created against a gateway that might be unconfigured.
+    // That invariant still holds - it is just checked explicitly now, rather
+    // than by refusing the method for everyone. The picker only offers card
+    // when GET /api/payments/config says it is live, so reaching this is
+    // either a stale client or a key that was rotated out mid-session.
+    if (paymentMethod === 'tap' && !tapConfigured()) {
+      errors.push('Card payment is not available right now');
     }
     if (errors.length) {
       return res.status(400).json({ error: 'Validation failed', details: errors });

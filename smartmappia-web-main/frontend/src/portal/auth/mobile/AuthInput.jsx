@@ -4,6 +4,7 @@ export default function AuthInput({
   rightAction,
   forgotLink,
   id,
+  error,
   onChange,
   ...inputProps
 }) {
@@ -12,6 +13,8 @@ export default function AuthInput({
   const handleChange = (e) => {
     if (onChange) onChange(e.target.value);
   };
+
+  const errorId = error ? `${id}-error` : undefined;
 
   return (
     <div className="auth-field">
@@ -34,12 +37,14 @@ export default function AuthInput({
         </div>
       )}
 
-      <div className="auth-input-wrap">
+      <div className={'auth-input-wrap' + (error ? ' auth-input-wrap--error' : '')}>
         {icon && <span className="auth-input-wrap__icon">{icon}</span>}
         <input
           id={id}
           className="auth-input"
           onChange={handleChange}
+          aria-invalid={error ? 'true' : undefined}
+          aria-describedby={errorId}
           {...inputProps}
         />
         {rightAction && (
@@ -53,6 +58,12 @@ export default function AuthInput({
           </button>
         )}
       </div>
+
+      {error && (
+        <div id={errorId} className="auth-field__error" role="alert">
+          {error}
+        </div>
+      )}
     </div>
   );
 }

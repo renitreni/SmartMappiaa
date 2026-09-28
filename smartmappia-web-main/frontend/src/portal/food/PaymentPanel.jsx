@@ -55,6 +55,18 @@ export default function PaymentPanel({ code, onPaid, vertical = 'food' }) {
     calls.paymentInfo(code).then(setInfo).catch((e) => setLoadErr(e.message));
   }, [code, calls]);
 
+  // STC Pay manual transfer is a super-admin switch (0044). Absent means
+  // on, so an older backend that does not send the field still shows it.
+  const stcOn = info?.stcPayAvailable !== false;
+
+  // The payment step shows ONE method: the one chosen at checkout. Stacking
+  // the card form on top of the transfer details asked the customer to
+  // decide a second time, having already decided.
+  //
+  // Orders placed before card was a picker option carry 'stcpay', so they
+  // still land on the transfer details - which is what they were promised.
+  const chosenCard = info?.paymentMethod === 'tap';
+
   async function submitProof() {
     if (!file) return setError('Please choose a screenshot of your STC Pay transfer.');
     const check = validateUploadFile(file);
@@ -108,20 +120,21 @@ export default function PaymentPanel({ code, onPaid, vertical = 'food' }) {
         </div>
       )}
 
-      <div className="mb-4">
-        <CardPaySection
-          code={code}
-          amount={info.amount}
-          available={info.cardAvailable}
-          charge={calls.cardCharge}
-          onPaid={onPaid}
-          onError={setError}
-        />
-        {info.cardAvailable && (
-          <p className="text-center text-xs text-brand-grey mt-3 mb-1">or pay with STC Pay</p>
-        )}
-      </div>
+      {chosenCard && (
+        <div className="mb-4">
+          <CardPaySection
+            code={code}
+            amount={info.amount}
+            available={info.cardAvailable}
+            charge={calls.cardCharge}
+            onPaid={onPaid}
+            onError={setError}
+          />
+        </div>
+      )}
 
+      {!chosenCard && stcOn && (
+        <>
       <div className="bg-brand-warm border border-brand-border rounded-xl p-4 space-y-2 text-sm">
         <div className="flex justify-between"><span className="text-brand-grey">Send via STC Pay to</span><span className="font-bold">{info.stcPay?.number || 'Number pending'}</span></div>
         <div className="flex justify-between"><span className="text-brand-grey">Recipient</span><span className="font-bold">{info.stcPay?.recipientName}</span></div>
@@ -155,6 +168,14 @@ export default function PaymentPanel({ code, onPaid, vertical = 'food' }) {
           </p>
         )}
       </div>
+        </>
+      )}
+
+      {!chosenCard && !stcOn && (
+        <p className="text-sm text-brand-grey bg-brand-warm border border-brand-border rounded-xl px-4 py-3">
+          Online payment is unavailable right now. Your order is held — pay cash on delivery, or contact support.
+        </p>
+      )}
     </Card>
   );
 }

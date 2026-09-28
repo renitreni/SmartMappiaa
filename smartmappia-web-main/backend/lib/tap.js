@@ -103,7 +103,16 @@ async function tapRequest(path, { method = 'GET', body = null } = {}) {
     // Log the redacted shape only. The raw body of a charge response holds
     // the card object; of a token response, a chargeable token.
     const errors = payload && payload.errors;
-    console.error('Tap request failed:', method, path, response.status, errors || redactCharge(payload));
+    // Stringified so the whole reason stays on one log line. pm2 splits an
+    // inspected array across lines, and a grep for this prefix then shows
+    // only "[".
+    console.error(
+      'Tap request failed:',
+      method,
+      path,
+      response.status,
+      JSON.stringify(errors || redactCharge(payload))
+    );
     throw new TapError('gateway', 'The payment gateway rejected the request', errors || null);
   }
   return payload;

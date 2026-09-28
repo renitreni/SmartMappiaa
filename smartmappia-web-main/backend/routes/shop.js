@@ -68,8 +68,8 @@ router.post(
     delivery_address: { type: 'string', required: true, maxLength: 500 },
     delivery_lat: { type: 'number', required: true, min: -90, max: 90 },
     delivery_lng: { type: 'number', required: true, min: -180, max: 180 },
-    delivery_street: { type: 'string', maxLength: 200, nullable: true },
-    delivery_building: { type: 'string', maxLength: 100, nullable: true },
+    delivery_street: { type: 'string', required: true, maxLength: 200 },
+    delivery_building: { type: 'string', required: true, maxLength: 100 },
     contact_phone: { type: 'string', maxLength: 40, nullable: true },
     // Cash on delivery is available here (unlike food's stcpay-only
     // checkout) because retail baskets are larger and COD is the norm.
@@ -78,7 +78,7 @@ router.post(
     // payment method whose gateway is unconfigured.
     // required: the RPC inserts this into a NOT NULL column, so omitting it
     // surfaced as a generic 500 instead of a 400 naming the missing field.
-    payment_method: { type: 'string', required: true, enum: ['stcpay', 'cash'] },
+    payment_method: { type: 'string', required: true, enum: ['stcpay', 'cash', 'tap'] },
   }),
   checkout
 );
