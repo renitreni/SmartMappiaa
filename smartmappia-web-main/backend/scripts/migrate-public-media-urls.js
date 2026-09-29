@@ -30,6 +30,10 @@ async function main() {
   let total = 0;
   for (const [table, column] of targets) {
     const { data, error } = await supabase.from(table).select(`id,${column}`).not(column, 'is', null);
+    if (error?.code === '42703') {
+      console.log(`${table}.${column}: skipped (column is not present)`);
+      continue;
+    }
     if (error) throw error;
     const changes = (data || []).map((row) => ({ row, next: migratedUrl(row[column]) })).filter((x) => x.next);
     console.log(`${table}.${column}: ${changes.length} URL(s) ${apply ? 'to update' : 'would update'}`);
