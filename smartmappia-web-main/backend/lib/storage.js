@@ -9,6 +9,25 @@
 const crypto = require('crypto');
 const { supabase } = require('./supabase');
 const { config } = require('./config');
+const { uploadGrant, downloadUrl } = require('./fileGrants');
+
+function uploadAuthorization(bucket, path, settings) {
+  return {
+    path,
+    token: uploadGrant(bucket, path, {
+      maxBytes: settings.maxBytes,
+      allowedMimeTypes: settings.allowedMimeTypes,
+      ttlSeconds: settings.uploadUrlTtlSeconds,
+    }),
+    signedUrl: null,
+  };
+}
+
+function publicApiUrl(bucket, path) {
+  const base = String(config.publicUrls.api || '').replace(/\/$/, '');
+  const encoded = path.split('/').map(encodeURIComponent).join('/');
+  return `${base}/api/files/public/${encodeURIComponent(bucket)}/${encoded}`;
+}
 
 // Build a unique, non-guessable object path for a booking's proof.
 //   payment-proofs/SM-7K3PQ9TM/1718352000000-3f9a2c.jpg
@@ -23,22 +42,12 @@ function buildProofPath(bookingCode, originalName) {
 
 // The client PUTs the file directly to Supabase Storage with this.
 async function createProofUploadUrl(path) {
-  const { data, error } = await supabase.storage
-    .from(config.proofs.bucket)
-    .createSignedUploadUrl(path);
-
-  if (error) throw error;
-  return { path, token: data.token, signedUrl: data.signedUrl };
+  return uploadAuthorization(config.proofs.bucket, path, config.proofs);
 }
 
 // Signed download URL for admin review.
 async function createProofDownloadUrl(path) {
-  const { data, error } = await supabase.storage
-    .from(config.proofs.bucket)
-    .createSignedUrl(path, config.proofs.downloadUrlTtlSeconds);
-
-  if (error) throw error;
-  return data.signedUrl;
+  return downloadUrl(config.proofs.bucket, path, config.proofs.downloadUrlTtlSeconds);
 }
 
 // --- Driver verification documents (same pattern, PRIVATE `driver-docs` bucket) ---
@@ -56,21 +65,11 @@ function buildDriverDocPath(driverId, docType, originalName) {
 }
 
 async function createDriverDocUploadUrl(path) {
-  const { data, error } = await supabase.storage
-    .from(config.driverDocs.bucket)
-    .createSignedUploadUrl(path);
-
-  if (error) throw error;
-  return { path, token: data.token, signedUrl: data.signedUrl };
+  return uploadAuthorization(config.driverDocs.bucket, path, config.driverDocs);
 }
 
 async function createDriverDocDownloadUrl(path) {
-  const { data, error } = await supabase.storage
-    .from(config.driverDocs.bucket)
-    .createSignedUrl(path, config.driverDocs.downloadUrlTtlSeconds);
-
-  if (error) throw error;
-  return data.signedUrl;
+  return downloadUrl(config.driverDocs.bucket, path, config.driverDocs.downloadUrlTtlSeconds);
 }
 
 // --- Merchant images (restaurant logos + menu photos, PUBLIC `merchant-images` bucket) ---
@@ -102,18 +101,12 @@ function buildMenuItemImagePath(merchantId, originalName) {
 }
 
 async function createMerchantImageUploadUrl(path) {
-  const { data, error } = await supabase.storage
-    .from(config.merchantImages.bucket)
-    .createSignedUploadUrl(path);
-
-  if (error) throw error;
-  return { path, token: data.token, signedUrl: data.signedUrl };
+  return uploadAuthorization(config.merchantImages.bucket, path, config.merchantImages);
 }
 
 // Bucket is public, so this is a stable URL, not a signed one.
 function merchantImagePublicUrl(path) {
-  const { data } = supabase.storage.from(config.merchantImages.bucket).getPublicUrl(path);
-  return data.publicUrl;
+  return publicApiUrl(config.merchantImages.bucket, path);
 }
 
 // --- User avatars (profile pictures, PUBLIC `avatars` bucket) ---------------
@@ -171,16 +164,11 @@ function buildAvatarPath(userId, originalName) {
 
 async function createAvatarUploadUrl(path) {
   await ensureAvatarBucket();
-  const { data, error } = await supabase.storage
-    .from(config.avatars.bucket)
-    .createSignedUploadUrl(path);
-  if (error) throw error;
-  return { path, token: data.token, signedUrl: data.signedUrl };
+  return uploadAuthorization(config.avatars.bucket, path, config.avatars);
 }
 
 function avatarPublicUrl(path) {
-  const { data } = supabase.storage.from(config.avatars.bucket).getPublicUrl(path);
-  return data.publicUrl;
+  return publicApiUrl(config.avatars.bucket, path);
 }
 
 // Every avatar the user ever uploaded, not just the current one: replacing a

@@ -18,7 +18,7 @@ import {
 } from 'lucide-react';
 import useCardAvailable from '../lib/useCardAvailable';
 import { api } from '../lib/api';
-import { uploadProofFile } from '../lib/supabaseClient';
+import { uploadProofFile } from '../lib/gatewayClient';
 import { AIRPORTS, fareBreakdown, airportDropdownOptions } from '../lib/constants';
 import { PortalShell, Card, Field, inputClass, btnPrimary, btnGhost, Spinner } from '../components/ui';
 import LocationPicker from '../components/LocationPicker';

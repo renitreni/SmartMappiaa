@@ -14,7 +14,7 @@
 // ---------------------------------------------------------------------
 import { useState } from 'react';
 import { Upload, Image as ImageIcon } from 'lucide-react';
-import { uploadProofFile } from '../lib/supabaseClient';
+import { uploadProofFile } from '../lib/gatewayClient';
 import {
   validateLogoFile,
   validateMenuImageFile,

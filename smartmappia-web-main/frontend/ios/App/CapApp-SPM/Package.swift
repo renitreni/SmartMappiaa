@@ -12,7 +12,7 @@ let package = Package(
     ],
     dependencies: [
         .package(url: "https://github.com/ionic-team/capacitor-swift-pm.git", exact: "8.4.2"),
-        .package(name: "CapacitorGeolocation", path: "..\..\..\node_modules\@capacitor\geolocation")
+        .package(name: "CapacitorGeolocation", path: "../../../node_modules/@capacitor/geolocation")
     ],
     targets: [
         .target(

@@ -1,6 +1,6 @@
 // ---------------------------------------------------------------------
 
-// Driver portal (Grab-style). Identity comes from the signed-in Supabase
+// Driver portal (Grab-style). Identity comes from the signed-in API
 
 // session; a driver must be admin-approved before they can go online.
 
@@ -46,7 +46,7 @@ import { useGeolocation, haversineKm, etaMinutes, movementFrom, bearingDeg, pars
 
 import { useBroadcast } from '../lib/useBroadcast';
 
-import { realtimeEnabled } from '../lib/supabaseClient';
+import { realtimeEnabled } from '../lib/gatewayClient';
 
 import DriverVerification from './DriverVerification';
 
@@ -1638,5 +1638,3 @@ export default function DriverPage() {
   );
 
 }
-
-

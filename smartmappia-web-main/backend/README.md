@@ -122,6 +122,7 @@ webhook is shared.
 |---|---|
 | `PUBLIC_WEB_URL` | Falls back to `CORS_ORIGINS[0]`, which makes that list's *order* silently load-bearing |
 | `PUBLIC_API_BASE` | **No fallback.** Resolves to `''`, so Tap is given a relative webhook URL it cannot call. The charge succeeds, the customer is debited, and the confirmation never arrives. |
+| `SESSION_ENCRYPTION_KEY` | Required in production for reset-state encryption and file-grant signing. Generate once and retain it. |
 
 **Food** — `/api/food`
 - Discovery: `GET /restaurants` · `/restaurants/:id` (public)
@@ -178,16 +179,40 @@ reveals how many units of every SKU a store sells per day. The customer API retu
 
 ## Auth and roles
 
-Supabase Auth, email and password. **JWT bearer tokens only — no cookies, no sessions, no CSRF
-surface.** The frontend sends `Authorization: Bearer <jwt>`; `middleware/auth.js` verifies it and
-reads the role from `profiles`.
+Supabase Auth remains the server-side identity provider. Clients receive only random, revocable
+Smart Mappia bearer sessions (30-day idle / 90-day absolute lifetime); Supabase credentials never
+leave the API. Password resets exchange their single-use PKCE code through the API.
+The frontend sends `Authorization: Bearer <session-token>`; `middleware/auth.js` verifies its hash,
+expiry and revocation state, then reads the role from `profiles`.
 
 | Guard | Requires |
 |---|---|
-| `requireToken` | Valid JWT; profile may not exist |
-| `requireAuth` | Valid JWT **and** a `profiles` row |
+| `requireToken` | Valid app session; profile may not exist |
+| `requireAuth` | Valid app session **and** a `profiles` row |
 | `requireAdmin` | `role = admin` |
 | `requireDriver` | driver or admin |
+
+### API gateway cutover
+
+Before deploying this version:
+
+1. Apply `backend/sql/app_gateway.sql` to the intended Supabase project.
+2. Set `PUBLIC_WEB_URL`, `PUBLIC_API_BASE`, and a stable random
+   `SESSION_ENCRYPTION_KEY` (`openssl rand -base64 32`) on the API server.
+3. Deploy the API before rebuilding the web/native clients. Existing Supabase
+   JWTs are intentionally not accepted by this release, so users sign in again.
+4. Run `npm run migrate:media-urls` for a dry-run, then
+   `npm run migrate:media-urls:apply` after checking the count. This moves
+   persisted avatar/catalog URLs behind `/api/files/public/...`.
+5. Apply `backend/deploy/nginx-api-gateway.conf.example` inside the existing
+   `api.smartmappia.com` HTTPS server block. It permits the API's bounded
+   uploads and disables buffering for `/api/events`. Validate with `nginx -t`
+   before reloading Nginx.
+
+Password-reset delivery still uses the Supabase Auth SMTP configuration, but
+the PKCE verifier, code exchange, password update, and session revocation are
+owned by the API. Add the exact `${PUBLIC_WEB_URL}/reset-password` destination
+to Supabase Auth's allowed redirect URLs.
 | `requireMerchant` | merchant or admin |
 | `requireApprovedDriver` | driver + `driver_approved` (admin bypasses) |
 | `optionalAuth` | Attaches identity if present; never rejects |

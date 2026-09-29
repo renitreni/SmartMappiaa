@@ -1,7 +1,7 @@
 // ---------------------------------------------------------------------
 // My Profile — /profile
 // Edit personal info (name, phones, delivery address), upload a profile
-// picture, and change email/password (Supabase Auth). Saves PATCH
+// picture, and change password through the Smart Mappia API. Saves PATCH
 // /api/auth/profile then refreshes the AuthProvider profile so the navbar
 // picks the changes up instantly.
 // ---------------------------------------------------------------------
@@ -11,7 +11,7 @@ import { Camera, User, Phone, MapPin, Mail, KeyRound, Save, History, Trash2 } fr
 import { api } from '../lib/api';
 import { useAuth } from '../lib/AuthProvider';
 import { MAX_NAME_LENGTH } from '../lib/fieldValidation';
-import { supabase, uploadProofFile } from '../lib/supabaseClient';
+import { uploadProofFile } from '../lib/gatewayClient';
 import { compressImage } from '../lib/imageCompress';
 import { notifySuccess, notifyError, confirmAction } from '../lib/notify';
 import { getPasswordValidationError } from '../lib/passwordValidation';
@@ -38,7 +38,7 @@ export default function ProfilePage() {
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
   const [avatarPreview, setAvatarPreview] = useState(null);
 
-  const [email, setEmail] = useState(user?.email || '');
+  const email = user?.email || '';
   const [password, setPassword] = useState('');
   const [password2, setPassword2] = useState('');
   const [savingSecurity, setSavingSecurity] = useState(false);
@@ -94,14 +94,11 @@ export default function ProfilePage() {
 
   async function saveSecurity(e) {
     e.preventDefault();
-    if (!supabase) return;
-    const wantsEmail = email.trim() && email.trim().toLowerCase() !== (user?.email || '').toLowerCase();
     const wantsPassword = password.length > 0;
-    if (!wantsEmail && !wantsPassword) return;
+    if (!wantsPassword) return;
     // Shared rule. This used to be a bare `< 6`, which was looser than both
     // signup and the admin-issued merchant passwords (8, lib/validate.js) —
-    // and because this path calls supabase.auth.updateUser directly rather
-    // than our API, that 8-character floor was not enforced here at all. A
+    // and was historically looser than the server-side rule. A
     // merchant handed a compliant password could immediately downgrade it.
     if (wantsPassword) {
       const validationError = getPasswordValidationError(password);
@@ -116,19 +113,14 @@ export default function ProfilePage() {
     }
     setSavingSecurity(true);
     try {
-      const { error } = await supabase.auth.updateUser({
-        ...(wantsEmail ? { email: email.trim() } : {}),
-        ...(wantsPassword ? { password } : {}),
-      });
-      if (error) throw error;
+      await api.changePassword(password);
       setPassword('');
       setPassword2('');
       notifySuccess(
         'Account updated',
-        wantsEmail
-          ? 'Check your inbox — the email change must be confirmed from the new address.'
-          : 'Your password was changed.'
+        'Your password was changed. Please sign in again on this device.'
       );
+      await signOut();
     } catch (err) {
       notifyError(err.message || 'Could not update your account.');
     } finally {
@@ -259,10 +251,10 @@ export default function ProfilePage() {
             <KeyRound className="w-4 h-4 text-brand-orange" /> Account &amp; security
           </p>
           <form onSubmit={saveSecurity} className="space-y-3">
-            <Field label="Email address">
+            <Field label="Email address (contact support to change)">
               <div className="relative">
                 <Mail className="w-4 h-4 text-brand-grey absolute left-3.5 top-1/2 -translate-y-1/2" />
-                <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} className={inputClass + ' !pl-10'} />
+                <input type="email" value={email} disabled className={inputClass + ' !pl-10 opacity-70'} />
               </div>
             </Field>
             <div className="grid sm:grid-cols-2 gap-3">

@@ -48,7 +48,7 @@ export default function LoginPage() {
     if (session && role) navigate(roleHome(role, next), { replace: true });
   }, [session, role, next, navigate]);
 
-  // Supabase login succeeded but /api/auth/sync failed (often missing DB migration).
+  // API login succeeded but /api/auth/sync failed (often a missing DB migration).
   useEffect(() => {
     if (session && !profileLoading && profileError) {
       setError(profileError);
@@ -65,7 +65,7 @@ export default function LoginPage() {
 
   // Validate before the request, not after: an empty password or a malformed
   // address never needed a round trip to be known wrong, and going through
-  // signIn() for it burns a Supabase rate-limit slot per keystroke-fix.
+  // signIn() for it burns an authentication rate-limit slot per keystroke-fix.
   const invalid = {
     email: getEmailError(email),
     password: getRequiredError(password, 'Password'),

@@ -16,21 +16,15 @@
 //   requireApprovedDriver -> requireDriver + driver_approved = true
 // ---------------------------------------------------------------------
 const { supabase } = require('../lib/supabase');
+const { findSession } = require('../lib/appSessions');
 const { setContextUser } = require('../lib/requestContext');
 const { hasSuperAdminColumns } = require('../lib/profileSchema');
 
-function getBearer(req) {
-  const header = req.get('authorization') || '';
-  const match = header.match(/^Bearer\s+(.+)$/i);
-  return match ? match[1] : null;
-}
-
 async function authenticate(req) {
-  const token = getBearer(req);
-  if (!token) return null;
-  const { data, error } = await supabase.auth.getUser(token);
-  if (error || !data || !data.user) return null;
-  return data.user;
+  const session = await findSession(req);
+  if (!session) return null;
+  req.appSessionId = session.id;
+  return session.user;
 }
 
 async function requireToken(req, res, next) {
@@ -209,6 +203,7 @@ function requireApprovedDriver(req, res, next) {
 }
 
 module.exports = {
+  authenticate,
   requireToken,
   requireAuth,
   requireAdmin,

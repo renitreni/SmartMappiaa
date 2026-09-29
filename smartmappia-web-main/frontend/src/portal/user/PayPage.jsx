@@ -9,7 +9,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { Upload, CheckCircle2 } from 'lucide-react';
 import { api } from '../lib/api';
 import { vatLabel } from '../lib/constants';
-import { uploadProofFile } from '../lib/supabaseClient';
+import { uploadProofFile } from '../lib/gatewayClient';
 import { PortalShell, Card, Field, fileInputClass, btnPrimary, Spinner } from '../components/ui';
 import CardPaySection from '../components/CardPaySection';
 

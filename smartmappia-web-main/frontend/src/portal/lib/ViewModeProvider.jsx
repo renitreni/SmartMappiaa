@@ -2,7 +2,7 @@
 // Admin "preview as" view mode (frontend-only).
 //
 // Lets a signed-in ADMIN render the user (/book) or driver (/driver) portal
-// WITHOUT changing their Supabase session/JWT — they stay authenticated as
+// WITHOUT changing their API session — they stay authenticated as
 // admin the whole time. The chosen preview role is kept in React state +
 // sessionStorage so a page refresh keeps the preview. This is NOT a backend
 // session concept; backend access still rides on the admin's real JWT.

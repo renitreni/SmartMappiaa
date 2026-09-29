@@ -28,7 +28,7 @@ import {
 } from 'lucide-react';
 import { api } from '../lib/api';
 import { useBroadcast } from '../lib/useBroadcast';
-import { realtimeEnabled } from '../lib/supabaseClient';
+import { realtimeEnabled } from '../lib/gatewayClient';
 import { fmtSAR, foodStatusMeta, foodPaymentMeta } from '../lib/constants';
 import { announceNewOrder, playAlert } from '../lib/alertSound';
 import { Card, Badge, Spinner, btnPrimary, btnGhost } from '../components/ui';

@@ -7,7 +7,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { UploadCloud, CheckCircle2, Clock, XCircle, RefreshCw, FileText } from 'lucide-react';
 import { api } from '../lib/api';
-import { uploadProofFile } from '../lib/supabaseClient';
+import { uploadProofFile } from '../lib/gatewayClient';
 import { Card, Badge, Spinner, btnPrimary } from '../components/ui';
 import { UPLOAD_ACCEPT, UPLOAD_FORMATS_HINT, validateUploadFile } from '../lib/uploadFiles';
 

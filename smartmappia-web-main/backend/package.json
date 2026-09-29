@@ -23,6 +23,8 @@
     "check:tap": "node scripts/check-tap.js",
     "check:hours": "node scripts/check-store-hours.js",
     "setup:buckets": "node scripts/setup-buckets.js",
+    "migrate:media-urls": "node scripts/migrate-public-media-urls.js",
+    "migrate:media-urls:apply": "node scripts/migrate-public-media-urls.js --apply",
     "reset:orders": "node scripts/reset-orders.js",
     "delete:account": "node scripts/delete-account.js",
     "seed:shop": "node scripts/seed-shop.js",
@@ -42,6 +44,7 @@
     "express": "^4.21.0",
     "express-rate-limit": "^8.5.2",
     "helmet": "^8.2.0",
+    "multer": "^2.4.0",
     "web-push": "^3.6.7",
     "ws": "^8.21.0"
   }

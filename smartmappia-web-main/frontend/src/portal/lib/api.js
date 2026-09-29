@@ -1,19 +1,16 @@
 // ---------------------------------------------------------------------
-// Backend client. Auth is automatic: if a Supabase session exists, every
-// request carries `Authorization: Bearer <access_token>`, so the backend
+// Backend client. Auth is automatic: if a Smart Mappia session exists, every
+// request carries its revocable bearer token, so the backend
 // knows who the caller is and what role they have.
 // ---------------------------------------------------------------------
-import { supabase } from './supabaseClient';
 import { notifyError } from './notify';
+import { getSessionToken, setSessionToken } from './sessionStore';
+import { resolveApiBase } from './apiConfig';
 
-const API_BASE = import.meta.env.DEV
-  ? ''
-  : (import.meta.env.VITE_API_BASE || 'http://127.0.0.1:4000');
+export const API_BASE = resolveApiBase();
 
 async function authHeader() {
-  if (!supabase) return {};
-  const { data } = await supabase.auth.getSession();
-  const token = data?.session?.access_token;
+  const token = getSessionToken();
   return token ? { Authorization: `Bearer ${token}` } : {};
 }
 
@@ -40,8 +37,8 @@ async function request(path, { method = 'GET', body, headers = {}, silent = fals
   try {
     res = await fetch(`${API_BASE}${path}`, {
       method,
-      headers: { 'Content-Type': 'application/json', ...auth, ...headers },
-      body: body !== undefined ? JSON.stringify(body) : undefined,
+      headers: { ...(body instanceof FormData ? {} : { 'Content-Type': 'application/json' }), ...auth, ...headers },
+      body: body !== undefined ? (body instanceof FormData ? body : JSON.stringify(body)) : undefined,
     });
   } catch {
     // Network/CORS failure: the server couldn't be reached at all.
@@ -65,6 +62,7 @@ async function request(path, { method = 'GET', body, headers = {}, silent = fals
     // Machine-readable reason (card_declined, min_order, out_of_stock, ...)
     // so a caller can branch on WHY rather than string-matching the message.
     err.failure_reason = data && data.failure_reason;
+    if (res.status === 401 && !path.endsWith('/auth/login')) setSessionToken(null);
     if (!silent) notifyError(msg);
     throw err;
   }
@@ -75,18 +73,30 @@ export const api = {
   base: API_BASE,
 
   // --- auth ---
+  authLogin: (body) => request('/api/auth/login', { method: 'POST', body }),
+  authSession: () => request('/api/auth/session', { silent: true }),
+  authLogout: () => request('/api/auth/logout', { method: 'POST', silent: true }),
   authSignup: (body) => request('/api/auth/signup', { method: 'POST', body }),
+  changePassword: (password) => request('/api/auth/password', { method: 'POST', body: { password } }),
+  requestPasswordReset: (email) => request('/api/auth/password/reset/request', { method: 'POST', body: { email }, silent: true }),
+  exchangePasswordReset: (state, code) => request('/api/auth/password/reset/exchange', { method: 'POST', body: { state, code }, silent: true }),
+  completePasswordReset: (ticket, password) => request('/api/auth/password/reset/complete', { method: 'POST', body: { ticket, password } }),
   // Fire-and-forget: called once after a real credential sign-in so the
   // super admin can see who signed in and when. Silent because a failure
   // here must never surface as a popup on an otherwise successful login.
   recordLogin: () => request('/api/auth/login-event', { method: 'POST', silent: true }),
   authSync: (body = {}) => request('/api/auth/sync', { method: 'POST', body, silent: true }),
-  // Profile page: name / phones / address / avatar (email + password go
-  // through Supabase Auth on the client).
+  // Profile page: name / phones / address / avatar.
   updateProfile: (body) => request('/api/auth/profile', { method: 'PATCH', body }),
   avatarSignedUrl: (body) => request('/api/auth/avatar/signed-url', { method: 'POST', body }),
   // Permanent, and required by both app stores. 204 on success.
   deleteAccount: () => request('/api/auth/account', { method: 'DELETE' }),
+  uploadFile: async (grant, file) => {
+    const form = new FormData();
+    form.append('grant', grant);
+    form.append('file', file, file.name);
+    return request('/api/files/upload', { method: 'POST', body: form });
+  },
 
   // --- saved cards ("card on file"), shared by all three services ---
   // A card is never ADDED here: Tap only mints one as a side effect of a

@@ -47,7 +47,7 @@ import { MAX_NAME_LENGTH } from '../lib/fieldValidation';
 import { toCsv, downloadCsv } from '../lib/csv';
 import { useBroadcast } from '../lib/useBroadcast';
 import { formatAddressDetail } from '../lib/address';
-import { realtimeEnabled } from '../lib/supabaseClient';
+import { realtimeEnabled } from '../lib/gatewayClient';
 import { fmtSAR, foodStatusMeta, foodPaymentMeta } from '../lib/constants';
 import { notifySuccess } from '../lib/notify';
 import { Card, Badge, Field, Spinner, btnPrimary, btnGhost, inputClass } from '../components/ui';

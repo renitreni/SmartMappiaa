@@ -30,7 +30,7 @@ android {
         // re-upload of the same build after a rejection; Play refuses a code it
         // has already seen and the number can never go back down. versionName is
         // the semver string users see and is not required to be unique.
-        versionCode 1
+        versionCode 26092901
         versionName "1.0.0"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
