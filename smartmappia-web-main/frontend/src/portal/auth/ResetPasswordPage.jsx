@@ -1,32 +1,15 @@
 // ---------------------------------------------------------------------
 // Choose a new password from a reset link: /reset-password
 //
-// THE GATE IS THE POINT OF THIS FILE.
-//
-// supabaseClient leaves `detectSessionInUrl` at its default of true, so the
-// SDK consumes a recovery link and establishes a session on whatever page it
-// lands on. If this screen simply rendered a password form, then:
-//
-//   * someone already signed in on the device who happens to open
-//     /reset-password directly would change THEIR OWN password believing
-//     they were completing a reset for the link they were sent, and
-//   * a stale or already-used link would show a working-looking form whose
-//     submit silently applies to whoever the current session belongs to.
-//
-// So the form only renders once we have positively seen a PASSWORD_RECOVERY
-// event (or, on a reload, a recovery session we recorded from one). An
-// ordinary signed-in session is NOT sufficient and is refused.
-//
-// PKCE (see supabaseClient.js) adds one honest failure mode: the verifier
-// lives in the localStorage of the browser that REQUESTED the reset, so
-// opening the mail elsewhere cannot complete. That surfaces below as an
-// expired link with a route back to request a fresh one, not a dead end.
+// The API keeps the PKCE verifier and exchanges the email's one-use code.
+// This page receives only a short-lived Smart Mappia reset ticket, so an
+// ordinary signed-in session can never authorize a password reset.
 // ---------------------------------------------------------------------
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { CheckCircle2, AlertTriangle, ArrowLeft } from 'lucide-react';
 import { Capacitor } from '@capacitor/core';
-import { supabase } from '../lib/supabaseClient';
+import { api } from '../lib/api';
 import { getPasswordValidationError } from '../lib/passwordValidation';
 import { btnPrimary, Spinner, Field } from '../components/ui';
 import PasswordInput from '../components/PasswordInput';
@@ -36,76 +19,42 @@ import MobileNewPasswordScreen from './mobile/screens/NewPasswordScreen';
 // submitting does not drop the user back to the invalid-link state. Cleared
 // on success and on leaving. sessionStorage, not localStorage: it must not
 // outlive the tab, or a later visit to /reset-password would inherit it.
-const RECOVERY_FLAG = 'sm_password_recovery';
-
-// How long to wait for the SDK to exchange the code before calling the link
-// bad. Generous — a slow phone on hotel wifi is not an invalid link.
-const EXCHANGE_TIMEOUT_MS = 12000;
-
 export default function ResetPasswordPage() {
   const navigate = useNavigate();
+  const [recovery] = useState(() => {
+    const url = new URL(window.location.href);
+    const state = url.searchParams.get('state');
+    const code = url.searchParams.get('code');
+    return state && code ? { state, code } : null;
+  });
   // 'verifying' -> 'ready' -> 'done', or 'invalid' at any point before 'done'.
   //
   // Both synchronously-knowable outcomes are resolved in the lazy initialiser
   // rather than in the effect: an unconfigured client, and a reload while the
   // form was already open. That leaves the effect handling only genuinely
   // asynchronous paths.
-  const [phase, setPhase] = useState(() => {
-    if (!supabase) return 'invalid';
-    if (sessionStorage.getItem(RECOVERY_FLAG) === '1') return 'ready';
-    return 'verifying';
-  });
-  const [error, setError] = useState(() =>
-    supabase ? null : 'Sign-in is not configured. Please contact Smart Mappia support.'
-  );
+  const [phase, setPhase] = useState(recovery ? 'verifying' : 'invalid');
+  const [error, setError] = useState(null);
+  const [ticket, setTicket] = useState(null);
   const [busy, setBusy] = useState(false);
-  const settled = useRef(phase !== 'verifying');
-
-  const markReady = useCallback(() => {
-    if (settled.current) return;
-    settled.current = true;
-    sessionStorage.setItem(RECOVERY_FLAG, '1');
-    setPhase('ready');
-  }, []);
 
   useEffect(() => {
-    // Both already handled in the lazy initialiser above.
-    if (!supabase || settled.current) return undefined;
-
-    // The event we actually want. detectSessionInUrl may fire this before this
-    // component mounts, which is what the getSession() race-check below covers.
-    const { data: sub } = supabase.auth.onAuthStateChange((event) => {
-      if (event === 'PASSWORD_RECOVERY') markReady();
-    });
-
-    // Race check: if the SDK already consumed the link, the event is gone but
-    // the URL still tells us why we are here. Accept a session ONLY when the
-    // URL carries recovery markers — never a bare pre-existing session, which
-    // is exactly the case this gate exists to refuse.
-    const url = new URL(window.location.href);
-    const hash = new URLSearchParams(url.hash.replace(/^#/, ''));
-    const cameFromRecoveryLink =
-      url.searchParams.has('code') ||          // PKCE
-      hash.get('type') === 'recovery' ||       // implicit, legacy links
-      url.searchParams.get('type') === 'recovery';
-
-    if (cameFromRecoveryLink) {
-      supabase.auth.getSession().then(({ data }) => {
-        if (data?.session) markReady();
+    if (!recovery) return undefined;
+    let active = true;
+    api.exchangePasswordReset(recovery.state, recovery.code)
+      .then((data) => {
+        if (!active) return;
+        setTicket(data.ticket);
+        setPhase('ready');
+        window.history.replaceState({}, '', '/reset-password');
+      })
+      .catch((err) => {
+        if (!active) return;
+        setError(err.message);
+        setPhase('invalid');
       });
-    }
-
-    const timer = setTimeout(() => {
-      if (settled.current) return;
-      settled.current = true;
-      setPhase('invalid');
-    }, cameFromRecoveryLink ? EXCHANGE_TIMEOUT_MS : 0);
-
-    return () => {
-      clearTimeout(timer);
-      sub.subscription.unsubscribe();
-    };
-  }, [markReady]);
+    return () => { active = false; };
+  }, [recovery]);
 
   async function submit(password) {
     const validationError = getPasswordValidationError(password);
@@ -116,10 +65,7 @@ export default function ResetPasswordPage() {
     setBusy(true);
     setError(null);
     try {
-      const { error: updateError } = await supabase.auth.updateUser({ password });
-      if (updateError) throw updateError;
-      sessionStorage.removeItem(RECOVERY_FLAG);
-      settled.current = true;
+      await api.completePasswordReset(ticket, password);
       setPhase('done');
     } catch (err) {
       setError(err.message || 'Could not update your password. Request a new link and try again.');
@@ -127,18 +73,6 @@ export default function ResetPasswordPage() {
       return;
     }
 
-    // Sign out so the new password is actually used to get back in. The
-    // recovery session is still live otherwise, and letting it through would
-    // mean the user never proves they know what they just set.
-    //
-    // Deliberately outside the try above: the password IS already changed by
-    // this point, and a failed sign-out is not something to alarm the user
-    // about — surfacing it would contradict the success screen they can see.
-    try {
-      await supabase.auth.signOut();
-    } catch {
-      /* best effort */
-    }
     setBusy(false);
   }
 

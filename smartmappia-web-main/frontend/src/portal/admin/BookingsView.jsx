@@ -26,7 +26,7 @@ import {
 } from 'lucide-react';
 import { api } from '../lib/api';
 import { useBroadcast } from '../lib/useBroadcast';
-import { realtimeEnabled } from '../lib/supabaseClient';
+import { realtimeEnabled } from '../lib/gatewayClient';
 import { statusMeta, ridePaymentMeta } from '../lib/constants';
 import { formatAddressDetail } from '../lib/address';
 import { Card, Badge, Spinner, btnPrimary } from '../components/ui';

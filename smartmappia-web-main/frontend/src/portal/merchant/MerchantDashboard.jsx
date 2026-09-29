@@ -19,11 +19,11 @@ import {
 } from 'lucide-react';
 import { api } from '../lib/api';
 import { useBroadcast } from '../lib/useBroadcast';
-import { realtimeEnabled } from '../lib/supabaseClient';
+import { realtimeEnabled } from '../lib/gatewayClient';
 import { startUrgentAlert, acknowledgeUrgentAlert, playAlert } from '../lib/alertSound';
 import { foodStatusMeta, fmtSAR } from '../lib/constants';
 import { confirmAction, notifySuccess } from '../lib/notify';
-import { uploadProofFile } from '../lib/supabaseClient';
+import { uploadProofFile } from '../lib/gatewayClient';
 import {
   LOGO_ACCEPT,
   LOGO_FORMATS_HINT,

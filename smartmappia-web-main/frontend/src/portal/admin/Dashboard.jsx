@@ -34,7 +34,7 @@ import {
 } from 'lucide-react';
 import { api } from '../lib/api';
 import { useBroadcast } from '../lib/useBroadcast';
-import { realtimeEnabled } from '../lib/supabaseClient';
+import { realtimeEnabled } from '../lib/gatewayClient';
 import { statusMeta } from '../lib/constants';
 import { Spinner } from '../components/ui';
 

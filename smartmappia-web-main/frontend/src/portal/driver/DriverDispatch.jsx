@@ -13,7 +13,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { Bike, Check, X, MapPin, Phone, MessageCircle, Store, Timer, Camera, Banknote, Navigation } from 'lucide-react';
 import { api } from '../lib/api';
 import { useBroadcast } from '../lib/useBroadcast';
-import { realtimeEnabled, uploadProofFile } from '../lib/supabaseClient';
+import { realtimeEnabled, uploadProofFile } from '../lib/gatewayClient';
 import { fmtSAR, whatsappLink, googleMapsNavLink } from '../lib/constants';
 import { formatAddressDetail } from '../lib/address';
 import { notifyAlert } from '../lib/notify';

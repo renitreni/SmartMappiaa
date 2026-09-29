@@ -26,6 +26,8 @@ const merchantShopRoutes = require('./routes/merchantShop');
 const locationRoutes = require('./routes/locations');
 const paymentRoutes = require('./routes/payments');
 const paymentMethodRoutes = require('./routes/paymentMethods');
+const fileRoutes = require('./routes/files');
+const eventRoutes = require('./routes/events');
 const { config } = require('./lib/config');
 const { requestContext } = require('./lib/requestContext');
 const { reportFatal } = require('./lib/errorLog');
@@ -102,7 +104,8 @@ const generalLimiter = rateLimit({
   // originalUrl carries the query string, so `?x=/webhooks/` on ANY endpoint
   // used to skip this limiter entirely. req.path is the remainder after the
   // '/api/' mount point, hence no /api prefix here.
-  skip: (req) => req.path === '/payments/webhooks/tap',
+  skip: (req) =>
+    req.path === '/payments/webhooks/tap' || req.path.startsWith('/files/public/'),
   // JSON, not the library default plain text. api.js reads `.error` off the
   // parsed body; a text/plain body makes res.json() throw, and the client
   // falls back to 'Request failed (429)' -- the exact meaningless string
@@ -122,6 +125,8 @@ app.use('/api/auth', authLimiter);
 // --- Routes ---
 app.use('/api/health', healthRoutes);
 app.use('/api/auth', authRoutes);
+app.use('/api/files', fileRoutes);
+app.use('/api/events', eventRoutes);
 app.use('/api/bookings', bookingRoutes);
 app.use('/api/tracking', trackingRoutes);
 app.use('/api/admin', adminRoutes);

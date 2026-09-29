@@ -1,0 +1,19 @@
+import test from 'node:test';
+import assert from 'node:assert';
+import { PRODUCTION_API_BASE, resolveApiBase } from '../src/portal/lib/apiConfig.js';
+
+test('production defaults to the deployed Smart Mappia API, never localhost', () => {
+  assert.strictEqual(PRODUCTION_API_BASE, 'https://api.smartmappia.com');
+  assert.strictEqual(resolveApiBase({ dev: false, configured: '' }), 'https://api.smartmappia.com');
+});
+
+test('staging may explicitly override the API and trailing slashes are normalized', () => {
+  assert.strictEqual(
+    resolveApiBase({ dev: false, configured: 'https://staging-api.smartmappia.com/' }),
+    'https://staging-api.smartmappia.com'
+  );
+});
+
+test('development uses the Vite same-origin proxy', () => {
+  assert.strictEqual(resolveApiBase({ dev: true, configured: 'https://api.smartmappia.com' }), '');
+});

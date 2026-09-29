@@ -4,7 +4,8 @@ The React app for Smart Mappia: the marketing site plus the customer, driver, me
 portals for all three service lines: Pick & Drop airport transfers, Food Delivery, and Ecommerce
 (partner stores selling physical goods, behind a feature flag until the first store trades).
 
-**React 19 + Vite 8 + Tailwind CSS 4 + React Router 7.** Supabase for auth, realtime, and uploads.
+**React 19 + Vite 8 + Tailwind CSS 4 + React Router 7.** The Smart Mappia API owns auth,
+realtime, and file transfer; Supabase credentials remain server-side.
 **Google Maps or Mapbox** for the browser map renderer; Google Maps Platform remains the backend
 provider for routing, geocoding, and places. The same build is wrapped with **Capacitor 8** to ship
 the Android app.
@@ -34,7 +35,8 @@ npm run lint             # ESLint 10 flat config
 npm test                 # provider configuration tests
 ```
 
-The frontend only ever uses the Supabase **anon** key. The service-role key stays in the backend.
+The frontend contains no Supabase key or client. It stores only a random, revocable Smart Mappia
+session token and sends it to the API as a bearer token.
 
 ---
 
@@ -46,8 +48,6 @@ Compiled in at **build** time — a change requires a rebuild, not a restart.
 | Variable | Purpose |
 |---|---|
 | `VITE_API_BASE` | Backend base URL |
-| `VITE_SUPABASE_URL` | Supabase project URL |
-| `VITE_SUPABASE_ANON_KEY` | **Anon key only** — never the service-role key |
 | `VITE_MAP_PROVIDER` | Browser renderer: `google` (default) or `mapbox` |
 | `VITE_GOOGLE_MAPS_BROWSER_KEY` | Required in Google mode. Maps JS API key restricted by HTTP referrer. |
 | `VITE_GOOGLE_MAP_ID` | Required in Google mode. Vector Map ID for `AdvancedMarkerElement`. |
@@ -149,13 +149,13 @@ No Redux, Zustand, or React Query. Two contexts plus local state:
 
 | Provider | State |
 |---|---|
-| `AuthProvider` | Supabase session, profile, role, `driverApproved` — via `useAuth()` |
+| `AuthProvider` | API session, profile, role, `driverApproved` — via `useAuth()` |
 | `ViewModeProvider` | Admin "preview as" role, in `sessionStorage` |
 
-Preview mode is a **UI convenience, not a permission change** — the JWT is unchanged and the server
+Preview mode is a **UI convenience, not a permission change** — the API session is unchanged and the server
 still sees an admin.
 
-Every live screen uses the same pattern: an initial fetch, then a Supabase Realtime subscription via
+Every live screen uses the same pattern: an initial fetch, then an API event stream via
 `useBroadcast`, with a polling fallback. `useBroadcast` returns `connected` so the page knows which
 mode it is in. **Polling is the correctness guarantee**; realtime is the accelerator.
 
@@ -259,21 +259,65 @@ Reusable styles are exported as **string constants** (`btnPrimary`, `inputClass`
 
 ---
 
-## Android
+## Mobile builds (Capacitor)
 
-The APK is the same `dist/` bundle inside a Capacitor WebView. There is no separate mobile codebase.
+Android and iOS package the same `dist/` bundle inside a Capacitor WebView; there is no separate
+mobile application codebase. Create `frontend/.env` from `.env.example` with the production API,
+API and map configuration before building because Vite embeds these values in the bundle.
+
+From `frontend/`, install dependencies and refresh both native projects:
 
 ```bash
-npm run build
-npx cap sync            # MANDATORY — without it the APK ships a stale bundle
-cd android && ./gradlew assembleRelease
+npm ci
+npm run mobile:sync     # runs the production web build, then `cap sync`
 ```
+
+Use Node 22.13 or newer on the 22.x line, or Node 24+. Node 23 is outside the supported ranges of
+the current build and lint dependencies.
+
+`cap sync` is mandatory. It copies the current bundle, refreshes native plugin configuration, and
+regenerates `ios/App/CapApp-SPM/Package.swift`; skipping it can package stale web code or stale
+plugin paths.
+
+### App icons and splash screens
+
+The committed source assets live in `assets/`. They contain the Smart Mappia mark derived from
+`public/mappia-new-logo.png` on the brand-orange `#FF7E21` background. To regenerate every tracked
+iOS and Android icon and splash density:
+
+```bash
+npm run mobile:assets
+```
+
+Do not run the generator with `--pwa`: the website favicon and web-app manifest icons are
+intentionally independent of the native branding.
+
+### Android
 
 | Requirement | Value |
 |---|---|
 | **JDK** | **21** — JDK 17 fails |
-| minSdk / targetSdk | 24 / 36 |
+| Android SDK | compile/target API 36 |
+| minSdk | 24 |
 | appId | `com.smartmappia` |
+
+Select JDK 21, then build from `frontend/android`:
+
+```bash
+export JAVA_HOME=$(/usr/libexec/java_home -v 21)
+./gradlew assembleDebug
+./gradlew assembleRelease
+```
+
+Android Studio's bundled JDK can be used when no standalone JDK 21 is installed:
+
+```bash
+export JAVA_HOME="/Applications/Android Studio.app/Contents/jbr/Contents/Home"
+```
+
+Release signing is deliberately external. Put `keystore.properties` in `android/` and point its
+`storeFile` at a keystore outside the repository. Without it, the release variant builds unsigned.
+For a Play upload, increment `versionCode`, configure signing, and run `./gradlew bundleRelease`.
 
 Two integration constraints:
 
@@ -287,6 +331,26 @@ Two integration constraints:
 
 A PWA layer also exists: `public/manifest.webmanifest` and `public/sw.js` (shell cache plus a push
 handler, registered only in production builds).
+
+### iOS
+
+| Requirement | Value |
+|---|---|
+| Xcode | Full Xcode installation with an iOS SDK (Command Line Tools alone are insufficient) |
+| deployment target | iOS 15 |
+| bundle id | `com.smartmappia` |
+
+After `npm run mobile:sync`, resolve packages and verify an unsigned Simulator build:
+
+```bash
+xcodebuild -resolvePackageDependencies -project ios/App/App.xcodeproj -scheme App
+xcodebuild -project ios/App/App.xcodeproj -scheme App -sdk iphonesimulator \
+  -configuration Debug CODE_SIGNING_ALLOWED=NO build
+```
+
+Open `ios/App/App.xcodeproj` in Xcode to archive for distribution. The Apple developer team,
+certificates, provisioning profiles, and export options remain outside the repository; select the
+team in Xcode before producing an App Store archive.
 
 ---
 
@@ -316,8 +380,6 @@ git pull && npm install && npm run build
 - **No 404 route** — `main.jsx` has no `*` catch-all, so an unknown path renders blank.
 - **Minimal frontend tests.** Provider configuration is covered, but user flows and renderer
   behavior do not yet have automated browser tests. ESLint is not run in any gate.
-- **Android assets were synced before the Google Maps migration** — run `npm run build && npx cap
-  sync` before the next APK.
 - **Tabs instead of nested routes** in the driver, merchant, and admin portals — screens are not
   linkable, and the files have grown large (`DriverPage.jsx` 1,514 lines, `FoodAdmin.jsx` 1,448).
 - **Per-page fetch/loading/error/polling duplication** — React Query would remove most of it.

@@ -18,20 +18,13 @@ import { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { Mail, ArrowLeft, ArrowRight } from 'lucide-react';
 import { Capacitor } from '@capacitor/core';
-import { supabase } from '../lib/supabaseClient';
+import { api } from '../lib/api';
 import { Field, btnPrimary, Spinner } from '../components/ui';
 import MobileForgotPasswordScreen from './mobile/screens/ForgotPasswordScreen';
 
 const inputWithIconClass =
   'w-full bg-white border border-brand-border rounded-xl pl-11 pr-4 py-3 text-brand-dark text-sm ' +
   'focus:outline-none focus:border-brand-orange focus:ring-2 focus:ring-brand-orange/15 transition-all';
-
-// Must match an entry under Authentication -> URL Configuration -> Redirect
-// URLs in the Supabase dashboard. Built from window.location.origin so local
-// dev, the preview build and production each point at themselves.
-function resetRedirectUrl() {
-  return `${window.location.origin}/reset-password`;
-}
 
 export default function ForgotPasswordPage() {
   const navigate = useNavigate();
@@ -46,15 +39,10 @@ export default function ForgotPasswordPage() {
       setError('Enter the email address you signed up with.');
       return;
     }
-    if (!supabase) {
-      setError('Sign-in is not configured. Please contact Smart Mappia support.');
-      return;
-    }
-
     setBusy(true);
     setError(null);
     try {
-      await supabase.auth.resetPasswordForEmail(target, { redirectTo: resetRedirectUrl() });
+      await api.requestPasswordReset(target);
       // Deliberately NOT branching on the result.
       //
       // Reporting "no account with that email" would turn this form into an
@@ -109,8 +97,7 @@ export default function ForgotPasswordPage() {
                 we have sent a link to reset your password. It expires in one hour.
               </p>
               <p className="text-xs text-brand-grey mt-4">
-                Open the link in <span className="font-bold">this browser</span> — for your security
-                the reset can only be completed where it was started.
+                Open the link in any modern browser. The link is single-use and expires in one hour.
               </p>
               <button
                 type="button"
@@ -172,7 +159,7 @@ function MobileSentConfirmation({ email, onGoToLogin }) {
           <h1 className="auth-title auth-title-center">Check your email</h1>
           <p className="auth-subtitle auth-subtitle-center">
             If an account exists for <strong>{email}</strong>, we have sent a link to reset your
-            password. Open it on this device — the reset can only be completed where it was started.
+            password. The link is single-use and expires in one hour.
           </p>
           <button type="button" className="auth-button" onClick={onGoToLogin}>
             Back to sign in

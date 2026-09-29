@@ -5,7 +5,7 @@
 //   - WhatsApp the driver
 //   - cancel booking
 //   - status timeline
-// Updates via Supabase Realtime Broadcast, with an 8s polling safety net.
+// Updates via the API event stream, with an 8s polling safety net.
 // ---------------------------------------------------------------------
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
@@ -15,7 +15,7 @@ import useReturnedCharge from '../lib/useReturnedCharge';
 import { formatAddressDetail } from '../lib/address';
 import { downloadRideInvoice } from '../lib/invoice';
 import { useBroadcast } from '../lib/useBroadcast';
-import { realtimeEnabled } from '../lib/supabaseClient';
+import { realtimeEnabled } from '../lib/gatewayClient';
 import { statusMeta, whatsappLink, CANCELLABLE } from '../lib/constants';
 import { fetchRoute } from '../lib/osrm';
 import { movementFrom, bearingDeg, resolveCoordsFromAddress } from '../lib/geo';

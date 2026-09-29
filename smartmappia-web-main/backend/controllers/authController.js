@@ -32,6 +32,16 @@ const {
   nameError,
 } = require('../lib/validate');
 const { currentContext } = require('../lib/requestContext');
+const crypto = require('crypto');
+const {
+  authClient,
+  createSession,
+  revokeSession,
+  revokeAll,
+  hashToken,
+  encrypt,
+  decrypt,
+} = require('../lib/appSessions');
 
 // The camelCase profile JSON every auth endpoint returns to the UI.
 function profileJson(profile, merchant = null) {
@@ -58,6 +68,166 @@ function profileJson(profile, merchant = null) {
 // Merchant (restaurant owner) accounts are provisioned by admins after partnership
 // approval — not via public self-registration (see adminFoodController.setMerchantOwner).
 const SELF_ROLES = ['passenger', 'driver'];
+
+async function login(req, res) {
+  try {
+    const email = String(req.body?.email || '').trim().toLowerCase();
+    const password = String(req.body?.password || '');
+    if (!email || !password) return res.status(400).json({ error: 'email and password are required' });
+    const { data, error } = await authClient().auth.signInWithPassword({ email, password });
+    if (error || !data?.user) {
+      return res.status(401).json({ error: 'Email or password is incorrect.' });
+    }
+    const tiered = await hasSuperAdminColumns(supabase);
+    if (tiered) {
+      const { data: profile } = await supabase.from('profiles')
+        .select('disabled_at').eq('id', data.user.id).maybeSingle();
+      if (profile?.disabled_at) {
+        return res.status(403).json({ error: 'This account has been deactivated.' });
+      }
+    }
+    const session = await createSession(data.user, req);
+    return res.json(session);
+  } catch (err) {
+    console.error('login error:', err);
+    return res.status(500).json({ error: 'Could not sign in. Please try again.' });
+  }
+}
+
+async function sessionInfo(req, res) {
+  return res.json({ user: req.authUser });
+}
+
+async function logout(req, res) {
+  try {
+    await revokeSession(req);
+    return res.status(204).end();
+  } catch (err) {
+    console.error('logout error:', err);
+    return res.status(500).json({ error: 'Could not sign out' });
+  }
+}
+
+async function changePassword(req, res) {
+  try {
+    const password = String(req.body?.password || '');
+    if (password.length < MIN_PASSWORD_LENGTH || password.length > MAX_PASSWORD_LENGTH) {
+      return res.status(400).json({
+        error: `Password must be ${MIN_PASSWORD_LENGTH}–${MAX_PASSWORD_LENGTH} characters`,
+      });
+    }
+    const { error } = await supabase.auth.admin.updateUserById(req.userId, { password });
+    if (error) throw error;
+    await revokeAll(req.userId);
+    return res.status(204).end();
+  } catch (err) {
+    console.error('changePassword error:', err);
+    return res.status(500).json({ error: 'Could not change your password' });
+  }
+}
+
+function memoryStorage(seed = {}) {
+  const values = { ...seed };
+  return {
+    values,
+    getItem: async (key) => values[key] ?? null,
+    setItem: async (key, value) => { values[key] = value; },
+    removeItem: async (key) => { delete values[key]; },
+  };
+}
+
+async function requestPasswordReset(req, res) {
+  // Always return the same response: this public endpoint must not reveal
+  // whether an email address is registered.
+  const accepted = () => res.status(202).json({ accepted: true });
+  try {
+    const now = new Date().toISOString();
+    await Promise.all([
+      supabase.from('password_reset_flows').delete().lt('expires_at', now),
+      supabase.from('password_reset_tickets').delete().lt('expires_at', now),
+    ]);
+    const email = String(req.body?.email || '').trim().toLowerCase();
+    if (emailError(email)) return accepted();
+    const state = crypto.randomBytes(24).toString('base64url');
+    const storage = memoryStorage();
+    const redirectBase = config.publicUrls.web.replace(/\/$/, '');
+    if (!redirectBase) throw new Error('PUBLIC_WEB_URL is required for password recovery');
+    const { error } = await authClient(storage).auth.resetPasswordForEmail(email, {
+      redirectTo: `${redirectBase}/reset-password?state=${encodeURIComponent(state)}`,
+    });
+    if (error) throw error;
+    const { error: saveError } = await supabase.from('password_reset_flows').insert({
+      state_hash: hashToken(state),
+      verifier_ciphertext: encrypt(JSON.stringify(storage.values)),
+      expires_at: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
+    });
+    if (saveError) throw saveError;
+  } catch (err) {
+    console.error('requestPasswordReset error:', err);
+  }
+  return accepted();
+}
+
+async function exchangePasswordReset(req, res) {
+  try {
+    const state = String(req.body?.state || '');
+    const code = String(req.body?.code || '');
+    if (!state || !code) return res.status(400).json({ error: 'This reset link is invalid or expired.' });
+    const { data: flow, error: flowError } = await supabase
+      .from('password_reset_flows')
+      .select('*')
+      .eq('state_hash', hashToken(state))
+      .is('consumed_at', null)
+      .gt('expires_at', new Date().toISOString())
+      .maybeSingle();
+    if (flowError || !flow) return res.status(400).json({ error: 'This reset link is invalid or expired.' });
+
+    const storage = memoryStorage(JSON.parse(decrypt(flow.verifier_ciphertext)));
+    const { data, error } = await authClient(storage).auth.exchangeCodeForSession(code);
+    if (error || !data?.user) return res.status(400).json({ error: 'This reset link is invalid or expired.' });
+    const ticket = crypto.randomBytes(32).toString('base64url');
+    const now = new Date().toISOString();
+    const { error: ticketError } = await supabase.from('password_reset_tickets').insert({
+      ticket_hash: hashToken(ticket),
+      user_id: data.user.id,
+      expires_at: new Date(Date.now() + 15 * 60 * 1000).toISOString(),
+    });
+    if (ticketError) throw ticketError;
+    await supabase.from('password_reset_flows').update({ consumed_at: now }).eq('state_hash', hashToken(state));
+    return res.json({ ticket });
+  } catch (err) {
+    console.error('exchangePasswordReset error:', err);
+    return res.status(400).json({ error: 'This reset link is invalid or expired.' });
+  }
+}
+
+async function completePasswordReset(req, res) {
+  try {
+    const ticket = String(req.body?.ticket || '');
+    const password = String(req.body?.password || '');
+    if (password.length < MIN_PASSWORD_LENGTH || password.length > MAX_PASSWORD_LENGTH) {
+      return res.status(400).json({ error: `Password must be ${MIN_PASSWORD_LENGTH}–${MAX_PASSWORD_LENGTH} characters` });
+    }
+    const { data: row, error: findError } = await supabase.from('password_reset_tickets')
+      .select('*').eq('ticket_hash', hashToken(ticket)).is('consumed_at', null)
+      .gt('expires_at', new Date().toISOString()).maybeSingle();
+    if (findError || !row) return res.status(400).json({ error: 'This reset link is invalid or expired.' });
+    // Claim before changing the password. Two requests racing with the same
+    // ticket must never both succeed with different passwords.
+    const now = new Date().toISOString();
+    const { data: claimed, error: claimError } = await supabase.from('password_reset_tickets')
+      .update({ consumed_at: now }).eq('ticket_hash', hashToken(ticket))
+      .is('consumed_at', null).select('user_id').maybeSingle();
+    if (claimError || !claimed) return res.status(400).json({ error: 'This reset link is invalid or expired.' });
+    const { error } = await supabase.auth.admin.updateUserById(row.user_id, { password });
+    if (error) throw error;
+    await revokeAll(row.user_id);
+    return res.status(204).end();
+  } catch (err) {
+    console.error('completePasswordReset error:', err);
+    return res.status(500).json({ error: 'Could not reset your password' });
+  }
+}
 
 function merchantPayload(body, ownerId) {
   const name = String(body.business_name || body.merchant_name || '').trim();
@@ -536,6 +706,13 @@ async function recordLoginEvent(req, res) {
 }
 
 module.exports = {
+  login,
+  sessionInfo,
+  logout,
+  changePassword,
+  requestPasswordReset,
+  exchangePasswordReset,
+  completePasswordReset,
   signup,
   recordLoginEvent,
   syncProfile,

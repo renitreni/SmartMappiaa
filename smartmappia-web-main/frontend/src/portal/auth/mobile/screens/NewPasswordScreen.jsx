@@ -1,7 +1,7 @@
 // NOT WIRED UP YET — the second half of the reset flow. See the blocker note
 // in ForgotPasswordScreen.jsx before wiring either of them.
 //
-// When it is wired, `onSubmit` must call supabase.auth.updateUser({ password })
+// `onSubmit` completes the API-owned recovery ticket.
 // while the RECOVERY session from the emailed link is active. Rendering this
 // screen without that session lets someone submit a new password that silently
 // applies to nobody (or, worse, to whoever happens to be signed in on the

@@ -13,7 +13,7 @@
 import { useEffect, useState } from 'react';
 import { Upload } from 'lucide-react';
 import { api } from '../lib/api';
-import { uploadProofFile } from '../lib/supabaseClient';
+import { uploadProofFile } from '../lib/gatewayClient';
 import { validateUploadFile, UPLOAD_ACCEPT, UPLOAD_FORMATS_HINT } from '../lib/uploadFiles';
 import { fmtSAR } from '../lib/constants';
 import CardPaySection from '../components/CardPaySection';

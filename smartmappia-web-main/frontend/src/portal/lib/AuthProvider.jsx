@@ -1,5 +1,6 @@
 // ---------------------------------------------------------------------
-// Auth context backed by Supabase Auth.
+// Auth context backed by the Smart Mappia API. Supabase credentials never
+// enter the browser or native webview.
 //
 // On any sign-in we call POST /api/auth/sync once, which upserts the
 // profiles row (role + details) and applies the automatic-admin rule. The
@@ -7,8 +8,8 @@
 // ---------------------------------------------------------------------
 import { createContext, useContext, useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { supabase } from './supabaseClient';
 import { api } from './api';
+import { getSessionToken, onSessionChange, setSessionToken } from './sessionStore';
 import { ensureLocationPermission } from './geo';
 import { setDiagnosticsAudience } from './notify';
 import { unregisterCurrentWebPush } from './pushNotifications';
@@ -52,22 +53,27 @@ export function AuthProvider({ children }) {
   }
 
   useEffect(() => {
-    if (!supabase) {
-      setLoading(false);
-      return undefined;
-    }
     let mounted = true;
-    supabase.auth.getSession().then(({ data }) => {
-      if (!mounted) return;
-      setSession(data.session);
-      setLoading(false);
-    });
-    const { data: sub } = supabase.auth.onAuthStateChange((_event, sess) => {
-      setSession(sess);
-    });
+    const restore = async () => {
+      if (!getSessionToken()) {
+        if (mounted) { setSession(null); setLoading(false); }
+        return;
+      }
+      try {
+        const data = await api.authSession();
+        if (mounted) setSession({ user: data.user });
+      } catch {
+        setSessionToken(null);
+        if (mounted) setSession(null);
+      } finally {
+        if (mounted) setLoading(false);
+      }
+    };
+    restore();
+    const unsubscribe = onSessionChange(restore);
     return () => {
       mounted = false;
-      sub.subscription.unsubscribe();
+      unsubscribe();
     };
   }, []);
 
@@ -99,7 +105,7 @@ export function AuthProvider({ children }) {
   }, [session?.user?.id]);
 
   const value = {
-    configured: !!supabase,
+    configured: true,
     session,
     user: session?.user || null,
     profile,
@@ -113,13 +119,15 @@ export function AuthProvider({ children }) {
     loading,
 
     async signUp(email, password, details) {
-      if (!supabase) throw new Error('Auth is not configured (set VITE_SUPABASE_URL / VITE_SUPABASE_ANON_KEY).');
       // Create the account server-side (email pre-confirmed) so there's no
       // confirmation email, then sign in immediately.
       await api.authSignup({ email, password, ...(details || {}) });
       localStorage.setItem(PENDING_KEY, JSON.stringify(details || {}));
-      const { error } = await supabase.auth.signInWithPassword({ email, password });
-      if (error) {
+      try {
+        const data = await api.authLogin({ email, password });
+        setSessionToken(data.token);
+        setSession({ user: data.user });
+      } catch (error) {
         localStorage.removeItem(PENDING_KEY);
         throw error;
       }
@@ -127,28 +135,19 @@ export function AuthProvider({ children }) {
     },
 
     async signIn(email, password) {
-      if (!supabase) {
-        throw new Error(
-          'Auth is not configured. In frontend/.env set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY (anon/public key from Supabase → Project Settings → API), then restart npm run dev.'
-        );
-      }
-      const { error } = await supabase.auth.signInWithPassword({ email, password });
-      if (error) {
-        if (/failed to fetch/i.test(error.message || '')) {
-          throw new Error(
-            'Cannot reach Supabase. Check VITE_SUPABASE_URL in frontend/.env, then restart npm run dev.'
-          );
-        }
-        throw error;
-      }
+      const data = await api.authLogin({ email, password });
       // Only past the throws: a failed attempt is not a sign-in, and
       // recording one would put a login in the log that never happened.
       pendingLoginRecord.current = true;
+      setSessionToken(data.token);
+      setSession({ user: data.user });
     },
 
     async signOut() {
       await unregisterCurrentWebPush();
-      if (supabase) await supabase.auth.signOut();
+      await api.authLogout().catch(() => {});
+      setSessionToken(null);
+      setSession(null);
       setProfile(null);
       syncedFor.current = null;
       pendingLoginRecord.current = false;

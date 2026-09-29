@@ -28,7 +28,7 @@ import { formatAddressDetail } from '../lib/address';
 import { notifyMerchantCancelled } from '../lib/notify';
 import { useAuth } from '../lib/AuthProvider';
 import { useBroadcast } from '../lib/useBroadcast';
-import { realtimeEnabled } from '../lib/supabaseClient';
+import { realtimeEnabled } from '../lib/gatewayClient';
 import { downloadFoodInvoice } from '../lib/invoice';
 import {
   fmtSAR,
