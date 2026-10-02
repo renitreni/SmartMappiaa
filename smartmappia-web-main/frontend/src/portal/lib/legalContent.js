@@ -107,7 +107,13 @@ const PRIVACY_HTML = `
     <p>Where personal data needs to be transferred outside the Kingdom of Saudi Arabia, we do so
     only in accordance with the Personal Data Protection Law and its Implementing Regulations.</p>
 
-    <h3 class="font-black text-brand-black pt-2">12. Contact and Complaints</h3>
+    <h3 class="font-black text-brand-black pt-2">12. Cookies and Device Storage</h3>
+    <p>We do not use advertising or analytics cookies, and we do not use cookies to sign you in.
+    The website and app keep a small amount of data in your browser storage, such as your sign in
+    session and your saved preferences. The full list, and a way to clear your preferences, is on
+    our Cookie Preferences page at ${COMPANY.websiteDisplay}/cookie-preferences.</p>
+
+    <h3 class="font-black text-brand-black pt-2">13. Contact and Complaints</h3>
     <p>If you have any questions about this Policy or wish to exercise your rights, please contact
     our support team using the details below. You also have the right to lodge a
     complaint with the competent supervisory authority in the Kingdom of Saudi Arabia.</p>

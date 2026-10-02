@@ -38,6 +38,7 @@ import PaymentMethodsPage from './portal/user/PaymentMethodsPage.jsx'
 import LegalDocPage from './pages/legal/LegalDocPage.jsx'
 import HelpCenterPage from './pages/legal/HelpCenterPage.jsx'
 import AccountDeletionPage from './pages/legal/AccountDeletionPage.jsx'
+import CookiePreferencesPage from './pages/legal/CookiePreferencesPage.jsx'
 import ServicesPage from './pages/ServicesPage.jsx'
 import SupportPage from './pages/SupportPage.jsx'
 import FoodServicePage from './pages/services/FoodServicePage.jsx'
@@ -123,6 +124,7 @@ createRoot(document.getElementById('root')).render(
                 out, and Play requires a deletion page reachable after uninstalling. */}
             <Route path="/privacy-policy" element={<LegalDocPage kind="privacy" />} />
             <Route path="/terms-of-service" element={<LegalDocPage kind="terms" />} />
+            <Route path="/cookie-preferences" element={<CookiePreferencesPage />} />
             <Route path="/help-center" element={<HelpCenterPage />} />
             <Route path="/support" element={<SupportPage />} />
             <Route path="/account-deletion" element={<AccountDeletionPage />} />
