@@ -1,12 +1,11 @@
 import { Link } from "react-router-dom";
-import { openLegalModal } from "../portal/lib/legal";
 import { COMPANY } from "../config/company";
 import { notifyUnderDevelopment } from "../portal/lib/notify";
 
 const legalLinks = [
-  { label: "Privacy Policy", kind: "privacy" },
-  { label: "Terms of Service", kind: "terms" },
-  { label: "Cookie Preferences", kind: null },
+  { label: "Privacy Policy", href: "/privacy-policy" },
+  { label: "Terms of Service", href: "/terms-of-service" },
+  { label: "Cookie Preferences", href: "/cookie-preferences" },
 ];
 
 // Absolute paths (not bare "#anchor") since Footer renders on more than one
@@ -128,22 +127,11 @@ const Footer = () => {
             Help & support
           </Link>
           <div className="flex flex-wrap gap-x-4 gap-y-2">
-            {legalLinks.map(({ label, kind }) =>
-              kind ? (
-                <button
-                  key={label}
-                  type="button"
-                  onClick={() => openLegalModal(kind)}
-                  className="text-[11px] text-white/40 cursor-pointer"
-                >
-                  {label}
-                </button>
-              ) : (
-                <a key={label} href="#" className="text-[11px] text-white/40">
-                  {label}
-                </a>
-              )
-            )}
+            {legalLinks.map(({ label, href }) => (
+              <Link key={label} to={href} className="text-[11px] text-white/40">
+                {label}
+              </Link>
+            ))}
           </div>
           <p className="text-[11px] text-white/30">
             © 2026 Smart Mappia. All rights reserved.
@@ -435,24 +423,14 @@ const Footer = () => {
             . All rights reserved.
           </p>
           <div className="flex flex-wrap items-center justify-center gap-x-5 gap-y-2">
-            {legalLinks.map(({ label, kind }, i, arr) => (
+            {legalLinks.map(({ label, href }, i, arr) => (
               <span key={label} className="flex items-center gap-5">
-                {kind ? (
-                  <button
-                    type="button"
-                    onClick={() => openLegalModal(kind)}
-                    className="text-xs text-white/35 hover:text-white/70 transition-colors duration-200 cursor-pointer"
-                  >
-                    {label}
-                  </button>
-                ) : (
-                  <a
-                    href="#"
-                    className="text-xs text-white/35 hover:text-white/70 transition-colors duration-200"
-                  >
-                    {label}
-                  </a>
-                )}
+                <Link
+                  to={href}
+                  className="text-xs text-white/35 hover:text-white/70 transition-colors duration-200"
+                >
+                  {label}
+                </Link>
                 {i < arr.length - 1 && (
                   <span className="text-white/15 hidden sm:inline">·</span>
                 )}
