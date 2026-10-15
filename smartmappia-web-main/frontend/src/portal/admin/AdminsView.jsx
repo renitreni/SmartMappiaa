@@ -1,8 +1,10 @@
 // ---------------------------------------------------------------------
 // Admin — who has the portal, and who has been signing in (0043).
 //
-// Super admin only. The tab is hidden for a plain admin, but that is
-// presentation: every call below 403s server-side behind requireSuperAdmin.
+// TEMPORARY: visible to every admin account — the sidebar's superOnly flag
+// is commented out — but the data and every mutation below still 403
+// server-side behind requireSuperAdmin for a plain admin: the list and
+// login activity load, create/edit/reset/deactivate do not.
 //
 // Two sections, the two halves of the same question:
 //   Admins        — the CRUD: create, edit, promote, deactivate, reset.
