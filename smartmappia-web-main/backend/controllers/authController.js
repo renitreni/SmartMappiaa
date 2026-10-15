@@ -10,6 +10,7 @@
 // granted ONLY by the env allow-list. Existing admins stay admins.
 // ---------------------------------------------------------------------
 const { supabase } = require('../lib/supabase');
+const { getAuthStore } = require('../lib/authStore');
 const { config } = require('../lib/config');
 const {
   hasExtendedProfileColumns,
@@ -141,11 +142,9 @@ async function requestPasswordReset(req, res) {
   // whether an email address is registered.
   const accepted = () => res.status(202).json({ accepted: true });
   try {
-    const now = new Date().toISOString();
-    await Promise.all([
-      supabase.from('password_reset_flows').delete().lt('expires_at', now),
-      supabase.from('password_reset_tickets').delete().lt('expires_at', now),
-    ]);
+    const now = Date.now();
+    const store = getAuthStore();
+    store.prune(now);
     const email = String(req.body?.email || '').trim().toLowerCase();
     if (emailError(email)) return accepted();
     const state = crypto.randomBytes(24).toString('base64url');
@@ -156,12 +155,11 @@ async function requestPasswordReset(req, res) {
       redirectTo: `${redirectBase}/reset-password?state=${encodeURIComponent(state)}`,
     });
     if (error) throw error;
-    const { error: saveError } = await supabase.from('password_reset_flows').insert({
+    store.saveResetFlow({
       state_hash: hashToken(state),
       verifier_ciphertext: encrypt(JSON.stringify(storage.values)),
-      expires_at: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
+      expires_at: Date.now() + 60 * 60 * 1000,
     });
-    if (saveError) throw saveError;
   } catch (err) {
     console.error('requestPasswordReset error:', err);
   }
@@ -173,27 +171,21 @@ async function exchangePasswordReset(req, res) {
     const state = String(req.body?.state || '');
     const code = String(req.body?.code || '');
     if (!state || !code) return res.status(400).json({ error: 'This reset link is invalid or expired.' });
-    const { data: flow, error: flowError } = await supabase
-      .from('password_reset_flows')
-      .select('*')
-      .eq('state_hash', hashToken(state))
-      .is('consumed_at', null)
-      .gt('expires_at', new Date().toISOString())
-      .maybeSingle();
-    if (flowError || !flow) return res.status(400).json({ error: 'This reset link is invalid or expired.' });
+    const store = getAuthStore();
+    // Claim atomically before the external call so a recovery link is single-use.
+    const flow = store.claimResetFlow(hashToken(state), Date.now());
+    if (!flow) return res.status(400).json({ error: 'This reset link is invalid or expired.' });
 
     const storage = memoryStorage(JSON.parse(decrypt(flow.verifier_ciphertext)));
     const { data, error } = await authClient(storage).auth.exchangeCodeForSession(code);
     if (error || !data?.user) return res.status(400).json({ error: 'This reset link is invalid or expired.' });
     const ticket = crypto.randomBytes(32).toString('base64url');
-    const now = new Date().toISOString();
-    const { error: ticketError } = await supabase.from('password_reset_tickets').insert({
+    const now = Date.now();
+    store.saveResetTicket({
       ticket_hash: hashToken(ticket),
       user_id: data.user.id,
-      expires_at: new Date(Date.now() + 15 * 60 * 1000).toISOString(),
+      expires_at: now + 15 * 60 * 1000,
     });
-    if (ticketError) throw ticketError;
-    await supabase.from('password_reset_flows').update({ consumed_at: now }).eq('state_hash', hashToken(state));
     return res.json({ ticket });
   } catch (err) {
     console.error('exchangePasswordReset error:', err);
@@ -208,20 +200,13 @@ async function completePasswordReset(req, res) {
     if (password.length < MIN_PASSWORD_LENGTH || password.length > MAX_PASSWORD_LENGTH) {
       return res.status(400).json({ error: `Password must be ${MIN_PASSWORD_LENGTH}–${MAX_PASSWORD_LENGTH} characters` });
     }
-    const { data: row, error: findError } = await supabase.from('password_reset_tickets')
-      .select('*').eq('ticket_hash', hashToken(ticket)).is('consumed_at', null)
-      .gt('expires_at', new Date().toISOString()).maybeSingle();
-    if (findError || !row) return res.status(400).json({ error: 'This reset link is invalid or expired.' });
     // Claim before changing the password. Two requests racing with the same
     // ticket must never both succeed with different passwords.
-    const now = new Date().toISOString();
-    const { data: claimed, error: claimError } = await supabase.from('password_reset_tickets')
-      .update({ consumed_at: now }).eq('ticket_hash', hashToken(ticket))
-      .is('consumed_at', null).select('user_id').maybeSingle();
-    if (claimError || !claimed) return res.status(400).json({ error: 'This reset link is invalid or expired.' });
-    const { error } = await supabase.auth.admin.updateUserById(row.user_id, { password });
+    const claimed = getAuthStore().claimResetTicket(hashToken(ticket), Date.now());
+    if (!claimed) return res.status(400).json({ error: 'This reset link is invalid or expired.' });
+    const { error } = await supabase.auth.admin.updateUserById(claimed.user_id, { password });
     if (error) throw error;
-    await revokeAll(row.user_id);
+    await revokeAll(claimed.user_id);
     return res.status(204).end();
   } catch (err) {
     console.error('completePasswordReset error:', err);
@@ -660,6 +645,8 @@ async function deleteAccount(req, res) {
         error: 'Your account could not be deleted right now. Please contact support.',
       });
     }
+
+    getAuthStore().deleteUser(userId);
 
     return res.status(204).send();
   } catch (err) {

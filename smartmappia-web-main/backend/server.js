@@ -18,6 +18,8 @@ installProcessHandlers();
 
 const app = require('./app');
 const { config } = require('./lib/config');
+// Fail at boot if persistent session storage is unavailable, rather than on login.
+require('./lib/authStore').getAuthStore();
 const { startDispatchSweeper } = require('./lib/dispatch');
 
 const PORT = process.env.PORT || 4000;

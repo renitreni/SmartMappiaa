@@ -1,4 +1,4 @@
-﻿// ---------------------------------------------------------------------
+// ---------------------------------------------------------------------
 // Admin portal: review payment proofs (verify/reject) and approve drivers.
 // Access is gated by RequireAuth role="admin"; identity from the session.
 // ---------------------------------------------------------------------
@@ -47,7 +47,10 @@ export default function AdminPage() {
       {tab === 'shop' && <ShopAdmin key={`s${tick}`} />}
       {tab === 'reports' && <ReportsView key={`r${tick}`} />}
       {tab === 'errors' && <ErrorsView key={`e${tick}`} />}
-      {tab === 'admins' && isSuperAdmin && <AdminsView key={`a${tick}`} />}
+      {/* TEMPORARY: super-admin guard commented out so plain admins can open
+          the Admins tab while the menu is visible to them. Restore by
+          uncommenting: && isSuperAdmin */}
+      {tab === 'admins' /* && isSuperAdmin */ && <AdminsView key={`a${tick}`} />}
       {tab === 'settings' && isSuperAdmin && <SettingsView key={`st${tick}`} />}
     </AdminLayout>
   );

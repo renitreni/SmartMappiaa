@@ -1,6 +1,7 @@
 const crypto = require('crypto');
-const { createClient } = require('@supabase/supabase-js');
+const { authClient } = require('./authClient');
 const { supabase } = require('./supabase');
+const { getAuthStore } = require('./authStore');
 
 const IDLE_DAYS = 30;
 const ABSOLUTE_DAYS = 90;
@@ -33,18 +34,6 @@ function decrypt(value) {
   return Buffer.concat([decipher.update(body), decipher.final()]).toString('utf8');
 }
 
-function authClient(storage) {
-  return createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY, {
-    auth: {
-      persistSession: !!storage,
-      autoRefreshToken: false,
-      detectSessionInUrl: false,
-      flowType: 'pkce',
-      ...(storage ? { storage } : {}),
-    },
-  });
-}
-
 function bearer(req) {
   const match = (req.get('authorization') || '').match(/^Bearer\s+(.+)$/i);
   return match ? match[1] : null;
@@ -53,46 +42,30 @@ function bearer(req) {
 async function createSession(user, req) {
   const token = crypto.randomBytes(32).toString('base64url');
   const now = Date.now();
-  const { error } = await supabase.from('app_sessions').insert({
+  const store = getAuthStore();
+  store.prune(now);
+  store.insertSession({
     token_hash: hashToken(token),
     user_id: user.id,
-    idle_expires_at: new Date(now + IDLE_DAYS * 86400000).toISOString(),
-    absolute_expires_at: new Date(now + ABSOLUTE_DAYS * 86400000).toISOString(),
+    now,
+    idle_expires_at: now + IDLE_DAYS * 86400000,
+    absolute_expires_at: now + ABSOLUTE_DAYS * 86400000,
     user_agent: String(req.get('user-agent') || '').slice(0, 500) || null,
     ip: req.ip || null,
   });
-  if (error) throw error;
-  // Bounded opportunistic cleanup; correctness never depends on this.
-  supabase.from('app_sessions').delete().lt('absolute_expires_at', new Date().toISOString())
-    .then(({ error: pruneError }) => {
-      if (pruneError) console.error('session prune failed:', pruneError);
-    });
   return { token, user: { id: user.id, email: user.email } };
 }
 
 async function findSession(req) {
   const token = bearer(req);
   if (!token) return null;
-  const now = new Date();
-  const { data, error } = await supabase
-    .from('app_sessions')
-    .select('id,user_id,last_seen_at,idle_expires_at,absolute_expires_at,revoked_at')
-    .eq('token_hash', hashToken(token))
-    .maybeSingle();
-  if (error || !data || data.revoked_at) return null;
-  if (new Date(data.idle_expires_at) <= now || new Date(data.absolute_expires_at) <= now) return null;
+  const now = Date.now();
+  const store = getAuthStore();
+  const data = store.getSession(hashToken(token), now);
+  if (!data) return null;
 
-  if (now - new Date(data.last_seen_at) >= TOUCH_EVERY_MS) {
-    const idle = new Date(Math.min(
-      now.getTime() + IDLE_DAYS * 86400000,
-      new Date(data.absolute_expires_at).getTime()
-    ));
-    supabase.from('app_sessions').update({
-      last_seen_at: now.toISOString(),
-      idle_expires_at: idle.toISOString(),
-    }).eq('id', data.id).then(({ error: touchError }) => {
-      if (touchError) console.error('session touch failed:', touchError);
-    });
+  if (now - data.last_seen_at >= TOUCH_EVERY_MS) {
+    store.touchSession(data.id, now, now + IDLE_DAYS * 86400000);
   }
   const { data: userData, error: userError } = await supabase.auth.admin.getUserById(data.user_id);
   if (userError || !userData?.user) return null;
@@ -102,13 +75,11 @@ async function findSession(req) {
 async function revokeSession(req) {
   const token = bearer(req);
   if (!token) return;
-  await supabase.from('app_sessions').update({ revoked_at: new Date().toISOString() })
-    .eq('token_hash', hashToken(token));
+  getAuthStore().revokeSession(hashToken(token), Date.now());
 }
 
 async function revokeAll(userId) {
-  await supabase.from('app_sessions').update({ revoked_at: new Date().toISOString() })
-    .eq('user_id', userId).is('revoked_at', null);
+  getAuthStore().revokeAll(userId, Date.now());
 }
 
 module.exports = {

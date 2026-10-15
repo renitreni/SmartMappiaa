@@ -1,5 +1,28 @@
 # Smart Mappia — Backend
 
+API-owned login sessions and password recovery state are currently stored in SQLite.
+Supabase Auth still manages passwords and accounts; all other application data stays in Supabase.
+The session tables are created automatically, so `sql/app_gateway.sql` is not needed for this mode.
+
+Set `SESSION_SQLITE_PATH=/var/lib/smartmappia/auth.sqlite` on the VPS. The local default is
+`backend/data/auth.sqlite` (gitignored). Keep the production database outside the checkout and
+preserve `SESSION_ENCRYPTION_KEY` across deployments. Sessions survive API restarts, expire after
+30 idle days or 90 total days, and are revoked by logout/password changes. Recovery links expire
+after one hour and completion tickets after 15 minutes; both are single-use.
+
+This store is for a single VPS with a persistent local disk. Multiple API servers would need
+shared session storage. Use SQLite's online backup API rather than copying a live database file:
+
+```bash
+cd /opt/SmartMappiaa/smartmappia-web-main/backend
+npm run backup:sessions -- /root/smartmappia-deploy-backups/auth-backup.sqlite
+```
+
+Use a new filename for each backup. To restore, stop the API, preserve the existing database and
+its `-wal`/`-shm` files together, place the backup at `SESSION_SQLITE_PATH` with mode `600`, and
+restart the API. Recovery state also requires the same encryption key. A future switch back to
+Supabase session storage needs the schema applied first and may require users to sign in again.
+
 The API for Smart Mappia, a multi-service logistics platform for Saudi Arabia running three service
 lines from one codebase and one driver fleet:
 

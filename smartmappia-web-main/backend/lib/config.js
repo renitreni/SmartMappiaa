@@ -17,6 +17,10 @@ function toNumber(value, fallback) {
 }
 
 const config = {
+  sessions: {
+    // Set an absolute path outside the checkout on the production VPS.
+    sqlitePath: process.env.SESSION_SQLITE_PATH || require('node:path').join(__dirname, '../data/auth.sqlite'),
+  },
   // The platform's operating timezone. Merchant opening hours (0038) are
   // stored as wall-clock times and evaluated against this, so a store that
   // says it opens at 09:00 means 09:00 in Saudi regardless of where the

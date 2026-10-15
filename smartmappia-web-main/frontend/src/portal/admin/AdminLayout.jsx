@@ -125,10 +125,11 @@ export const ADMIN_NAV = [
   { id: 'shop', label: 'Shop', icon: ShoppingBag },
   { id: 'reports', label: 'Reports', icon: BarChart3 },
   { id: 'errors', label: 'Errors', icon: AlertTriangle },
-  // Super admin only. Filtered out of the nav for a plain admin by
-  // adminNavFor below — which is presentation. The control is
-  // requireSuperAdmin on the backend routes, and hiding a tab is not it.
-  { id: 'admins', label: 'Admins', icon: ShieldCheck, superOnly: true },
+  // TEMPORARY: superOnly on 'admins' is commented out so every admin account
+  // sees the Admins menu. Restore by uncommenting the flag below. Settings
+  // remains super admin only. Either way this is presentation — the control
+  // is requireSuperAdmin on the backend routes, and hiding a tab is not it.
+  { id: 'admins', label: 'Admins', icon: ShieldCheck /* TEMPORARY: , superOnly: true */ },
   { id: 'settings', label: 'Settings', icon: SlidersHorizontal, superOnly: true },
 ];
 
