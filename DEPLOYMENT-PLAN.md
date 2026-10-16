@@ -135,7 +135,20 @@ New checkout at `/opt/SmartMappiaa/smartmappia-docker` (old checkout left untouc
 
 ## 10. Implementation log
 
-### Phase 1 — staged on server (2026-10-16) ✅
+### Phases 2–4 summary
+
+### Phase 2 — SKIPPED per owner decision (2026-10-16)
+
+No Supabase data/storage migration. Production starts fresh on the standalone stack; the old Supabase project (`wwaofiklnlkvdimfajgq`) remains the only copy of pre-cutover accounts/orders/files. The ETL tooling stays in the repo should a retroactive import ever be wanted.
+
+### Phase 4 — cutover complete (2026-10-16) ✅
+
+- Frontend `dist` rebuilt from the Drop-Supabase code (no active Supabase deps; remaining "supabase" strings are passive legacy-URL handling) and deployed to the new checkout.
+- nginx: `smartmappia.com` root → new dist; `api.smartmappia.com` upstream → `127.0.0.1:4001` (docker). Reloaded after `nginx -t`.
+- Verified publicly: api 200, web 200, `/login` 200, prynz admin login 200 through `api.smartmappia.com` with the session row landing in the docker Postgres.
+- Decommissioned: PM2 `smartmappia-api` stopped/deleted (`pm2 save`), legacy `osrm` container stopped, old Rizzkkk checkout archived to `/opt/SmartMappiaa/archive/smartmappia-web-main-pre-cutover-20261016.tar.gz` (contains old env secrets — keep restricted) and removed; rsync backup removed. Port 4000 free.
+- Seed accounts live on production: super admin `ferdzsabado@smartmappia.com`, admins `ferdz@`/`prynz@smartmappia.com`, test user/driver (credentials with owner).
+- REMAINING GAPS: SMTP not configured (password-reset emails fail — D3); GitHub deploy key not registered (deploys flow via `git push server-deploy full`); the archived Rizzkkk PAT should be rotated; nightly DB/object backups not yet scheduled.
 
 - Commit `affa193` (cutover tooling) + plan updates pushed to `renitreni/SmartMappiaa` (canonical remote; HEAD `b1eb157`).
 - NOTE: the server's old checkout tracks `github.com/Rizzkkk/SmartMappiaa` — a different repo without these commits. Server has no GitHub key, so the branch is pushed from local to a bare repo on the server (`git remote add server-deploy root@187.127.100.178:/opt/SmartMappiaa/smartmappiaa.git`) and the deploy dir is a real `git clone` of it, with `origin` set to `git@github.com:renitreni/SmartMappiaa.git` for when a deploy key is registered. Also: a live GitHub PAT is embedded in the old checkout's origin URL — rotate it.
