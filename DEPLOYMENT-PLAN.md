@@ -137,12 +137,14 @@ New checkout at `/opt/SmartMappiaa/smartmappia-docker` (old checkout left untouc
 
 ### Phase 1 — staged on server (2026-10-16) ✅
 
-- Commit `affa193` (cutover tooling) pushed to `renitreni/SmartMappiaa`. NOTE: the server's old checkout tracks `github.com/Rizzkkk/SmartMappiaa`, which is a different remote and does not have these commits — the deployment was rsynced from the local canonical checkout instead; reconcile remotes later. Also: a live GitHub PAT is embedded in the old checkout's origin URL — rotate it.
-- Deployed to `/opt/SmartMappiaa/smartmappiaa-docker/smartmappia-web-main` (old checkout untouched for rollback).
+- Commit `affa193` (cutover tooling) + plan updates pushed to `renitreni/SmartMappiaa` (canonical remote; HEAD `b1eb157`).
+- NOTE: the server's old checkout tracks `github.com/Rizzkkk/SmartMappiaa` — a different repo without these commits. Server has no GitHub key, so the branch is pushed from local to a bare repo on the server (`git remote add server-deploy root@187.127.100.178:/opt/SmartMappiaa/smartmappiaa.git`) and the deploy dir is a real `git clone` of it, with `origin` set to `git@github.com:renitreni/SmartMappiaa.git` for when a deploy key is registered. Also: a live GitHub PAT is embedded in the old checkout's origin URL — rotate it.
+- Deployed to `/opt/SmartMappiaa/smartmappiaa-docker/smartmappia-web-main`; previous rsync copy kept at `/opt/SmartMappiaa/smartmappiaa-docker-rsync-backup` until cutover is verified.
+- Re-clone kept the same compose project name, so the existing Docker Postgres/Redis/MinIO **volumes were reused — all data preserved** (7 migrations, 4 buckets, 48 tables verified after the swap).
 - `.env` (compose) and `backend/.env` written server-side with on-server-generated secrets; Supabase/session keys stripped; `APP_SIGNING_KEY` added. **SMTP keys still missing (D3)** — password reset emails will fail until supplied.
-- Stack up: postgres/redis/minio/realtime healthy; baseline migrations (7/7) + reference seed applied; 4 MinIO buckets created via `setup-buckets.js`; API published on `127.0.0.1:4001`.
+- Stack up: postgres/redis/minio/realtime healthy; API published on `127.0.0.1:4001`.
 - Smoke: root 200, unknown login 401 (DB wired), `/api/route` 400, `/api/events` 403 (auth-guarded, reachable), CORS allows `https://smartmappia.com`, `app_users` empty, `app_sessions` 0.
-- nginx NOT flipped — production still served by PM2 on 4000.
+- nginx NOT flipped — production still served by PM2 on 4000. Old Rizzkkk checkout MUST stay until cutover (it is the live site).
 
 ### Original implementation
 
