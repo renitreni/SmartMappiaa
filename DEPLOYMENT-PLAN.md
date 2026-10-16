@@ -135,6 +135,17 @@ New checkout at `/opt/SmartMappiaa/smartmappia-docker` (old checkout left untouc
 
 ## 10. Implementation log
 
+### Phase 1 — staged on server (2026-10-16) ✅
+
+- Commit `affa193` (cutover tooling) pushed to `renitreni/SmartMappiaa`. NOTE: the server's old checkout tracks `github.com/Rizzkkk/SmartMappiaa`, which is a different remote and does not have these commits — the deployment was rsynced from the local canonical checkout instead; reconcile remotes later. Also: a live GitHub PAT is embedded in the old checkout's origin URL — rotate it.
+- Deployed to `/opt/SmartMappiaa/smartmappiaa-docker/smartmappia-web-main` (old checkout untouched for rollback).
+- `.env` (compose) and `backend/.env` written server-side with on-server-generated secrets; Supabase/session keys stripped; `APP_SIGNING_KEY` added. **SMTP keys still missing (D3)** — password reset emails will fail until supplied.
+- Stack up: postgres/redis/minio/realtime healthy; baseline migrations (7/7) + reference seed applied; 4 MinIO buckets created via `setup-buckets.js`; API published on `127.0.0.1:4001`.
+- Smoke: root 200, unknown login 401 (DB wired), `/api/route` 400, `/api/events` 403 (auth-guarded, reachable), CORS allows `https://smartmappia.com`, `app_users` empty, `app_sessions` 0.
+- nginx NOT flipped — production still served by PM2 on 4000.
+
+### Original implementation
+
 - **bcrypt verify-shim (D2):** `backend/lib/passwords.js` + transparent rehash in `authController.login`; new dep `bcryptjs` (pure JS, safe for alpine builds). Tests in `test/passwords.test.js`.
 - **ETL importer:** `backend/scripts/import-supabase.js` (`import` / `verify` / `cleanup`) + `backend/scripts/supabase-export.sql` (psql `\copy` generator). New dep `pg-copy-streams`. npm aliases `import:supabase*`.
 - **Prod compose overlay:** `docker-compose.prod.yml` — publishes API as `127.0.0.1:4001:4000`; run with `-f docker-compose.yml -f docker-compose.prod.yml`.
