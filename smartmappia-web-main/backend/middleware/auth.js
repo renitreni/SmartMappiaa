@@ -1,9 +1,5 @@
 // ---------------------------------------------------------------------
-// Auth middleware (Supabase JWT).
-//
-// The frontend authenticates with Supabase Auth and sends the access token
-// as `Authorization: Bearer <jwt>`. We verify it with Supabase, then load
-// the matching `profiles` row to get the app role + driver approval state.
+// Auth middleware for app-owned bearer sessions backed by PostgreSQL.
 //
 //   requireToken          -> valid token only (profile may not exist yet)
 //   requireAuth           -> valid token + an existing profile  (req.userId)
@@ -15,10 +11,10 @@
 //                         -> requireMerchant + that merchant's vertical (req.merchant)
 //   requireApprovedDriver -> requireDriver + driver_approved = true
 // ---------------------------------------------------------------------
-const { supabase } = require('../lib/supabase');
 const { findSession } = require('../lib/appSessions');
 const { setContextUser } = require('../lib/requestContext');
-const { hasSuperAdminColumns } = require('../lib/profileSchema');
+const profileRepository = require('../repositories/profileRepository');
+const merchantRepository = require('../repositories/merchantRepository');
 
 async function authenticate(req) {
   const session = await findSession(req);
@@ -45,27 +41,12 @@ async function requireAuth(req, res, next) {
     if (!user) return res.status(401).json({ error: 'Authentication required' });
     req.authUser = { id: user.id, email: user.email };
 
-    // 0043 columns are probed, not assumed — see hasSuperAdminColumns.
-    // This select runs on every authenticated request, so naming a column
-    // that is not there yet would 403 the entire platform.
-    const tiered = await hasSuperAdminColumns(supabase);
-    const { data: profile } = await supabase
-      .from('profiles')
-      .select(
-        'id, role, full_name, whatsapp_number, mobile_number, email, driver_approved, service_types' +
-          (tiered ? ', is_super_admin, disabled_at' : '')
-      )
-      .eq('id', user.id)
-      .maybeSingle();
+    const profile = await profileRepository.getProfileById(user.id);
 
     if (!profile) {
       return res.status(403).json({ error: 'Profile not set up. Please complete registration.' });
     }
-    // Deactivated (0043). Banning the Supabase auth user is what stops a
-    // NEW sign-in; this is what stops a session that was already issued —
-    // without it a deactivated admin keeps full access until their JWT
-    // expires, which is the window that matters when access is being
-    // revoked in a hurry.
+    // Deactivated accounts are checked on every authenticated request, not only at sign in.
     if (profile.disabled_at) {
       return res.status(403).json({ error: 'This account has been deactivated.' });
     }
@@ -149,15 +130,7 @@ function requireMerchantVertical(vertical) {
       // unhandled rejection here would surface as a process-level crash on
       // Node >= 15. Everything below is wrapped.
       try {
-        const { data, error } = await supabase
-          .from('merchants')
-          .select('id, name, vertical, is_active, status, credit_limit, credit_used')
-          .eq('owner_id', req.merchantOwnerId)
-          .maybeSingle();
-        if (error) {
-          console.error('requireMerchantVertical error:', error);
-          return res.status(500).json({ error: 'Unexpected server error' });
-        }
+        const data = await merchantRepository.getByOwner(req.merchantOwnerId);
         // Admin bypass. It still runs the lookup first so req.merchant is
         // populated when the admin happens to own a merchant row — an
         // earlier version returned early and 404'd admins across the whole

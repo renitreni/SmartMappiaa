@@ -5,8 +5,8 @@
 // of by paying someone to drive around Riyadh with two phones. It posts to
 // the SAME endpoint the driver app posts to (POST /api/driver/location), as
 // a real signed-in approved driver, so every layer under test is the real
-// one: rate limiter, auth, the write/broadcast throttles, Supabase Realtime
-// fan-out, and the customer page's marker tween.
+// one: rate limiter, auth, the write/broadcast throttles, realtime fan-out,
+// and the customer page's marker tween.
 //
 //   npm run sim:driver -- --code SM-ABC123
 //   npm run sim:driver -- --code SM-ABC123 --speed 60 --ping 4000
@@ -28,9 +28,7 @@
 // line and says so — still enough to prove the marker animates.
 // =====================================================================
 require('dotenv').config();
-const { createClient } = require('@supabase/supabase-js');
-const WebSocket = require('ws');
-const { supabase, DEMO_DRIVER, DRIVER_AT, PICKUP } = require('./_demo-lib');
+const { database, DEMO_DRIVER, DRIVER_AT, PICKUP } = require('./_demo-lib');
 
 const API_BASE = process.env.SIM_API_BASE || `http://localhost:${process.env.PORT || 4000}`;
 
@@ -59,8 +57,7 @@ function haversineKm(a, b) {
   return 2 * R * Math.asin(Math.min(1, Math.sqrt(h)));
 }
 
-// Compass bearing a -> b, normalised to 0..360 to match what a device reports
-// (and what migration 0033's heading column documents).
+// Compass bearing a -> b, normalised to 0..360 to match what a device reports.
 function bearingDeg(a, b) {
   const lat1 = toRad(a.lat);
   const lat2 = toRad(b.lat);
@@ -138,25 +135,19 @@ function* walk(path, stepKm) {
   yield { ...last, heading: bearingDeg(path[path.length - 2] || last, last) };
 }
 
+// Sign in through the app's own login endpoint — same path the driver app
+// uses — and hand the session token to the location pings.
 async function signIn(email, password) {
-  const url = process.env.SUPABASE_URL;
-  const anon = process.env.SUPABASE_ANON_KEY;
-  if (!url || !anon) {
-    throw new Error(
-      'SUPABASE_URL and SUPABASE_ANON_KEY must be set in backend/.env — the simulator ' +
-        'signs in as a real driver so it exercises the same auth path the app does.'
-    );
-  }
-  // `ws` transport: Node < 22 has no native WebSocket and supabase-js builds
-  // its Realtime client eagerly, so this throws on Node 20 (production) without
-  // it. Matches lib/supabase.js.
-  const client = createClient(url, anon, {
-    auth: { persistSession: false, autoRefreshToken: false },
-    realtime: { transport: WebSocket },
+  const res = await fetch(`${API_BASE}/api/auth/login`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email, password }),
   });
-  const { data, error } = await client.auth.signInWithPassword({ email, password });
-  if (error) throw new Error(`Could not sign in as ${email}: ${error.message}`);
-  return data.session.access_token;
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok || !body.token) {
+    throw new Error(`Could not sign in as ${email}: ${body.error || `HTTP ${res.status}`}`);
+  }
+  return body.token;
 }
 
 async function run() {
@@ -169,12 +160,12 @@ async function run() {
 
   let waypoints = [];
   if (code && code !== true) {
-    const { data: booking, error } = await supabase
-      .from('bookings')
-      .select('booking_code, pickup_lat, pickup_lng, dropoff_lat, dropoff_lng, driver_ride_status')
-      .eq('booking_code', String(code))
-      .maybeSingle();
-    if (error || !booking) throw new Error(`Booking ${code} not found`);
+    const { rows } = await database.query(
+      `SELECT booking_code, pickup_lat, pickup_lng, dropoff_lat, dropoff_lng, driver_ride_status
+         FROM public.bookings WHERE booking_code=$1`, [String(code)],
+    );
+    const booking = rows[0];
+    if (!booking) throw new Error(`Booking ${code} not found`);
     // Before the trip starts the driver is heading to pickup; after, to the
     // drop-off. Mirrors the leg the tracking page actually draws.
     const started = booking.driver_ride_status === 'started';

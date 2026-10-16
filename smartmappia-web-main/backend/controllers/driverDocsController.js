@@ -4,11 +4,11 @@
 //   - recordDriverDocument: POST /api/driver/documents
 //   - listMyDocuments    : GET  /api/driver/documents
 //
-// Mirrors the payment-proof flow: the browser uploads straight to a PRIVATE
-// Supabase Storage bucket (`driver-docs`) via a short-lived signed URL, then
+// Mirrors the payment-proof flow: the browser uploads straight to a private
+// S3-compatible bucket via a short-lived signed URL, then
 // POSTs the path here. Files never pass through this server.
 // ---------------------------------------------------------------------
-const { supabase } = require('../lib/supabase');
+const documentsRepository = require('../repositories/driverDocumentsRepository');
 const { config } = require('../lib/config');
 const { buildDriverDocPath, createDriverDocUploadUrl } = require('../lib/storage');
 const { validateUploadFile } = require('../lib/uploadValidation');
@@ -65,38 +65,7 @@ async function recordDriverDocument(req, res) {
       return res.status(400).json({ error: 'Validation failed', details: errors });
     }
 
-    // Re-uploads replace: supersede any prior doc of the same type for this driver.
-    await supabase
-      .from('driver_documents')
-      .delete()
-      .eq('driver_id', req.driverId)
-      .eq('doc_type', b.doc_type);
-
-    const { data: doc, error: insErr } = await supabase
-      .from('driver_documents')
-      .insert({
-        driver_id: req.driverId,
-        doc_type: b.doc_type,
-        storage_path: b.path,
-        file_name: b.file_name ?? null,
-        mime_type: b.mime_type ?? null,
-        file_size_bytes: b.size_bytes ?? null,
-        file_hash: b.file_hash ?? null,
-        expiry_date: b.expiry_date ?? null,
-        status: 'pending',
-      })
-      .select('id, doc_type, status, created_at')
-      .single();
-    if (insErr) {
-      console.error('recordDriverDocument insert error:', insErr);
-      return res.status(500).json({ error: 'Could not record document' });
-    }
-
-    // Uploading (re)opens review: move the driver to "submitted".
-    await supabase
-      .from('profiles')
-      .update({ driver_verification_status: 'submitted' })
-      .eq('id', req.driverId);
+    const doc = await documentsRepository.replace({ driverId: req.driverId, document: b });
 
     return res.status(201).json({ id: doc.id, docType: doc.doc_type, status: doc.status });
   } catch (err) {
@@ -108,21 +77,10 @@ async function recordDriverDocument(req, res) {
 // --- GET /api/driver/documents ---------------------------------------
 async function listMyDocuments(req, res) {
   try {
-    const { data: docs, error } = await supabase
-      .from('driver_documents')
-      .select('id, doc_type, status, rejection_reason, file_name, expiry_date, reviewed_at, created_at')
-      .eq('driver_id', req.driverId)
-      .order('created_at', { ascending: false });
-    if (error) {
-      console.error('listMyDocuments error:', error);
-      return res.status(500).json({ error: 'Unexpected server error' });
-    }
-
-    const { data: profile } = await supabase
-      .from('profiles')
-      .select('driver_approved, driver_verification_status')
-      .eq('id', req.driverId)
-      .maybeSingle();
+    const [docs, profile] = await Promise.all([
+      documentsRepository.listForDriver(req.driverId),
+      documentsRepository.profileStatus(req.driverId),
+    ]);
 
     const verifiedTypes = new Set(docs.filter((d) => d.status === 'verified').map((d) => d.doc_type));
     const missing = config.driverDocs.requiredTypes.filter((t) => !verifiedTypes.has(t));

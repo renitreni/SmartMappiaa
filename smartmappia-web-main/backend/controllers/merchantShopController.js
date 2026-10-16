@@ -17,7 +17,7 @@
 //      concern (0029) is about competitors reading it with the public
 //      anon key, not about the store seeing its own numbers.
 // ---------------------------------------------------------------------
-const { supabase } = require('../lib/supabase');
+const shopManagementRepository = require('../repositories/shopManagementRepository');
 const { config } = require('../lib/config');
 const { round2 } = require('../lib/foodMoney');
 const {
@@ -30,17 +30,6 @@ const { validateImageFile, validateMenuImageFile } = require('../lib/uploadValid
 const { lowStockProducts } = require('../lib/stock');
 const { logAudit } = require('../lib/audit');
 
-const STORE_SELECT =
-  'id, name, vertical, cuisine_type, description, logo_url, address, street, building_number, lat, lng, ' +
-  'is_active, status, credit_limit, credit_used, is_featured, badge, created_at';
-
-// Deliberately omits net_price.
-const PRODUCT_SELECT =
-  'id, category_id, name, description, brand, unit, weight_grams, barcode, price, ' +
-  'image_url, stock_quantity, low_stock_threshold, track_stock, is_available, created_at';
-
-const VARIANT_SELECT =
-  'id, product_id, sku, label, price, stock_quantity, sort_order, is_available';
 
 function storeView(m) {
   if (!m) return null;
@@ -70,14 +59,7 @@ function storeView(m) {
 // The owner's own store row. requireMerchantVertical already loaded a thin
 // version onto req.merchant; this re-reads the full column set.
 async function loadOwnedStore(ownerId) {
-  const { data, error } = await supabase
-    .from('merchants')
-    .select(STORE_SELECT)
-    .eq('owner_id', ownerId)
-    .eq('vertical', 'shop')
-    .maybeSingle();
-  if (error) throw error;
-  return data;
+  return shopManagementRepository.storeByOwner(ownerId);
 }
 
 async function requireOwnedStore(req, res) {
@@ -94,12 +76,7 @@ async function requireOwnedStore(req, res) {
 // requires the category to exist, not to be theirs.
 async function assertOwnedCategory(storeId, categoryId, res) {
   if (!categoryId) return true; // uncategorised is fine
-  const { data } = await supabase
-    .from('product_categories')
-    .select('id, merchant_id')
-    .eq('id', categoryId)
-    .maybeSingle();
-  if (!data || data.merchant_id !== storeId) {
+  if (!(await shopManagementRepository.owned('product_categories', categoryId, storeId))) {
     res.status(400).json({ error: 'Category not found' });
     return false;
   }
@@ -110,12 +87,7 @@ async function assertOwnedCategory(storeId, categoryId, res) {
 // Returns 404 (not 403) for a foreign id so the endpoint never confirms
 // that some other store's product exists.
 async function assertOwnedProduct(storeId, productId, res) {
-  const { data } = await supabase
-    .from('products')
-    .select('id, merchant_id')
-    .eq('id', productId)
-    .maybeSingle();
-  if (!data || data.merchant_id !== storeId) {
+  if (!(await shopManagementRepository.owned('products', productId, storeId))) {
     res.status(404).json({ error: 'Product not found' });
     return false;
   }
@@ -150,16 +122,8 @@ async function updateProfile(req, res) {
       });
     }
 
-    const { data, error } = await supabase
-      .from('merchants')
-      .update(req.body) // whitelisted by the route schema
-      .eq('id', store.id)
-      .select(STORE_SELECT)
-      .single();
-    if (error) {
-      console.error('shop merchant updateProfile error:', error);
-      return res.status(500).json({ error: 'Could not save your store profile' });
-    }
+    const data = await shopManagementRepository.updateStore({ id: store.id, ownerId: req.merchantOwnerId, fields: req.body });
+    if (!data) return res.status(404).json({ error: 'Could not save your store profile' });
     logAudit({
       actorId: req.merchantOwnerId,
       action: 'merchant_shop_profile_updated',
@@ -213,23 +177,12 @@ async function getCatalogue(req, res) {
     const store = await requireOwnedStore(req, res);
     if (!store) return undefined;
 
-    const [{ data: categories }, { data: products }] = await Promise.all([
-      supabase
-        .from('product_categories')
-        .select('id, name, sort_order, is_active')
-        .eq('merchant_id', store.id)
-        .order('sort_order'),
-      supabase
-        .from('products')
-        .select(`${PRODUCT_SELECT}, product_variants ( ${VARIANT_SELECT} )`)
-        .eq('merchant_id', store.id)
-        .order('name'),
-    ]);
+    const { categories, products } = await shopManagementRepository.catalogue(store.id);
 
     return res.json({
       store: storeView(store),
-      categories: categories || [],
-      products: products || [],
+      categories,
+      products,
     });
   } catch (err) {
     console.error('shop merchant getCatalogue error:', err);
@@ -241,15 +194,7 @@ async function addCategory(req, res) {
   try {
     const store = await requireOwnedStore(req, res);
     if (!store) return undefined;
-    const { data, error } = await supabase
-      .from('product_categories')
-      .insert({ ...req.body, merchant_id: store.id })
-      .select('id, name, sort_order, is_active')
-      .single();
-    if (error) {
-      console.error('shop addCategory error:', error);
-      return res.status(500).json({ error: 'Could not add the category' });
-    }
+    const data = await shopManagementRepository.insertCategory(store.id, req.body);
     return res.status(201).json({ category: data });
   } catch (err) {
     console.error('shop addCategory error:', err);
@@ -261,14 +206,7 @@ async function updateCategory(req, res) {
   try {
     const store = await requireOwnedStore(req, res);
     if (!store) return undefined;
-    const { data, error } = await supabase
-      .from('product_categories')
-      .update(req.body)
-      .eq('id', req.params.id)
-      .eq('merchant_id', store.id) // scoping is part of the WHERE, not a pre-check
-      .select('id, name, sort_order, is_active')
-      .maybeSingle();
-    if (error) return res.status(500).json({ error: 'Could not update the category' });
+    const data = await shopManagementRepository.updateCategory(req.params.id, store.id, req.body);
     if (!data) return res.status(404).json({ error: 'Category not found' });
     return res.json({ category: data });
   } catch (err) {
@@ -281,12 +219,7 @@ async function deleteCategory(req, res) {
   try {
     const store = await requireOwnedStore(req, res);
     if (!store) return undefined;
-    const { error } = await supabase
-      .from('product_categories')
-      .delete()
-      .eq('id', req.params.id)
-      .eq('merchant_id', store.id);
-    if (error) return res.status(500).json({ error: 'Could not delete the category' });
+    await shopManagementRepository.deleteCategory(req.params.id, store.id);
     return res.json({ deleted: true });
   } catch (err) {
     console.error('shop deleteCategory error:', err);
@@ -299,17 +232,7 @@ async function addProduct(req, res) {
     const store = await requireOwnedStore(req, res);
     if (!store) return undefined;
     if (!(await assertOwnedCategory(store.id, req.body.category_id, res))) return undefined;
-    const { data, error } = await supabase
-      .from('products')
-      // net_price is absent from the route schema, so it cannot arrive in
-      // req.body — validateBody rejects unknown fields outright.
-      .insert({ ...req.body, merchant_id: store.id })
-      .select(PRODUCT_SELECT)
-      .single();
-    if (error) {
-      console.error('shop addProduct error:', error);
-      return res.status(500).json({ error: 'Could not add the product' });
-    }
+    const data = await shopManagementRepository.insertProduct(store.id, req.body);
     logAudit({
       actorId: req.merchantOwnerId,
       action: 'merchant_shop_product_added',
@@ -328,14 +251,11 @@ async function updateProduct(req, res) {
   try {
     const store = await requireOwnedStore(req, res);
     if (!store) return undefined;
-    const { data, error } = await supabase
-      .from('products')
-      .update(req.body)
-      .eq('id', req.params.id)
-      .eq('merchant_id', store.id)
-      .select(PRODUCT_SELECT)
-      .maybeSingle();
-    if (error) {
+    if ('category_id' in req.body && !(await assertOwnedCategory(store.id, req.body.category_id, res))) return undefined;
+    let data;
+    try {
+      data = await shopManagementRepository.updateProduct(req.params.id, store.id, req.body);
+    } catch (error) {
       // 23514 = products_net_price_range. The store is trying to price BELOW
       // the net price an admin agreed with them. Explain the floor without
       // echoing net_price itself, which the store must never see.
@@ -360,12 +280,9 @@ async function deleteProduct(req, res) {
   try {
     const store = await requireOwnedStore(req, res);
     if (!store) return undefined;
-    const { error } = await supabase
-      .from('products')
-      .delete()
-      .eq('id', req.params.id)
-      .eq('merchant_id', store.id);
-    if (error) {
+    try {
+      await shopManagementRepository.deleteProduct(req.params.id, store.id);
+    } catch (error) {
       // order_items keeps product_id ON DELETE SET NULL, so history survives;
       // a failure here is a genuine constraint problem worth surfacing.
       return res.status(409).json({
@@ -386,12 +303,10 @@ async function addVariant(req, res) {
     if (!store) return undefined;
     if (!(await assertOwnedProduct(store.id, req.params.id, res))) return undefined;
 
-    const { data, error } = await supabase
-      .from('product_variants')
-      .insert({ ...req.body, product_id: req.params.id })
-      .select(VARIANT_SELECT)
-      .single();
-    if (error) {
+    let data;
+    try {
+      data = await shopManagementRepository.insertVariant(req.params.id, req.body);
+    } catch (error) {
       // 23505 = the per-product unique SKU index.
       if (error.code === '23505') {
         return res.status(409).json({ error: 'That SKU is already used by another option' });
@@ -412,14 +327,10 @@ async function updateVariant(req, res) {
     if (!store) return undefined;
     if (!(await assertOwnedProduct(store.id, req.params.id, res))) return undefined;
 
-    const { data, error } = await supabase
-      .from('product_variants')
-      .update(req.body)
-      .eq('id', req.params.variantId)
-      .eq('product_id', req.params.id)
-      .select(VARIANT_SELECT)
-      .maybeSingle();
-    if (error) {
+    let data;
+    try {
+      data = await shopManagementRepository.updateVariant(req.params.variantId, req.params.id, req.body);
+    } catch (error) {
       if (error.code === '23505') {
         return res.status(409).json({ error: 'That SKU is already used by another option' });
       }
@@ -445,12 +356,9 @@ async function deleteVariant(req, res) {
     if (!store) return undefined;
     if (!(await assertOwnedProduct(store.id, req.params.id, res))) return undefined;
 
-    const { error } = await supabase
-      .from('product_variants')
-      .delete()
-      .eq('id', req.params.variantId)
-      .eq('product_id', req.params.id);
-    if (error) {
+    try {
+      await shopManagementRepository.deleteVariant(req.params.variantId, req.params.id);
+    } catch (error) {
       return res.status(409).json({
         error: 'This option could not be deleted. Mark it unavailable instead.',
       });
@@ -475,14 +383,7 @@ async function setStock(req, res) {
     const { variant_id, stock_quantity } = req.body;
 
     if (variant_id) {
-      const { data, error } = await supabase
-        .from('product_variants')
-        .update({ stock_quantity })
-        .eq('id', variant_id)
-        .eq('product_id', req.params.id)
-        .select(VARIANT_SELECT)
-        .maybeSingle();
-      if (error) return res.status(500).json({ error: 'Could not update the stock' });
+      const data = await shopManagementRepository.setVariantStock(variant_id, req.params.id, stock_quantity);
       if (!data) return res.status(404).json({ error: 'Option not found' });
       logAudit({
         actorId: req.merchantOwnerId,
@@ -494,14 +395,7 @@ async function setStock(req, res) {
       return res.json({ variant: data });
     }
 
-    const { data, error } = await supabase
-      .from('products')
-      .update({ stock_quantity })
-      .eq('id', req.params.id)
-      .eq('merchant_id', store.id)
-      .select(PRODUCT_SELECT)
-      .maybeSingle();
-    if (error) return res.status(500).json({ error: 'Could not update the stock' });
+    const data = await shopManagementRepository.setProductStock(req.params.id, store.id, stock_quantity);
     if (!data) return res.status(404).json({ error: 'Product not found' });
     logAudit({
       actorId: req.merchantOwnerId,
@@ -539,37 +433,25 @@ async function getAnalytics(req, res) {
     const store = await requireOwnedStore(req, res);
     if (!store) return undefined;
 
-    const [{ data: orders }, { count: productCount }, { count: categoryCount }] = await Promise.all([
-      supabase
-        .from('shop_orders')
-        .select('status, total, created_at')
-        .eq('merchant_id', store.id)
-        .order('created_at', { ascending: false })
-        .limit(500),
-      supabase.from('products').select('*', { count: 'exact', head: true }).eq('merchant_id', store.id),
-      supabase
-        .from('product_categories')
-        .select('*', { count: 'exact', head: true })
-        .eq('merchant_id', store.id),
-    ]);
-
-    const rows = orders || [];
+    const { orders: rows, counts } = await shopManagementRepository.analytics(store.id);
     const byStatus = {};
-    for (const o of rows) byStatus[o.status] = (byStatus[o.status] || 0) + 1;
-    const delivered = rows.filter((o) => o.status === 'delivered');
+    for (const o of rows) byStatus[o.status] = Number(o.count);
+    const totalOrders = rows.reduce((sum, row) => sum + Number(row.count), 0);
+    const deliveredCount = rows.filter((o) => o.status === 'delivered').reduce((sum, o) => sum + Number(o.count), 0);
+    const deliveredVolume = rows.reduce((sum, row) => sum + Number(row.delivered_total), 0);
 
     const low = await lowStockProducts(store.id);
 
     return res.json({
-      totalOrders: rows.length,
+      totalOrders,
       byStatus,
-      deliveredCount: delivered.length,
+      deliveredCount,
       // Gross customer spend on delivered orders. NOT the store's payout —
       // that is subtotal minus our markup, and the markup is never exposed
       // to the store.
-      deliveredVolume: round2(delivered.reduce((s, o) => s + Number(o.total || 0), 0)),
-      productCount: productCount || 0,
-      categoryCount: categoryCount || 0,
+      deliveredVolume: round2(deliveredVolume),
+      productCount: counts.products,
+      categoryCount: counts.categories,
       lowStockCount: low.length,
       credit: {
         limit: Number(store.credit_limit),

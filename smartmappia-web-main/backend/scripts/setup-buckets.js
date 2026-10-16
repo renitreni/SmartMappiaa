@@ -1,22 +1,12 @@
 // ---------------------------------------------------------------------
-// Apply size and MIME limits to the Storage buckets.
+// Create configured object-storage buckets if missing.
 //
 // WHY THIS IS A SCRIPT, NOT A BOOT STEP: bucket limits are a ceiling on
 // what customers can upload. Moving one should be a deliberate act with a
 // person watching, not something a process restart does silently.
 //
-// WHY IT EXISTS AT ALL: payment-proofs, driver-docs and merchant-images
-// were created by hand in the Supabase dashboard with NO fileSizeLimit.
-// The browser uploads straight to Storage through a signed URL — nothing
-// passes through this server — so the bucket's own limit is the only
-// enforcement point that exists. Without it a single upload can be any
-// size the client feels like, and storage fills long before any other
-// ceiling does. When storage is full, uploads FAIL: that is an outage for
-// KYC and for payment proof, not a slow degradation.
-//
-// The numbers come from lib/config.js, which the upload endpoints already
-// validate against — so this makes the server-side check and the bucket
-// agree instead of introducing a second opinion.
+// Size and MIME limits are enforced by the API before accepting uploads.
+// Bucket creation is a separate idempotent setup action.
 //
 //   node scripts/setup-buckets.js
 //
@@ -66,7 +56,7 @@ async function main() {
     console.error(`\n${failed} bucket(s) could not be configured.`);
     process.exit(1);
   }
-  console.log('\nAll buckets configured. Verify in the Supabase dashboard under Storage.');
+  console.log('\nAll object-storage buckets configured.');
 }
 
 main().catch((err) => {

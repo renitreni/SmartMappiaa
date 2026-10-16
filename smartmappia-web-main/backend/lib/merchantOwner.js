@@ -13,8 +13,8 @@
 // authController (handbook §13.3.4) — admin accounts are provisioned ONLY by
 // the seed scripts and the ADMIN_EMAILS allow-list.
 // ---------------------------------------------------------------------
-const { supabase } = require('./supabase');
 const { config } = require('./config');
+const profileRepository = require('../repositories/profileRepository');
 
 const STAFF_EMAIL_MESSAGE =
   'This email belongs to a Smart Mappia staff account and cannot be linked as a merchant owner.';
@@ -28,11 +28,7 @@ async function resolveOwnerProfile(email) {
     return { error: STAFF_EMAIL_MESSAGE, status: 403 };
   }
 
-  const { data: profile } = await supabase
-    .from('profiles')
-    .select('id, role')
-    .eq('email', email)
-    .maybeSingle();
+  const profile = await profileRepository.getProfileByEmail(email);
 
   // Belt-and-suspenders: an admin whose address was removed from ADMIN_EMAILS
   // still carries role 'admin' on their profile row.

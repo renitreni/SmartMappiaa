@@ -2,8 +2,8 @@
 // Business Owner portal controller.
 // Every query is scoped to the signed-in owner via merchants.owner_id.
 // ---------------------------------------------------------------------
-const { supabase } = require('../lib/supabase');
 const { round2 } = require('../lib/foodMoney');
+const merchantRepository = require('../repositories/merchantRepository');
 const { config } = require('../lib/config');
 const {
   buildMerchantLogoPath,
@@ -14,18 +14,8 @@ const {
 const { validateImageFile, validateMenuImageFile } = require('../lib/uploadValidation');
 const { normalizeSizeOptions } = require('../lib/foodSizes');
 
-const MERCHANT_SELECT =
-  'id, name, vertical, cuisine_type, description, logo_url, address, street, building_number, lat, lng, ' +
-  'is_active, status, credit_limit, credit_used, is_featured, badge, created_at';
-
 async function loadOwnedMerchant(ownerId) {
-  const { data, error } = await supabase
-    .from('merchants')
-    .select(MERCHANT_SELECT)
-    .eq('owner_id', ownerId)
-    .maybeSingle();
-  if (error) throw error;
-  return data;
+  return merchantRepository.loadOwned(ownerId);
 }
 
 function merchantView(m) {
@@ -89,9 +79,8 @@ async function updateProfile(req, res) {
       });
     }
 
-    const { data, error } = await supabase
-      .from('merchants')
-      .update({
+    const data = await merchantRepository.updateProfile({
+      id: merchant.id, ownerId: req.merchantOwnerId, fields: {
         name: req.body.name,
         cuisine_type: req.body.cuisine_type ?? null,
         description: req.body.description ?? null,
@@ -101,12 +90,9 @@ async function updateProfile(req, res) {
         building_number: req.body.building_number ?? null,
         lat: req.body.lat,
         lng: req.body.lng,
-      })
-      .eq('id', merchant.id)
-      .eq('owner_id', req.merchantOwnerId)
-      .select(MERCHANT_SELECT)
-      .single();
-    if (error || !data) return res.status(404).json({ error: 'Business profile not found' });
+      },
+    });
+    if (!data) return res.status(404).json({ error: 'Business profile not found' });
     return res.json({ merchant: merchantView(data) });
   } catch (err) {
     console.error('merchant updateProfile error:', err);
@@ -157,14 +143,11 @@ async function confirmLogoUpload(req, res) {
     }
 
     const logo_url = getMerchantMediaPublicUrl(path);
-    const { data, error } = await supabase
-      .from('merchants')
-      .update({ logo_url })
-      .eq('id', merchant.id)
-      .eq('owner_id', req.merchantOwnerId)
-      .select(MERCHANT_SELECT)
-      .single();
-    if (error || !data) return res.status(404).json({ error: 'Business profile not found' });
+    const data = await merchantRepository.updateProfile({
+      id: merchant.id, ownerId: req.merchantOwnerId,
+      fields: { ...merchant, logo_url },
+    });
+    if (!data) return res.status(404).json({ error: 'Business profile not found' });
     return res.json({ merchant: merchantView(data), logoUrl: logo_url });
   } catch (err) {
     console.error('merchant confirmLogoUpload error:', err);
@@ -227,20 +210,8 @@ async function getMenu(req, res) {
     const merchant = await requireOwnedMerchant(req, res);
     if (!merchant) return;
 
-    const [{ data: categories }, { data: items }] = await Promise.all([
-      supabase
-        .from('menu_categories')
-        .select('id, name, sort_order, is_active')
-        .eq('merchant_id', merchant.id)
-        .order('sort_order'),
-      supabase
-        .from('menu_items')
-        .select('id, category_id, name, description, price, item_type, image_url, is_available, size_options')
-        .eq('merchant_id', merchant.id)
-        .order('name'),
-    ]);
-
-    return res.json({ merchant: merchantView(merchant), categories: categories || [], items: items || [] });
+    const { categories, items } = await merchantRepository.menuForMerchant(merchant.id);
+    return res.json({ merchant: merchantView(merchant), categories, items });
   } catch (err) {
     console.error('merchant getMenu error:', err);
     return res.status(500).json({ error: 'Unexpected server error' });
@@ -252,12 +223,7 @@ async function addCategory(req, res) {
     const merchant = await requireOwnedMerchant(req, res);
     if (!merchant) return;
 
-    const { data, error } = await supabase
-      .from('menu_categories')
-      .insert({ merchant_id: merchant.id, ...req.body })
-      .select('id, name, sort_order, is_active')
-      .single();
-    if (error) return res.status(500).json({ error: 'Could not create the category' });
+    const data = await merchantRepository.insertCategory(merchant.id, req.body);
     return res.status(201).json({ category: data });
   } catch (err) {
     console.error('merchant addCategory error:', err);
@@ -270,14 +236,8 @@ async function updateCategory(req, res) {
     const merchant = await requireOwnedMerchant(req, res);
     if (!merchant) return;
 
-    const { data, error } = await supabase
-      .from('menu_categories')
-      .update(req.body)
-      .eq('id', req.params.id)
-      .eq('merchant_id', merchant.id)
-      .select('id, name, sort_order, is_active')
-      .single();
-    if (error || !data) return res.status(404).json({ error: 'Category not found' });
+    const data = await merchantRepository.updateCategory(req.params.id, merchant.id, req.body);
+    if (!data) return res.status(404).json({ error: 'Category not found' });
     return res.json({ category: data });
   } catch (err) {
     console.error('merchant updateCategory error:', err);
@@ -290,12 +250,7 @@ async function deleteCategory(req, res) {
     const merchant = await requireOwnedMerchant(req, res);
     if (!merchant) return;
 
-    const { error } = await supabase
-      .from('menu_categories')
-      .delete()
-      .eq('id', req.params.id)
-      .eq('merchant_id', merchant.id);
-    if (error) return res.status(500).json({ error: 'Could not delete the category' });
+    await merchantRepository.deleteCategory(req.params.id, merchant.id);
     return res.json({ deleted: true });
   } catch (err) {
     console.error('merchant deleteCategory error:', err);
@@ -305,13 +260,7 @@ async function deleteCategory(req, res) {
 
 async function assertCategoryOwned(categoryId, merchantId) {
   if (!categoryId) return true;
-  const { data } = await supabase
-    .from('menu_categories')
-    .select('id')
-    .eq('id', categoryId)
-    .eq('merchant_id', merchantId)
-    .maybeSingle();
-  return !!data;
+  return merchantRepository.categoryOwned(categoryId, merchantId);
 }
 
 async function addItem(req, res) {
@@ -327,12 +276,7 @@ async function addItem(req, res) {
       req.body.size_options = sized.value;
     }
 
-    const { data, error } = await supabase
-      .from('menu_items')
-      .insert({ merchant_id: merchant.id, ...req.body })
-      .select('id, category_id, name, description, price, item_type, image_url, is_available, size_options')
-      .single();
-    if (error) return res.status(500).json({ error: 'Could not create the item' });
+    const data = await merchantRepository.insertMenuItem(merchant.id, req.body);
     return res.status(201).json({ item: data });
   } catch (err) {
     console.error('merchant addItem error:', err);
@@ -353,14 +297,8 @@ async function updateItem(req, res) {
       req.body.size_options = sized.value;
     }
 
-    const { data, error } = await supabase
-      .from('menu_items')
-      .update(req.body)
-      .eq('id', req.params.id)
-      .eq('merchant_id', merchant.id)
-      .select('id, category_id, name, description, price, item_type, image_url, is_available, size_options')
-      .single();
-    if (error || !data) return res.status(404).json({ error: 'Menu item not found' });
+    const data = await merchantRepository.updateMenuItem(req.params.id, merchant.id, req.body);
+    if (!data) return res.status(404).json({ error: 'Menu item not found' });
     return res.json({ item: data });
   } catch (err) {
     console.error('merchant updateItem error:', err);
@@ -373,42 +311,30 @@ async function getAnalytics(req, res) {
     const merchant = await requireOwnedMerchant(req, res);
     if (!merchant) return;
 
-    const todayStart = new Date();
-    todayStart.setHours(0, 0, 0, 0);
-
-    const { data: orders, error } = await supabase
-      .from('orders')
-      .select('status, payment_status, total, created_at')
-      .eq('merchant_id', merchant.id);
-    if (error) {
-      console.error('merchant getAnalytics error:', error);
-      return res.status(500).json({ error: 'Could not load analytics' });
-    }
-
-    const rows = orders || [];
+    const { orderStats: rows, menuItemCount } = await merchantRepository.analytics(merchant.id);
     const statusCounts = {};
     for (const o of rows) {
-      statusCounts[o.status] = (statusCounts[o.status] || 0) + 1;
+      statusCounts[o.status] = Number(o.count);
     }
-
-    const completed = rows.filter((o) => o.status === 'delivered');
-    const active = rows.filter((o) =>
-      ['pending', 'accepted', 'preparing', 'ready', 'out_for_delivery'].includes(o.status)
-    );
-    const todayOrders = rows.filter((o) => new Date(o.created_at) >= todayStart);
-
-    const menuItemCount = await itemsCount(merchant.id);
+    const totalOrders = rows.reduce((sum, row) => sum + Number(row.count), 0);
+    const completedOrders = rows.filter((row) => row.status === 'delivered')
+      .reduce((sum, row) => sum + Number(row.count), 0);
+    const activeOrders = rows.filter((row) =>
+      ['pending', 'accepted', 'preparing', 'ready', 'out_for_delivery'].includes(row.status))
+      .reduce((sum, row) => sum + Number(row.count), 0);
+    const todayOrders = rows.reduce((sum, row) => sum + Number(row.today_count), 0);
+    const orderVolume = rows.reduce((sum, row) => sum + Number(row.delivered_total), 0);
 
     return res.json({
       merchant: merchantView(merchant),
       menuItems: menuItemCount,
       summary: {
-        totalOrders: rows.length,
-        activeOrders: active.length,
-        deliveredOrders: completed.length,
+        totalOrders,
+        activeOrders,
+        deliveredOrders: completedOrders,
         pendingOrders: statusCounts.pending || 0,
-        todayOrders: todayOrders.length,
-        orderVolume: round2(completed.reduce((sum, o) => sum + Number(o.total || 0), 0)),
+        todayOrders,
+        orderVolume: round2(orderVolume),
         creditUsed: round2(Number(merchant.credit_used)),
         creditLimit: Number(merchant.credit_limit),
         creditRemaining: round2(Math.max(0, Number(merchant.credit_limit) - Number(merchant.credit_used))),
@@ -421,25 +347,12 @@ async function getAnalytics(req, res) {
   }
 }
 
-async function itemsCount(merchantId) {
-  const { count } = await supabase
-    .from('menu_items')
-    .select('id', { count: 'exact', head: true })
-    .eq('merchant_id', merchantId);
-  return count || 0;
-}
-
 async function deleteItem(req, res) {
   try {
     const merchant = await requireOwnedMerchant(req, res);
     if (!merchant) return;
 
-    const { error } = await supabase
-      .from('menu_items')
-      .delete()
-      .eq('id', req.params.id)
-      .eq('merchant_id', merchant.id);
-    if (error) return res.status(500).json({ error: 'Could not delete the item' });
+    await merchantRepository.deleteMenuItem(req.params.id, merchant.id);
     return res.json({ deleted: true });
   } catch (err) {
     console.error('merchant deleteItem error:', err);

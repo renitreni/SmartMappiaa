@@ -1,8 +1,10 @@
 const crypto = require('crypto');
 
 function key() {
+  const secret = process.env.APP_SIGNING_KEY;
+  if (!secret) throw new Error('APP_SIGNING_KEY is required');
   return crypto.createHash('sha256')
-    .update(process.env.SESSION_ENCRYPTION_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY)
+    .update(secret)
     .digest();
 }
 

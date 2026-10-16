@@ -7,7 +7,7 @@
 // POST /api/food/events. Best-effort: analytics must never break the
 // request that produced them.
 // ---------------------------------------------------------------------
-const { supabase } = require('./supabase');
+const database = require('./database/pool');
 
 // The full PRD event vocabulary. Client-submitted events are restricted
 // to the discovery/engagement subset below.
@@ -49,13 +49,10 @@ async function logFoodEvent({ eventName, userId = null, orderId = null, merchant
       console.error(`logFoodEvent: unknown event "${eventName}" ignored`);
       return;
     }
-    await supabase.from('fd_analytics_events').insert({
-      event_name: eventName,
-      user_id: userId,
-      order_id: orderId,
-      merchant_id: merchantId,
-      params,
-    });
+    await database.query(
+      `INSERT INTO public.fd_analytics_events(event_name,user_id,order_id,merchant_id,params)
+       VALUES ($1,$2,$3,$4,$5)`, [eventName,userId,orderId,merchantId,params],
+    );
   } catch (err) {
     console.error('logFoodEvent error:', err.message || err);
   }
@@ -67,13 +64,10 @@ async function logShopEvent({ eventName, userId = null, shopOrderId = null, merc
       console.error(`logShopEvent: unknown event "${eventName}" ignored`);
       return;
     }
-    await supabase.from('fd_analytics_events').insert({
-      event_name: eventName,
-      user_id: userId,
-      shop_order_id: shopOrderId,
-      merchant_id: merchantId,
-      params,
-    });
+    await database.query(
+      `INSERT INTO public.fd_analytics_events(event_name,user_id,shop_order_id,merchant_id,params)
+       VALUES ($1,$2,$3,$4,$5)`, [eventName,userId,shopOrderId,merchantId,params],
+    );
   } catch (err) {
     console.error('logShopEvent error:', err.message || err);
   }

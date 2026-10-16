@@ -17,7 +17,7 @@
 // ---------------------------------------------------------------------
 require('dotenv').config();
 const { config } = require('../lib/config');
-const { supabase } = require('../lib/supabase');
+const database = require('../lib/database/pool');
 
 let failed = 0;
 let warned = 0;
@@ -220,8 +220,13 @@ async function checkLiveEndpoints() {
 // --- D. Schema --------------------------------------------------------
 
 async function columnExists(table, column) {
-  const { error } = await supabase.from(table).select(column).limit(0);
-  return !error;
+  try {
+    await database.query(`SELECT ${column} FROM public.${table} LIMIT 1`);
+    return true;
+  } catch (err) {
+    if (err && err.code === '42703') return false;
+    throw err;
+  }
 }
 
 async function checkSchema() {
@@ -257,16 +262,14 @@ const VERTICALS = [
 async function checkEvidence() {
   console.log('\nE. Evidence — has a real payment been confirmed?\n');
 
-  const { data: events, error: evErr } = await supabase
-    .from('webhook_events')
-    .select('id, provider, event_type, gateway_payment_id, signature_verified, processed_at, created_at')
-    .eq('provider', 'tap')
-    .order('created_at', { ascending: false })
-    .limit(20);
+  const { rows: events } = await database.query(
+    `SELECT id, provider, event_type, gateway_payment_id, signature_verified, processed_at, created_at
+       FROM public.webhook_events
+      WHERE provider='tap'
+      ORDER BY created_at DESC LIMIT 20`,
+  );
 
-  if (evErr) {
-    fail('E1', `could not read webhook_events: ${evErr.message}`);
-  } else if (!events.length) {
+  if (!events.length) {
     warn(
       'E1',
       'no Tap webhook has EVER been received',
@@ -293,16 +296,17 @@ async function checkEvidence() {
   console.log('');
   let stuckTotal = 0;
   for (const v of VERTICALS) {
-    const { data, error } = await supabase
-      .from(v.table)
-      .select(`${v.code}, payment_status, gateway_charge_id, created_at`)
-      .not('gateway_charge_id', 'is', null)
-      .neq('payment_status', v.settled)
-      .order('created_at', { ascending: false })
-      .limit(10);
-
-    if (error) {
-      warn('E2', `could not read ${v.table}: ${error.message}`);
+    let data;
+    try {
+      ({ rows: data } = await database.query(
+        `SELECT ${v.code}, payment_status, gateway_charge_id, created_at
+           FROM public.${v.table}
+          WHERE gateway_charge_id IS NOT NULL AND payment_status <> $1
+          ORDER BY created_at DESC LIMIT 10`,
+        [v.settled],
+      ));
+    } catch (err) {
+      warn('E2', `could not read ${v.table}: ${err.message}`);
       continue;
     }
     if (!data.length) {
@@ -330,12 +334,12 @@ async function checkEvidence() {
 
   console.log('');
   for (const v of VERTICALS) {
-    const { count } = await supabase
-      .from(v.table)
-      .select('*', { count: 'exact', head: true })
-      .eq('payment_status', v.settled)
-      .not('gateway_charge_id', 'is', null);
-    info(`${v.label}: ${count || 0} order(s) settled via the gateway to date`);
+    const { rows } = await database.query(
+      `SELECT count(*)::int AS count FROM public.${v.table}
+        WHERE payment_status=$1 AND gateway_charge_id IS NOT NULL`,
+      [v.settled],
+    );
+    info(`${v.label}: ${rows[0].count || 0} order(s) settled via the gateway to date`);
   }
 
   return stuckTotal;

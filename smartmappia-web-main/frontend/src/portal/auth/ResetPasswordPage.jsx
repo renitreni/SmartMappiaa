@@ -1,9 +1,8 @@
 // ---------------------------------------------------------------------
 // Choose a new password from a reset link: /reset-password
 //
-// The API keeps the PKCE verifier and exchanges the email's one-use code.
-// This page receives only a short-lived Smart Mappia reset ticket, so an
-// ordinary signed-in session can never authorize a password reset.
+// The API claims an app-owned, one-time reset token and returns a short-lived
+// reset ticket. An ordinary signed-in session cannot authorize a password reset.
 // ---------------------------------------------------------------------
 import { useEffect, useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
@@ -23,9 +22,8 @@ export default function ResetPasswordPage() {
   const navigate = useNavigate();
   const [recovery] = useState(() => {
     const url = new URL(window.location.href);
-    const state = url.searchParams.get('state');
-    const code = url.searchParams.get('code');
-    return state && code ? { state, code } : null;
+    const token = url.searchParams.get('token');
+    return token ? { token } : null;
   });
   // 'verifying' -> 'ready' -> 'done', or 'invalid' at any point before 'done'.
   //
@@ -41,7 +39,7 @@ export default function ResetPasswordPage() {
   useEffect(() => {
     if (!recovery) return undefined;
     let active = true;
-    api.exchangePasswordReset(recovery.state, recovery.code)
+    api.exchangePasswordReset(recovery.token)
       .then((data) => {
         if (!active) return;
         setTicket(data.ticket);

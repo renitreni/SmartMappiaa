@@ -23,7 +23,7 @@
 // ---------------------------------------------------------------------
 const tap = require('./tap');
 const savedCards = require('./savedCards');
-const { supabase } = require('./supabase');
+const paymentRepository = require('../repositories/gatewayPaymentRepository');
 const { confirmGatewayPayment, isKnownVertical } = require('./gatewayPaid');
 
 const FAILURE_STATUSES = ['FAILED', 'DECLINED', 'CANCELLED', 'ABANDONED'];
@@ -42,20 +42,7 @@ function resolveVertical(charge) {
 // A failed charge leaves the order payable so the customer can retry. It is
 // never walked back from a settled state.
 async function markFailed(vertical, code) {
-  if (vertical === 'ride') {
-    await supabase
-      .from('bookings')
-      .update({ payment_status: 'rejected' })
-      .eq('booking_code', code)
-      .in('payment_status', ['awaiting_proof', 'proof_uploaded', 'under_review']);
-    return;
-  }
-  const table = vertical === 'shop' ? 'shop_orders' : 'orders';
-  await supabase
-    .from(table)
-    .update({ payment_status: 'failed' })
-    .eq('order_code', code)
-    .eq('payment_status', 'awaiting');
+  return paymentRepository.markFailed(vertical, code);
 }
 
 // Settle one charge against the order it names.

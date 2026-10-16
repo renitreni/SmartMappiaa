@@ -13,7 +13,7 @@
 // compare-and-swap on the job itself (deliveries.driver_id /
 // bookings.assigned_driver_id must still be null to win).
 // ---------------------------------------------------------------------
-const { supabase } = require('../lib/supabase');
+const driverDispatchRepository = require('../repositories/driverDispatchRepository');
 const { config } = require('../lib/config');
 const { haversineKm, etaMinutes } = require('../lib/geo');
 const { assertWithinGeofence } = require('../lib/geofence');
@@ -50,22 +50,7 @@ const RIDER_ACTIVE_ORDER_STATUSES = ['accepted', 'preparing', 'ready', 'out_for_
 
 async function listOffers(req, res) {
   try {
-    const nowIso = new Date().toISOString();
-    const { data: offers, error } = await supabase
-      .from('dispatch_offers')
-      .select(
-        'id, order_id, booking_id, shop_order_id, distance_km, expires_at, ' +
-          'orders ( order_code, total, delivery_address, delivery_street, delivery_building, merchants ( name, address, street, building_number ) ), ' +
-          'shop_orders ( order_code, total, delivery_address, delivery_street, delivery_building, merchants ( name, address, street, building_number ) ), ' +
-          'bookings ( booking_code, trip_type, pickup_address, pickup_street, pickup_building, dropoff_address, dropoff_street, dropoff_building, fare_amount )'
-      )
-      .eq('driver_id', req.driverId)
-      .eq('status', 'pending')
-      .gt('expires_at', nowIso);
-    if (error) {
-      console.error('listOffers error:', error);
-      return res.status(500).json({ error: 'Unexpected server error' });
-    }
+    const offers = await driverDispatchRepository.listOffers(req.driverId);
 
     return res.json({
       offers: (offers || []).map((o) => ({
@@ -133,31 +118,14 @@ async function claimFoodDelivery(order, driverId) {
   // cash-owed limit cannot take another cash job. Checked before the claim
   // so an over-cap rider never ends up holding more of our money.
   if (order.paymentMethod === 'cash') {
-    const { data: drv } = await supabase
-      .from('profiles')
-      .select('cash_owed, cash_owed_limit')
-      .eq('id', driverId)
-      .single();
+    const drv = await driverDispatchRepository.driverCashProfile(driverId);
     if (drv && isBlockedFromCash(drv)) return { ok: false, blocked: true };
   }
 
-  const { data: claimed, error } = await supabase
-    .from('deliveries')
-    .update({ driver_id: driverId, status: 'assigned' })
-    .eq('order_id', order.id)
-    .is('driver_id', null)
-    .select('id');
-  if (error) {
-    console.error('claimFoodDelivery error:', error);
-    return { ok: false };
-  }
-  if (!claimed || claimed.length === 0) return { ok: false, conflict: true };
+  const claimed = await driverDispatchRepository.claimDelivery('food', order.id, driverId);
+  if (!claimed) return { ok: false, conflict: true };
 
-  const { data: driver } = await supabase
-    .from('profiles')
-    .select('full_name, whatsapp_number, mobile_number')
-    .eq('id', driverId)
-    .single();
+  const driver = await driverDispatchRepository.driverProfile(driverId);
 
   pushFoodOrderStatus(order.code, {
     status: order.status,
@@ -186,31 +154,14 @@ async function claimShopDelivery(order, driverId) {
   // cash-owed limit cannot take another cash job. Checked before the claim
   // so an over-cap rider never ends up holding more of our money.
   if (order.paymentMethod === 'cash') {
-    const { data: drv } = await supabase
-      .from('profiles')
-      .select('cash_owed, cash_owed_limit')
-      .eq('id', driverId)
-      .single();
+    const drv = await driverDispatchRepository.driverCashProfile(driverId);
     if (drv && isBlockedFromCash(drv)) return { ok: false, blocked: true };
   }
 
-  const { data: claimed, error } = await supabase
-    .from('shop_deliveries')
-    .update({ driver_id: driverId, status: 'assigned' })
-    .eq('order_id', order.id)
-    .is('driver_id', null)
-    .select('id');
-  if (error) {
-    console.error('claimShopDelivery error:', error);
-    return { ok: false };
-  }
-  if (!claimed || claimed.length === 0) return { ok: false, conflict: true };
+  const claimed = await driverDispatchRepository.claimDelivery('shop', order.id, driverId);
+  if (!claimed) return { ok: false, conflict: true };
 
-  const { data: driver } = await supabase
-    .from('profiles')
-    .select('full_name, whatsapp_number, mobile_number')
-    .eq('id', driverId)
-    .single();
+  const driver = await driverDispatchRepository.driverProfile(driverId);
 
   pushShopOrderStatus(order.code, {
     status: order.status,
@@ -236,38 +187,17 @@ async function claimRide(bookingId, driverId) {
   // Hard block: a driver at/over their cash-owed cap cannot take a cash ride.
   // Checked before the claim so an over-cap driver never holds more of our
   // money (STC rides are unaffected).
-  const { data: pay } = await supabase
-    .from('bookings')
-    .select('payment_method')
-    .eq('id', bookingId)
-    .maybeSingle();
+  const pay = await driverDispatchRepository.ridePaymentMethod(bookingId);
   if (pay && pay.payment_method === 'cash') {
-    const { data: drv } = await supabase
-      .from('profiles')
-      .select('cash_owed, cash_owed_limit')
-      .eq('id', driverId)
-      .single();
+    const drv = await driverDispatchRepository.driverCashProfile(driverId);
     if (drv && isBlockedFromCash(drv)) return { ok: false, blocked: true };
   }
 
-  const { data: claimed, error } = await supabase
-    .from('bookings')
-    .update({
-      assigned_driver_id: driverId,
-      driver_ride_status: 'accepted',
-      booking_status: 'driver_assigned',
-    })
-    .eq('id', bookingId)
-    .is('assigned_driver_id', null)
-    .select('id, booking_code, user_id');
-  if (error || !claimed || claimed.length === 0) return { ok: false, conflict: true };
+  const claimed = await driverDispatchRepository.claimRide(bookingId, driverId);
+  if (!claimed) return { ok: false, conflict: true };
 
-  const booking = claimed[0];
-  const { data: driver } = await supabase
-    .from('profiles')
-    .select('full_name, whatsapp_number')
-    .eq('id', driverId)
-    .single();
+  const booking = claimed;
+  const driver = await driverDispatchRepository.driverProfile(driverId, true);
 
   await addTrackingEvent(booking.id, {
     eventType: 'driver_accepted',
@@ -293,47 +223,29 @@ async function claimRide(bookingId, driverId) {
 async function acceptOffer(req, res) {
   try {
     // CAS 1: take the offer while it is still pending and unexpired.
-    const { data: taken, error } = await supabase
-      .from('dispatch_offers')
-      .update({ status: 'accepted', responded_at: new Date().toISOString() })
-      .eq('id', req.params.id)
-      .eq('driver_id', req.driverId)
-      .eq('status', 'pending')
-      .gt('expires_at', new Date().toISOString())
-      .select('id, order_id, booking_id, shop_order_id');
-    if (error) {
-      console.error('acceptOffer error:', error);
-      return res.status(500).json({ error: 'Unexpected server error' });
-    }
-    if (!taken || taken.length === 0) {
+    const offer = await driverDispatchRepository.acceptOffer({ id: req.params.id, driverId: req.driverId });
+    if (!offer) {
       return res.status(409).json({ error: 'This offer has expired or was withdrawn' });
     }
-    const offer = taken[0];
 
     // CAS 2: claim the job itself.
     if (offer.order_id) {
-      const { data: order } = await supabase
-        .from('orders')
-        .select('id, order_code, status, merchant_id, customer_id')
-        .eq('id', offer.order_id)
-        .single();
+      const order = await driverDispatchRepository.orderById('food', offer.order_id);
+      if (!order) return res.status(409).json({ error: 'This delivery is no longer available' });
       const result = await claimFoodDelivery(
-        { id: order.id, code: order.order_code, status: order.status, merchantId: order.merchant_id, customerId: order.customer_id },
+        { id: order.id, code: order.order_code, status: order.status, merchantId: order.merchant_id, customerId: order.customer_id, paymentMethod: order.payment_method },
         req.driverId
       );
       if (!result.ok) {
-        await supabase.from('dispatch_offers').update({ status: 'cancelled' }).eq('id', offer.id);
+        await driverDispatchRepository.cancelOffer(offer.id);
         return res.status(409).json({ error: 'This delivery was already taken' });
       }
       return res.json({ accepted: true, kind: 'food', code: order.order_code });
     }
 
     if (offer.shop_order_id) {
-      const { data: order } = await supabase
-        .from('shop_orders')
-        .select('id, order_code, status, merchant_id, customer_id')
-        .eq('id', offer.shop_order_id)
-        .single();
+      const order = await driverDispatchRepository.orderById('shop', offer.shop_order_id);
+      if (!order) return res.status(409).json({ error: 'This delivery is no longer available' });
       const result = await claimShopDelivery(
         {
           id: order.id,
@@ -341,11 +253,12 @@ async function acceptOffer(req, res) {
           status: order.status,
           merchantId: order.merchant_id,
           customerId: order.customer_id,
+          paymentMethod: order.payment_method,
         },
         req.driverId
       );
       if (!result.ok) {
-        await supabase.from('dispatch_offers').update({ status: 'cancelled' }).eq('id', offer.id);
+        await driverDispatchRepository.cancelOffer(offer.id);
         return res.status(409).json({ error: 'This delivery was already taken' });
       }
       return res.json({ accepted: true, kind: 'shop', code: order.order_code });
@@ -353,7 +266,7 @@ async function acceptOffer(req, res) {
 
     const result = await claimRide(offer.booking_id, req.driverId);
     if (!result.ok) {
-      await supabase.from('dispatch_offers').update({ status: 'cancelled' }).eq('id', offer.id);
+      await driverDispatchRepository.cancelOffer(offer.id);
       if (result.blocked) {
         return res.status(403).json({
           error: 'Settle your outstanding cash with SmartMappia before taking new cash rides',
@@ -362,8 +275,7 @@ async function acceptOffer(req, res) {
       }
       return res.status(409).json({ error: 'This ride was already taken' });
     }
-    const { data: booking } = await supabase
-      .from('bookings').select('booking_code').eq('id', offer.booking_id).single();
+    const booking = await driverDispatchRepository.bookingCodeById(offer.booking_id);
     return res.json({ accepted: true, kind: 'ride', code: booking.booking_code });
   } catch (err) {
     console.error('acceptOffer error:', err);
@@ -373,18 +285,8 @@ async function acceptOffer(req, res) {
 
 async function declineOffer(req, res) {
   try {
-    const { data: declined, error } = await supabase
-      .from('dispatch_offers')
-      .update({ status: 'declined', responded_at: new Date().toISOString() })
-      .eq('id', req.params.id)
-      .eq('driver_id', req.driverId)
-      .eq('status', 'pending')
-      .select('id, order_id, booking_id, shop_order_id');
-    if (error) {
-      console.error('declineOffer error:', error);
-      return res.status(500).json({ error: 'Unexpected server error' });
-    }
-    if (!declined || declined.length === 0) {
+    const declined = await driverDispatchRepository.declineOffer({ id: req.params.id, driverId: req.driverId });
+    if (!declined) {
       return res.status(409).json({ error: 'This offer is no longer pending' });
     }
 
@@ -395,7 +297,7 @@ async function declineOffer(req, res) {
     // null, so offerNext did nothing. The offer was already flipped to
     // 'declined', and the sweeper only revives 'pending' rows — so a single
     // decline killed the cascade for that order permanently.
-    const offer = declined[0];
+    const offer = declined;
     let target = null;
     if (offer.order_id) target = await loadFoodTarget(offer.order_id);
     else if (offer.shop_order_id) target = await loadShopTarget(offer.shop_order_id);
@@ -410,13 +312,6 @@ async function declineOffer(req, res) {
 }
 
 // --- My deliveries -------------------------------------------------------
-
-const DELIVERY_SELECT =
-  'id, status, delivered_at, pickup_photo_path, delivery_photo_path, ' +
-  'orders!inner ( order_code, status, payment_status, payment_method, total, delivery_fee, ' +
-  'delivery_address, delivery_street, delivery_building, delivery_lat, delivery_lng, contact_phone, created_at, ' +
-  'merchants ( name, address, street, building_number, lat, lng ), ' +
-  'profiles!orders_customer_id_fkey ( full_name, mobile_number, whatsapp_number ) )';
 
 function shapeDelivery(d) {
   const o = d.orders;
@@ -469,43 +364,19 @@ function shapeDelivery(d) {
 // (profiles!<constraint>_customer_id_fkey), and that constraint name differs
 // per table. A naive replace of just "orders!inner" leaves the food FK name
 // behind and PostgREST rejects the whole query.
-const SHOP_DELIVERY_SELECT =
-  'id, status, delivered_at, pickup_photo_path, delivery_photo_path, ' +
-  'shop_orders!inner ( order_code, status, payment_status, payment_method, total, delivery_fee, ' +
-  'delivery_address, delivery_street, delivery_building, delivery_lat, delivery_lng, contact_phone, created_at, ' +
-  'merchants ( name, address, street, building_number, lat, lng ), ' +
-  'profiles!shop_orders_customer_id_fkey ( full_name, mobile_number, whatsapp_number ) )';
-
 async function listMyDeliveries(req, res) {
   try {
     // Both verticals in one feed. The rider works a single queue; which
     // table a job came from is an implementation detail to them, so `kind`
     // is the only thing that distinguishes the cards.
     const [food, shop] = await Promise.all([
-      supabase
-        .from('deliveries')
-        .select(DELIVERY_SELECT)
-        .eq('driver_id', req.driverId)
-        .order('created_at', { ascending: false })
-        .limit(30),
-      supabase
-        .from('shop_deliveries')
-        .select(SHOP_DELIVERY_SELECT)
-        .eq('driver_id', req.driverId)
-        .order('created_at', { ascending: false })
-        .limit(30),
+      driverDispatchRepository.deliveryRows('food', { driverId: req.driverId, limit: 30 }),
+      driverDispatchRepository.deliveryRows('shop', { driverId: req.driverId, limit: 30 }),
     ]);
-    if (food.error) {
-      console.error('listMyDeliveries (food) error:', food.error);
-      return res.status(500).json({ error: 'Unexpected server error' });
-    }
-    // A shop failure must not blank out the rider's food queue — the shop
-    // tables may not exist yet on an environment that has not run 0026-0029.
-    if (shop.error) console.error('listMyDeliveries (shop) error:', shop.error);
 
     const deliveries = [
-      ...(food.data || []).map((d) => ({ ...shapeDelivery(d), kind: 'food' })),
-      ...(shop.data || []).map((d) => ({ ...shapeDelivery({ ...d, orders: d.shop_orders }), kind: 'shop' })),
+      ...food.map((d) => ({ ...shapeDelivery(d), kind: 'food' })),
+      ...shop.map((d) => ({ ...shapeDelivery(d), kind: 'shop' })),
     ].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
 
     return res.json({
@@ -538,34 +409,13 @@ async function listOpenDeliveries(req, res) {
     const here = lat != null && lng != null ? { lat, lng } : null;
 
     const [food, shop] = await Promise.all([
-      wantsFood
-        ? supabase
-            .from('deliveries')
-            .select(DELIVERY_SELECT)
-            .eq('status', 'open')
-            .is('driver_id', null)
-            .in('orders.status', VERTICALS.food.prePickupStatuses)
-            .limit(50)
-        : Promise.resolve({ data: [] }),
-      wantsShop
-        ? supabase
-            .from('shop_deliveries')
-            .select(SHOP_DELIVERY_SELECT)
-            .eq('status', 'open')
-            .is('driver_id', null)
-            .in('shop_orders.status', VERTICALS.shop.prePickupStatuses)
-            .limit(50)
-        : Promise.resolve({ data: [] }),
+      wantsFood ? driverDispatchRepository.deliveryRows('food', { open: true, statuses: VERTICALS.food.prePickupStatuses, limit: 50 }) : [],
+      wantsShop ? driverDispatchRepository.deliveryRows('shop', { open: true, statuses: VERTICALS.shop.prePickupStatuses, limit: 50 }) : [],
     ]);
-    if (food.error) {
-      console.error('listOpenDeliveries (food) error:', food.error);
-      return res.status(500).json({ error: 'Unexpected server error' });
-    }
-    if (shop.error) console.error('listOpenDeliveries (shop) error:', shop.error);
 
     const rows = [
-      ...(food.data || []).map((d) => ({ row: d, kind: 'food' })),
-      ...(shop.data || []).map((d) => ({ row: { ...d, orders: d.shop_orders }, kind: 'shop' })),
+      ...food.map((d) => ({ row: d, kind: 'food' })),
+      ...shop.map((d) => ({ row: d, kind: 'shop' })),
     ];
 
     const deliveries = rows.map(({ row, kind }) => {
@@ -602,11 +452,7 @@ async function claimOpenDelivery(req, res) {
       });
     }
 
-    const { data: order } = await supabase
-      .from(V.orderTable)
-      .select('id, order_code, status, merchant_id, customer_id')
-      .eq('order_code', req.params.code)
-      .maybeSingle();
+    const order = await driverDispatchRepository.orderByCode(V.key, req.params.code);
     if (!order) return res.status(404).json({ error: 'Delivery not found' });
 
     // The open POOL means status 'open'. Rows start life as 'searching'
@@ -615,18 +461,14 @@ async function claimOpenDelivery(req, res) {
     // could take a job out from under whoever currently holds the offer.
     // The filter cannot live in the helper: acceptOffer legitimately claims
     // a 'searching' row.
-    const { data: deliveryRow } = await supabase
-      .from(V.deliveryTable)
-      .select('status')
-      .eq('order_id', order.id)
-      .maybeSingle();
+    const deliveryRow = await driverDispatchRepository.deliveryByOrder(V.key, order.id);
     if (!deliveryRow || deliveryRow.status !== 'open') {
       return res.status(409).json({ error: 'This delivery is not in the open pool' });
     }
 
     const claim = V.key === 'shop' ? claimShopDelivery : claimFoodDelivery;
     const result = await claim(
-      { id: order.id, code: order.order_code, status: order.status, merchantId: order.merchant_id, customerId: order.customer_id },
+      { id: order.id, code: order.order_code, status: order.status, merchantId: order.merchant_id, customerId: order.customer_id, paymentMethod: order.payment_method },
       req.driverId
     );
     if (!result.ok) return res.status(409).json({ error: 'This delivery was already taken' });
@@ -645,18 +487,10 @@ async function claimOpenDelivery(req, res) {
 async function cancelDelivery(req, res) {
   try {
     const V = verticalForCode(req.params.code);
-    const { data: order } = await supabase
-      .from(V.orderTable)
-      .select('id, order_code, status')
-      .eq('order_code', req.params.code)
-      .maybeSingle();
+    const order = await driverDispatchRepository.orderByCode(V.key, req.params.code);
     if (!order) return res.status(404).json({ error: 'Delivery not found' });
 
-    const { data: delivery } = await supabase
-      .from(V.deliveryTable)
-      .select('id, driver_id, status')
-      .eq('order_id', order.id)
-      .maybeSingle();
+    const delivery = await driverDispatchRepository.deliveryByOrder(V.key, order.id);
     if (!delivery || delivery.driver_id !== req.driverId) {
       return res.status(403).json({ error: 'This delivery is not assigned to you' });
     }
@@ -687,11 +521,7 @@ async function cancelDelivery(req, res) {
 // trip). Once the trip has started this is refused.
 async function cancelRide(req, res) {
   try {
-    const { data: booking } = await supabase
-      .from('bookings')
-      .select('id, booking_code, assigned_driver_id, driver_ride_status')
-      .eq('booking_code', req.params.code)
-      .maybeSingle();
+    const booking = await driverDispatchRepository.rideByCode(req.params.code);
     if (!booking) return res.status(404).json({ error: 'Ride not found' });
     if (booking.assigned_driver_id !== req.driverId) {
       return res.status(403).json({ error: 'This ride is not assigned to you' });
@@ -802,18 +632,10 @@ async function createDeliveryPhotoUrl(req, res) {
     }
 
     const V = verticalForCode(req.params.code);
-    const { data: order } = await supabase
-      .from(V.orderTable)
-      .select('id, order_code')
-      .eq('order_code', req.params.code)
-      .maybeSingle();
+    const order = await driverDispatchRepository.orderByCode(V.key, req.params.code);
     if (!order) return res.status(404).json({ error: 'Delivery not found' });
 
-    const { data: delivery } = await supabase
-      .from(V.deliveryTable)
-      .select('driver_id')
-      .eq('order_id', order.id)
-      .maybeSingle();
+    const delivery = await driverDispatchRepository.deliveryByOrder(V.key, order.id);
     if (!delivery || delivery.driver_id !== req.driverId) {
       return res.status(403).json({ error: 'This delivery is not assigned to you' });
     }
@@ -865,33 +687,18 @@ async function updateDeliveryStatus(req, res) {
     // resolves to nothing. "Mandatory photo proof" has to mean the object
     // exists, so confirm it does before moving any money or status.
     const fileName = String(photoPath).split('/')[1];
-    const { data: uploaded } = await supabase.storage
-      .from(config.proofs.bucket)
-      .list(req.params.code, { search: fileName, limit: 1 });
-    if (!uploaded || uploaded.length === 0) {
+    const uploaded = await require('../lib/objectStorage').listObjects(config.proofs.bucket, req.params.code);
+    if (!uploaded.some((object) => object.Key === photoPath || object.Key === `${req.params.code}/${fileName}`)) {
       return res.status(400).json({
         error: 'The photo did not finish uploading — please try again.',
         failure_reason: 'photo_missing',
       });
     }
 
-    const { data: order } = await supabase
-      .from(V.orderTable)
-      .select(
-        'id, order_code, status, merchant_id, customer_id, total, subtotal, ' +
-          'platform_margin_total, delivery_fee, driver_fee, vat_amount, ' +
-          'payment_status, payment_method, ' +
-          'delivery_lat, delivery_lng, merchants ( lat, lng )'
-      )
-      .eq('order_code', req.params.code)
-      .maybeSingle();
+    const order = await driverDispatchRepository.orderByCode(V.key, req.params.code);
     if (!order) return res.status(404).json({ error: 'Delivery not found' });
 
-    const { data: delivery } = await supabase
-      .from(V.deliveryTable)
-      .select('id, driver_id')
-      .eq('order_id', order.id)
-      .maybeSingle();
+    const delivery = await driverDispatchRepository.deliveryByOrder(V.key, order.id);
     if (!delivery || delivery.driver_id !== req.driverId) {
       return res.status(403).json({ error: 'This delivery is not assigned to you' });
     }
@@ -904,7 +711,9 @@ async function updateDeliveryStatus(req, res) {
     // Previously a fully trusted, unchecked client claim — a driver could
     // mark picked_up/delivered from anywhere. picked_up checks against the
     // restaurant; delivered checks against the drop-off address.
-    const geofenceTarget = req.body.status === 'picked_up' ? order.merchants : { lat: order.delivery_lat, lng: order.delivery_lng };
+    const geofenceTarget = req.body.status === 'picked_up'
+      ? { lat: order.merchant_lat, lng: order.merchant_lng }
+      : { lat: order.delivery_lat, lng: order.delivery_lng };
     const geofenceError = await assertWithinGeofence({
       driverId: req.driverId,
       target: geofenceTarget,
@@ -915,27 +724,12 @@ async function updateDeliveryStatus(req, res) {
     if (geofenceError) return res.status(geofenceError.httpStatus).json(geofenceError.body);
 
     const nowIso = new Date().toISOString();
-    const patch = { status: flow.orderStatus };
-    if (flow.orderStatus === 'delivered') patch.delivered_at = nowIso;
-    const { data: rows, error } = await supabase
-      .from(V.orderTable)
-      .update(patch)
-      .eq('id', order.id)
-      .eq('status', order.status)
-      .select('order_code, status');
-    if (error || !rows || rows.length === 0) {
-      return res.status(409).json({ error: 'Order status changed — please refresh' });
-    }
-
-    await supabase
-      .from(V.deliveryTable)
-      .update({
-        status: flow.deliveryStatus,
-        [flow.photoColumn]: photoPath,
-        ...(flow.deliveryStatus === 'picked_up' ? { picked_up_at: nowIso } : {}),
-        ...(flow.deliveryStatus === 'delivered' ? { delivered_at: nowIso } : {}),
-      })
-      .eq('id', delivery.id);
+    const updatedOrder = await driverDispatchRepository.setDeliveryStatus({
+      kind: V.key, orderId: order.id, expectedStatus: order.status, orderStatus: flow.orderStatus,
+      deliveryId: delivery.id, driverId: req.driverId, deliveryStatus: flow.deliveryStatus,
+      photoColumn: flow.photoColumn, photoPath, at: nowIso,
+    });
+    if (!updatedOrder) return res.status(409).json({ error: 'Order status changed — please refresh' });
 
     // Cash on delivery: handing the order over means the rider collected the
     // money — record the payment (idempotent inside markOrderPaid).

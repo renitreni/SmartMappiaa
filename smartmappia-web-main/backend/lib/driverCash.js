@@ -12,7 +12,7 @@
 // pure; chargeDriverCashOwed / settleDriverCash write the running balance
 // (profiles.cash_owed) and the audit trail (driver_cash_ledger).
 // ---------------------------------------------------------------------
-const { supabase } = require('./supabase');
+const database = require('./database/pool');
 const { config } = require('./config');
 
 const { round2 } = require('./money');
@@ -70,38 +70,23 @@ async function chargeDriverCashOwed({ driverId, bookingId = null, amount, note =
   const charge = round2(amount);
   if (!(charge > 0)) return { ok: true, skipped: true };
 
-  const { data: drv, error: readErr } = await supabase
-    .from('profiles')
-    .select('cash_owed')
-    .eq('id', driverId)
-    .single();
-  if (readErr || !drv) {
-    console.error('chargeDriverCashOwed read error:', readErr);
-    return { error: readErr || new Error('driver not found') };
+  try {
+    return await database.transaction(async (client) => {
+      const { rows } = await client.query('SELECT cash_owed FROM public.profiles WHERE id=$1 FOR UPDATE', [driverId]);
+      if (!rows[0]) return { error: new Error('driver not found') };
+      const before = round2(Number(rows[0].cash_owed) || 0);
+      const after = round2(before + charge);
+      await client.query('UPDATE public.profiles SET cash_owed=$2,updated_at=now() WHERE id=$1', [driverId, after]);
+      await client.query(
+        `INSERT INTO public.driver_cash_ledger(driver_id,booking_id,type,amount,balance_after,note)
+         VALUES ($1,$2,'charge',$3,$4,$5)`, [driverId, bookingId, charge, after, note],
+      );
+      return { ok: true, balanceAfter: after };
+    });
+  } catch (error) {
+    console.error('chargeDriverCashOwed transaction failed:', error);
+    return { error };
   }
-
-  const before = round2(Number(drv.cash_owed) || 0);
-  const after = round2(before + charge);
-  const { data: updated, error: updErr } = await supabase
-    .from('profiles')
-    .update({ cash_owed: after })
-    .eq('id', driverId)
-    .eq('cash_owed', drv.cash_owed) // CAS against a racing charge/settlement
-    .select('id');
-  if (updErr || !updated || updated.length === 0) {
-    console.error('chargeDriverCashOwed update error (or race):', updErr);
-    return { error: updErr || new Error('cash_owed changed, retry') };
-  }
-
-  await supabase.from('driver_cash_ledger').insert({
-    driver_id: driverId,
-    booking_id: bookingId,
-    type: 'charge',
-    amount: charge,
-    balance_after: after,
-    note,
-  });
-  return { ok: true, balanceAfter: after };
 }
 
 // Record that a driver paid SmartMappia `amount` toward what they owe:
@@ -110,33 +95,21 @@ async function settleDriverCash({ driverId, amount, adminId = null, note = null 
   const paid = round2(amount);
   if (!(paid > 0)) return { error: new Error('amount must be > 0') };
 
-  const { data: drv, error: readErr } = await supabase
-    .from('profiles')
-    .select('cash_owed')
-    .eq('id', driverId)
-    .single();
-  if (readErr || !drv) return { error: readErr || new Error('driver not found') };
-
-  const after = round2(Math.max(0, round2(Number(drv.cash_owed) || 0) - paid));
-  const { data: updated, error: updErr } = await supabase
-    .from('profiles')
-    .update({ cash_owed: after })
-    .eq('id', driverId)
-    .eq('cash_owed', drv.cash_owed) // CAS against a racing charge
-    .select('id, cash_owed, cash_owed_limit');
-  if (updErr || !updated || updated.length === 0) {
-    return { error: updErr || new Error('cash_owed changed, retry') };
+  try {
+    return await database.transaction(async (client) => {
+      const { rows } = await client.query('SELECT cash_owed FROM public.profiles WHERE id=$1 FOR UPDATE', [driverId]);
+      if (!rows[0]) return { error: new Error('driver not found') };
+      const after = round2(Math.max(0, round2(Number(rows[0].cash_owed) || 0) - paid));
+      await client.query('UPDATE public.profiles SET cash_owed=$2,updated_at=now() WHERE id=$1', [driverId, after]);
+      await client.query(
+        `INSERT INTO public.driver_cash_ledger(driver_id,type,amount,balance_after,note,created_by)
+         VALUES ($1,'settlement',$2,$3,$4,$5)`, [driverId, paid, after, note, adminId],
+      );
+      return { ok: true, balanceAfter: after };
+    });
+  } catch (error) {
+    return { error };
   }
-
-  await supabase.from('driver_cash_ledger').insert({
-    driver_id: driverId,
-    type: 'settlement',
-    amount: paid,
-    balance_after: after,
-    note,
-    created_by: adminId,
-  });
-  return { ok: true, balanceAfter: after };
 }
 
 module.exports = {

@@ -9,23 +9,19 @@
 // Role can never be self-elevated to admin via the request body; admin is
 // granted ONLY by the env allow-list. Existing admins stay admins.
 // ---------------------------------------------------------------------
-const { supabase } = require('../lib/supabase');
-const { getAuthStore } = require('../lib/authStore');
+const authRepository = require('../repositories/authRepository');
+const profileRepository = require('../repositories/profileRepository');
+const merchantRepository = require('../repositories/merchantRepository');
+const { hashPassword, verifyPassword } = require('../lib/passwords');
+const mailer = require('../lib/mailer');
 const { config } = require('../lib/config');
-const {
-  hasExtendedProfileColumns,
-  hasProfileV2Columns,
-  hasSuperAdminColumns,
-  profileSelectColumns,
-  buildProfileUpsert,
-} = require('../lib/profileSchema');
+const { buildProfileUpsert } = require('../lib/profileSchema');
 const {
   buildAvatarPath,
   createAvatarUploadUrl,
   avatarPublicUrl,
   deleteAvatarFolder,
 } = require('../lib/storage');
-const { opsError } = require('../lib/opsError');
 const {
   MIN_PASSWORD_LENGTH,
   MAX_PASSWORD_LENGTH,
@@ -35,13 +31,10 @@ const {
 const { currentContext } = require('../lib/requestContext');
 const crypto = require('crypto');
 const {
-  authClient,
   createSession,
   revokeSession,
   revokeAll,
   hashToken,
-  encrypt,
-  decrypt,
 } = require('../lib/appSessions');
 
 // The camelCase profile JSON every auth endpoint returns to the UI.
@@ -75,19 +68,16 @@ async function login(req, res) {
     const email = String(req.body?.email || '').trim().toLowerCase();
     const password = String(req.body?.password || '');
     if (!email || !password) return res.status(400).json({ error: 'email and password are required' });
-    const { data, error } = await authClient().auth.signInWithPassword({ email, password });
-    if (error || !data?.user) {
+    const account = await authRepository.getUserByEmail(email);
+    if (!account || !(await verifyPassword(password, account.password_hash))) {
       return res.status(401).json({ error: 'Email or password is incorrect.' });
     }
-    const tiered = await hasSuperAdminColumns(supabase);
-    if (tiered) {
-      const { data: profile } = await supabase.from('profiles')
-        .select('disabled_at').eq('id', data.user.id).maybeSingle();
-      if (profile?.disabled_at) {
-        return res.status(403).json({ error: 'This account has been deactivated.' });
-      }
+    if (account.disabled_at) {
+      return res.status(403).json({ error: 'This account has been deactivated.' });
     }
-    const session = await createSession(data.user, req);
+    const user = await authRepository.recordLogin(account.id);
+    if (!user) return res.status(403).json({ error: 'This account has been deactivated.' });
+    const session = await createSession(user, req);
     return res.json(session);
   } catch (err) {
     console.error('login error:', err);
@@ -117,8 +107,9 @@ async function changePassword(req, res) {
         error: `Password must be ${MIN_PASSWORD_LENGTH}–${MAX_PASSWORD_LENGTH} characters`,
       });
     }
-    const { error } = await supabase.auth.admin.updateUserById(req.userId, { password });
-    if (error) throw error;
+    const passwordHash = await hashPassword(password);
+    const updated = await authRepository.updatePassword(req.userId, passwordHash);
+    if (!updated) throw new Error('Account not found');
     await revokeAll(req.userId);
     return res.status(204).end();
   } catch (err) {
@@ -127,39 +118,27 @@ async function changePassword(req, res) {
   }
 }
 
-function memoryStorage(seed = {}) {
-  const values = { ...seed };
-  return {
-    values,
-    getItem: async (key) => values[key] ?? null,
-    setItem: async (key, value) => { values[key] = value; },
-    removeItem: async (key) => { delete values[key]; },
-  };
-}
-
 async function requestPasswordReset(req, res) {
   // Always return the same response: this public endpoint must not reveal
   // whether an email address is registered.
   const accepted = () => res.status(202).json({ accepted: true });
   try {
     const now = Date.now();
-    const store = getAuthStore();
-    store.prune(now);
+    await authRepository.prune(now);
     const email = String(req.body?.email || '').trim().toLowerCase();
     if (emailError(email)) return accepted();
-    const state = crypto.randomBytes(24).toString('base64url');
-    const storage = memoryStorage();
+    const user = await authRepository.getUserByEmail(email);
+    if (!user || user.disabled_at) return accepted();
+    const state = crypto.randomBytes(32).toString('base64url');
     const redirectBase = config.publicUrls.web.replace(/\/$/, '');
     if (!redirectBase) throw new Error('PUBLIC_WEB_URL is required for password recovery');
-    const { error } = await authClient(storage).auth.resetPasswordForEmail(email, {
-      redirectTo: `${redirectBase}/reset-password?state=${encodeURIComponent(state)}`,
-    });
-    if (error) throw error;
-    store.saveResetFlow({
+    await authRepository.saveResetFlow({
       state_hash: hashToken(state),
-      verifier_ciphertext: encrypt(JSON.stringify(storage.values)),
-      expires_at: Date.now() + 60 * 60 * 1000,
+      user_id: user.id,
+      expires_at: now + 60 * 60 * 1000,
     });
+    const resetUrl = `${redirectBase}/reset-password?token=${encodeURIComponent(state)}`;
+    await mailer.sendPasswordReset(email, resetUrl);
   } catch (err) {
     console.error('requestPasswordReset error:', err);
   }
@@ -168,22 +147,16 @@ async function requestPasswordReset(req, res) {
 
 async function exchangePasswordReset(req, res) {
   try {
-    const state = String(req.body?.state || '');
-    const code = String(req.body?.code || '');
-    if (!state || !code) return res.status(400).json({ error: 'This reset link is invalid or expired.' });
-    const store = getAuthStore();
-    // Claim atomically before the external call so a recovery link is single-use.
-    const flow = store.claimResetFlow(hashToken(state), Date.now());
+    const token = String(req.body?.token || '');
+    if (!token) return res.status(400).json({ error: 'This reset link is invalid or expired.' });
+    const now = Date.now();
+    const flow = await authRepository.claimResetFlow(hashToken(token), now);
     if (!flow) return res.status(400).json({ error: 'This reset link is invalid or expired.' });
 
-    const storage = memoryStorage(JSON.parse(decrypt(flow.verifier_ciphertext)));
-    const { data, error } = await authClient(storage).auth.exchangeCodeForSession(code);
-    if (error || !data?.user) return res.status(400).json({ error: 'This reset link is invalid or expired.' });
     const ticket = crypto.randomBytes(32).toString('base64url');
-    const now = Date.now();
-    store.saveResetTicket({
+    await authRepository.saveResetTicket({
       ticket_hash: hashToken(ticket),
-      user_id: data.user.id,
+      user_id: flow.user_id,
       expires_at: now + 15 * 60 * 1000,
     });
     return res.json({ ticket });
@@ -202,10 +175,10 @@ async function completePasswordReset(req, res) {
     }
     // Claim before changing the password. Two requests racing with the same
     // ticket must never both succeed with different passwords.
-    const claimed = getAuthStore().claimResetTicket(hashToken(ticket), Date.now());
+    const claimed = await authRepository.claimResetTicket(hashToken(ticket), Date.now());
     if (!claimed) return res.status(400).json({ error: 'This reset link is invalid or expired.' });
-    const { error } = await supabase.auth.admin.updateUserById(claimed.user_id, { password });
-    if (error) throw error;
+    const updated = await authRepository.updatePassword(claimed.user_id, await hashPassword(password));
+    if (!updated) throw new Error('Account not found');
     await revokeAll(claimed.user_id);
     return res.status(204).end();
   } catch (err) {
@@ -234,22 +207,7 @@ async function ensureMerchantForOwner(ownerId, body) {
   const payload = merchantPayload(body, ownerId);
   if (!payload) return null;
 
-  const { data: existing, error: existingErr } = await supabase
-    .from('merchants')
-    .select('id')
-    .eq('owner_id', ownerId)
-    .maybeSingle();
-  if (existingErr) throw existingErr;
-
-  const query = existing
-    ? supabase.from('merchants').update(payload).eq('id', existing.id)
-    : supabase.from('merchants').insert(payload);
-
-  const { data, error } = await query
-    .select('id, name, cuisine_type, description, logo_url, address, lat, lng, is_active, status')
-    .single();
-  if (error) throw error;
-  return data;
+  return merchantRepository.upsertOwnerMerchant(payload);
 }
 
 // POST /api/auth/signup  (public)
@@ -298,20 +256,11 @@ async function signup(req, res) {
       });
     }
 
-    const { data, error } = await supabase.auth.admin.createUser({
-      email,
-      password,
-      email_confirm: true, // <- skips the confirmation email entirely
-      user_metadata: {
-        full_name: b.full_name || null,
-        whatsapp_number: b.whatsapp_number || null,
-        mobile_number: b.mobile_number || null,
-      },
-    });
-
-    if (error) {
-      const msg = (error.message || '').toLowerCase();
-      if (msg.includes('already') || error.status === 422) {
+    let user;
+    try {
+      user = await authRepository.createUser({ email, passwordHash: await hashPassword(password) });
+    } catch (error) {
+      if (error.code === '23505') {
         // DELIBERATELY NOT a 409 saying the account exists. This endpoint is
         // public and rate-limited only to 30/hour, so a distinguishable
         // response here is an account-existence oracle: an attacker learns
@@ -332,7 +281,7 @@ async function signup(req, res) {
     }
 
     // Same shape as the already-exists branch above, on purpose.
-    return res.status(201).json({ email: data.user.email });
+    return res.status(201).json({ email: user.email });
   } catch (err) {
     console.error('signup error:', err);
     return res.status(500).json({ error: 'Unexpected server error' });
@@ -355,18 +304,14 @@ async function syncProfile(req, res) {
     }
     const isAdminEmail = config.adminEmails.includes(emailLc);
 
-    const { data: existing } = await supabase
-      .from('profiles')
-      .select('role, driver_approved')
-      .eq('id', id)
-      .maybeSingle();
+    const existing = await profileRepository.getProfileById(id);
 
     // PRIVILEGE ESCALATION GUARD.
     //
     // Admin is derived from the auth email matching ADMIN_EMAILS. POST /signup
     // refuses those addresses outright (control #3, handbook §13.3.4) — but a
     // user can also change their own auth email AFTER registering, straight
-    // from the Profile page via supabase.auth.updateUser({ email }). Without
+    // from a client-side email change. Without
     // the check below that was a complete bypass:
     //
     //   register as a passenger
@@ -417,9 +362,6 @@ async function syncProfile(req, res) {
     // approved. Existing drivers keep whatever approval they already have.
     const driverApproved = role === 'admin' ? true : (existing ? existing.driver_approved : false);
 
-    const extended = await hasExtendedProfileColumns(supabase);
-    const v2 = await hasProfileV2Columns(supabase);
-    const tiered = await hasSuperAdminColumns(supabase);
     const upsertRow = buildProfileUpsert({
       id,
       role,
@@ -427,31 +369,8 @@ async function syncProfile(req, res) {
       driverApproved,
       existing,
       body: b,
-      extended,
     });
-
-    const { data: profile, error } = await supabase
-      .from('profiles')
-      .upsert(upsertRow, { onConflict: 'id' })
-      .select(profileSelectColumns(extended, v2, tiered))
-      .single();
-
-    if (error) {
-      console.error('syncProfile upsert error:', error);
-      const schemaLooksIncomplete =
-        (error.message || '').includes('date_of_birth') ||
-        (error.message || '').includes('driver_approved') ||
-        (error.message || '').includes('service_types');
-      return res.status(500).json(
-        opsError(
-          req,
-          'Could not sync your profile.',
-          schemaLooksIncomplete
-            ? 'Database migrations may be incomplete — run the SQL files in backend/migrations/ (0001, 0002, 0003, 0020) in the Supabase SQL Editor.'
-            : null
-        )
-      );
-    }
+    const profile = await profileRepository.upsertProfile(upsertRow);
 
     let merchant = null;
     if (profile.role === 'merchant') {
@@ -476,39 +395,20 @@ async function syncProfile(req, res) {
 async function updateProfile(req, res) {
   try {
     const b = req.body; // whitelisted by the route schema
-    const v2 = await hasProfileV2Columns(supabase);
-
     const patch = {};
     for (const key of ['full_name', 'mobile_number', 'whatsapp_number']) {
       if (key in b) patch[key] = b[key] || null;
     }
-    if (v2) {
-      for (const key of ['address', 'avatar_url']) {
-        if (key in b) patch[key] = b[key] || null;
-      }
-    } else if ('address' in b || 'avatar_url' in b) {
-      return res.status(409).json(
-        opsError(
-          req,
-          'Saved addresses and profile pictures are temporarily unavailable. Your other details were not changed.',
-          'Run backend/migrations/0024_profile_and_contact.sql in the Supabase SQL Editor.'
-        )
-      );
+    for (const key of ['address', 'avatar_url']) {
+      if (key in b) patch[key] = b[key] || null;
     }
     if (Object.keys(patch).length === 0) {
       return res.status(400).json({ error: 'Nothing to update' });
     }
 
-    const extended = await hasExtendedProfileColumns(supabase);
-    const tiered = await hasSuperAdminColumns(supabase);
-    const { data: profile, error } = await supabase
-      .from('profiles')
-      .update(patch)
-      .eq('id', req.userId)
-      .select(profileSelectColumns(extended, v2, tiered))
-      .single();
-    if (error || !profile) {
-      console.error('updateProfile error:', error);
+    const profile = await profileRepository.updateProfile(req.userId, patch);
+    if (!profile) {
+      console.error('updateProfile error: profile not found');
       return res.status(500).json({ error: 'Could not update your profile' });
     }
 
@@ -551,27 +451,16 @@ async function createAvatarUploadUrlHandler(req, res) {
 // Work that would be silently orphaned by a deletion. A passenger with a paid
 // but undelivered booking, or a driver mid-ride, must finish or cancel first —
 // otherwise the trip loses its passenger contact or its driver with no trace.
-const FINISHED_BOOKING = '(completed,cancelled)';
-const FINISHED_ORDER = '(delivered,cancelled,rejected)';
 
 async function countActiveWork(userId) {
-  const active = async (table, ownerColumn, statusColumn, finished) => {
-    const { count, error } = await supabase
-      .from(table)
-      .select('id', { count: 'exact', head: true })
-      .eq(ownerColumn, userId)
-      .not(statusColumn, 'in', finished);
-    if (error) throw error;
-    return count || 0;
-  };
-
-  const [rides, driving, food, shop] = await Promise.all([
-    active('bookings', 'user_id', 'booking_status', FINISHED_BOOKING),
-    active('bookings', 'assigned_driver_id', 'booking_status', FINISHED_BOOKING),
-    active('orders', 'customer_id', 'status', FINISHED_ORDER),
-    active('shop_orders', 'customer_id', 'status', FINISHED_ORDER),
-  ]);
-  return rides + driving + food + shop;
+  const database = require('../lib/database/pool');
+  const { rows } = await database.query(
+    `SELECT
+       (SELECT count(*) FROM public.bookings WHERE (user_id=$1 OR assigned_driver_id=$1) AND booking_status NOT IN ('completed','cancelled')) +
+       (SELECT count(*) FROM public.orders WHERE customer_id=$1 AND status NOT IN ('delivered','cancelled','rejected')) +
+       (SELECT count(*) FROM public.shop_orders WHERE customer_id=$1 AND status NOT IN ('delivered','cancelled','rejected')) AS count`, [userId],
+  );
+  return Number(rows[0]?.count || 0);
 }
 
 // DELETE /api/auth/account  (requireAuth)
@@ -585,13 +474,9 @@ async function deleteAccount(req, res) {
   try {
     const userId = req.userId;
 
-    const { data: profile, error: profileError } = await supabase
-      .from('profiles')
-      .select('role')
-      .eq('id', userId)
-      .single();
-    if (profileError || !profile) {
-      console.error('deleteAccount profile lookup error:', profileError);
+    const profile = await profileRepository.getProfileRole(userId);
+    if (!profile) {
+      console.error('deleteAccount profile lookup error: profile not found');
       return res.status(500).json({ error: 'Could not load your account' });
     }
 
@@ -613,23 +498,6 @@ async function deleteAccount(req, res) {
       });
     }
 
-    // Scrub first, while the rows still point at this user.
-    const { error: scrubError } = await supabase.rpc('delete_account_pii', {
-      p_user_id: userId,
-    });
-    if (scrubError) {
-      console.error('deleteAccount scrub error:', scrubError);
-      return res
-        .status(500)
-        .json(
-          opsError(
-            req,
-            'Your account could not be deleted right now. Nothing was changed.',
-            'Run backend/migrations/0036_account_deletion.sql in the Supabase SQL Editor.'
-          )
-        );
-    }
-
     // Best effort: a leftover image is a storage-cost problem, not a reason to
     // leave the user with an account they asked us to remove.
     try {
@@ -638,15 +506,13 @@ async function deleteAccount(req, res) {
       console.error('deleteAccount avatar cleanup failed:', err);
     }
 
-    const { error: deleteError } = await supabase.auth.admin.deleteUser(userId);
-    if (deleteError) {
-      console.error('deleteAccount auth delete error:', deleteError);
+    const deleted = await authRepository.deleteAccount(userId);
+    if (!deleted) {
+      console.error('deleteAccount deletion error: user not found');
       return res.status(500).json({
         error: 'Your account could not be deleted right now. Please contact support.',
       });
     }
-
-    getAuthStore().deleteUser(userId);
 
     return res.status(204).send();
   } catch (err) {
@@ -677,15 +543,14 @@ async function recordLoginEvent(req, res) {
     if (req.role !== 'admin') return res.status(204).end();
 
     const ctx = currentContext();
-    const { error } = await supabase.from('admin_login_events').insert({
-      profile_id: req.userId,
+    await authRepository.recordAdminLogin({
+      userId: req.userId,
       email: req.authUser.email,
       role: req.role,
       ip: ctx ? ctx.ip : null,
-      user_agent: ctx ? ctx.userAgent : null,
+      userAgent: ctx ? ctx.userAgent : null,
     });
     // A missing table (0043 not applied) lands here and is not fatal.
-    if (error) console.error('recordLoginEvent error:', error.message || error);
   } catch (err) {
     console.error('recordLoginEvent error:', err.message || err);
   }

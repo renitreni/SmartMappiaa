@@ -13,7 +13,10 @@
 //
 // Every action here is a privileged admin operation -> audit-logged.
 // ---------------------------------------------------------------------
-const { supabase } = require('../../lib/supabase');
+const foodRepository = require('../../repositories/adminFoodRepository');
+const authRepository = require('../../repositories/authRepository');
+const profileRepository = require('../../repositories/profileRepository');
+const { hashPassword } = require('../../lib/passwords');
 const { config } = require('../../lib/config');
 const { round2 } = require('../../lib/foodMoney');
 const { logFoodEvent } = require('../../lib/foodEvents');
@@ -60,30 +63,19 @@ async function getOverview(req, res) {
     const todayStart = new Date();
     todayStart.setHours(0, 0, 0, 0);
 
-    const [orders, todayOrders, merchants, pendingPayments, refundsOwed] = await Promise.all([
-      supabase.from('orders').select('status, platform_margin_total, total', { count: 'exact' }),
-      supabase.from('orders').select('id', { count: 'exact', head: true })
-        .gte('created_at', todayStart.toISOString()),
-      // merchants is shared with the Ecommerce vertical (0026) — the Food
-      // overview must count restaurants only.
-      supabase.from('merchants').select('status, credit_used, credit_limit').eq('vertical', 'food'),
-      supabase.from('orders').select('id', { count: 'exact', head: true })
-        .eq('payment_status', 'awaiting'),
-      // Cancelled or rejected but still paid — money we owe back.
-      supabase.from('orders').select('id', { count: 'exact', head: true })
-        .in('status', ['cancelled', 'rejected'])
-        .eq('payment_status', 'paid'),
-    ]);
+    const {
+      orders, totalOrders, todayOrders, merchants, pendingPayments, refundsOwed,
+    } = await foodRepository.overview({ todayStart: todayStart.toISOString() });
 
-    const rows = orders.data || [];
+    const rows = orders || [];
     // Platform revenue = the per-item margins of orders that went through
     // (everything a merchant accepted; rejected/cancelled never charged).
     const revenueRows = rows.filter((o) => !['pending', 'cancelled', 'rejected'].includes(o.status));
-    const merchantsRows = merchants.data || [];
+    const merchantsRows = merchants || [];
 
     return res.json({
-      totalOrders: orders.count || 0,
-      todayOrders: todayOrders.count || 0,
+      totalOrders: totalOrders || 0,
+      todayOrders: todayOrders || 0,
       delivered: rows.filter((o) => o.status === 'delivered').length,
       pending: rows.filter((o) => o.status === 'pending').length,
       revenue: round2(revenueRows.reduce((sum, o) => sum + Number(o.platform_margin_total || 0), 0)),
@@ -93,10 +85,10 @@ async function getOverview(req, res) {
       atCreditWarning: merchantsRows.filter(
         (m) => Number(m.credit_used) >= Number(m.credit_limit) * 0.8 && m.status !== 'suspended'
       ).length,
-      paymentsAwaitingReview: pendingPayments.count || 0,
+      paymentsAwaitingReview: pendingPayments || 0,
       // Money the platform still owes back. Beside paymentsAwaitingReview
       // because it is the same kind of debt, in the other direction.
-      refundsOwed: refundsOwed.count || 0,
+      refundsOwed: refundsOwed || 0,
     });
   } catch (err) {
     console.error('food getOverview error:', err);
@@ -108,27 +100,13 @@ async function getOverview(req, res) {
 //
 // "Owed" is derived, not stored: cancelled or rejected AND still marked paid.
 // That is the exact condition refundPayment enforces, so a second flag column
-// would only be somewhere for the two to disagree. Migration 0040 indexes
-// this predicate directly.
+// would only be somewhere for the two to disagree.
 //
 // Cash never appears here: payment_status only reaches 'paid' when the rider
 // collects at the door, which a cancelled order never reaches.
 async function listRefunds(req, res) {
   try {
-    const { data, error } = await supabase
-      .from('orders')
-      .select(
-        'order_code, status, payment_status, payment_method, total, reject_reason, ' +
-          'cancelled_by, cancelled_at, created_at, merchants ( name )'
-      )
-      .in('status', ['cancelled', 'rejected'])
-      .eq('payment_status', 'paid')
-      .order('cancelled_at', { ascending: false, nullsFirst: false })
-      .limit(200);
-    if (error) {
-      console.error('admin food listRefunds error:', error);
-      return res.status(500).json({ error: 'Could not load the refund queue' });
-    }
+    const data = await foodRepository.listRefunds();
     return res.json({
       refunds: (data || []).map((o) => ({
         orderCode: o.order_code,
@@ -143,7 +121,7 @@ async function listRefunds(req, res) {
     });
   } catch (err) {
     console.error('admin food listRefunds error:', err);
-    return res.status(500).json({ error: 'Unexpected server error' });
+    return res.status(500).json({ error: 'Could not load the refund queue' });
   }
 }
 
@@ -153,27 +131,13 @@ async function listMerchants(req, res) {
     // Restaurants are admin-run; owner_id is linked at contract signing and is
     // used to show the "owner account" status in the admin UI (and to target
     // owner notifications).
-    const { data, error } = await supabase
-      .from('merchants')
-      .select(
-        'id, name, cuisine_type, description, logo_url, address, street, building_number, lat, lng, is_active, status, ' +
-          'credit_limit, credit_used, is_featured, badge, owner_id, created_at'
-      )
-      .eq('vertical', 'food')
-      .order('created_at', { ascending: false });
-    if (error) {
-      console.error('food listMerchants error:', error);
-      return res.status(500).json({ error: 'Could not load merchants' });
-    }
+    const data = await foodRepository.listMerchants();
 
     // Resolve owner emails in one query so the UI can show who is linked.
     const ownerIds = [...new Set((data || []).map((m) => m.owner_id).filter(Boolean))];
     const ownerEmailById = new Map();
     if (ownerIds.length) {
-      const { data: owners } = await supabase
-        .from('profiles')
-        .select('id, email')
-        .in('id', ownerIds);
+      const owners = await foodRepository.emailsByIds(ownerIds);
       for (const o of owners || []) ownerEmailById.set(o.id, o.email);
     }
 
@@ -203,34 +167,12 @@ async function listMerchants(req, res) {
     });
   } catch (err) {
     console.error('food listMerchants error:', err);
-    return res.status(500).json({ error: 'Unexpected server error' });
+    return res.status(500).json({ error: 'Could not load merchants' });
   }
-}
-
-// Scoped to the food vertical on purpose. This backs every admin Food-tab
-// handler that acts on a single merchant (update, delete, suspend,
-// reactivate, credit, owner provisioning, menu CRUD). merchants is shared
-// with Ecommerce since 0026, so without the filter an admin could reach a
-// STORE through the Food tab and suspend it, replenish its credit, or
-// attach a menu to it — all of which would look like they worked.
-// Returning null instead means the caller's existing 404 path handles it.
-async function loadMerchant(id) {
-  const { data } = await supabase
-    .from('merchants')
-    .select('*')
-    .eq('id', id)
-    .eq('vertical', 'food')
-    .maybeSingle();
-  return data;
 }
 
 // --- Admin-driven onboarding: restaurants contact SmartMappia and an admin
 // creates them + imports the menu. owner_id is linked later (nullable).
-
-const ADMIN_MERCHANT_SELECT =
-  'id, name, cuisine_type, description, logo_url, address, street, building_number, lat, lng, ' +
-  'is_active, status, accepting_orders, credit_limit, credit_used, is_featured, badge, owner_id, created_at';
-
 async function createMerchant(req, res) {
   try {
     // Location is mandatory so drivers know where to pick up and the 15 km
@@ -241,18 +183,7 @@ async function createMerchant(req, res) {
         failure_reason: 'restaurant_location_required',
       });
     }
-    const { data, error } = await supabase
-      .from('merchants')
-      // vertical is set explicitly, NOT taken from req.body: the route schema
-      // does not declare it, so an admin creating a restaurant here can never
-      // accidentally (or deliberately) mint a store through the Food tab.
-      .insert({ ...req.body, vertical: 'food' }) // whitelisted by the route schema; unlisted by default
-      .select(ADMIN_MERCHANT_SELECT)
-      .single();
-    if (error) {
-      console.error('admin createMerchant error:', error);
-      return res.status(500).json({ error: 'Could not create the restaurant' });
-    }
+    const data = await foodRepository.insertMerchant(req.body);
     logAudit({
       actorId: req.adminId,
       action: 'admin_merchant_created',
@@ -263,13 +194,13 @@ async function createMerchant(req, res) {
     return res.status(201).json({ merchant: data });
   } catch (err) {
     console.error('admin createMerchant error:', err);
-    return res.status(500).json({ error: 'Unexpected server error' });
+    return res.status(500).json({ error: 'Could not create the restaurant' });
   }
 }
 
 async function updateMerchant(req, res) {
   try {
-    const current = await loadMerchant(req.params.id);
+    const current = await foodRepository.loadMerchant(req.params.id);
     if (!current) return res.status(404).json({ error: 'Merchant not found' });
 
     // A restaurant cannot be listed (visible + orderable) without a pin.
@@ -286,24 +217,19 @@ async function updateMerchant(req, res) {
       });
     }
 
-    const { data, error } = await supabase
-      .from('merchants')
-      .update(req.body) // may include is_active — listing/unlisting the restaurant
-      .eq('id', req.params.id)
-      .select(ADMIN_MERCHANT_SELECT)
-      .single();
-    if (error || !data) return res.status(404).json({ error: 'Merchant not found' });
+    const data = await foodRepository.updateMerchant(req.params.id, req.body);
+    if (!data) return res.status(404).json({ error: 'Merchant not found' });
     logAudit({
       actorId: req.adminId,
       action: 'admin_merchant_updated',
       resourceType: 'merchant',
-      resourceId: req.params.id,
+      resourceId: data.id,
       meta: req.body,
     });
     return res.json({ merchant: data });
   } catch (err) {
     console.error('admin updateMerchant error:', err);
-    return res.status(500).json({ error: 'Unexpected server error' });
+    return res.status(500).json({ error: 'Could not update the restaurant' });
   }
 }
 
@@ -311,22 +237,12 @@ async function deleteMerchant(req, res) {
   try {
     // Refuse while live orders exist — history stays intact otherwise
     // because orders reference merchants with ON DELETE RESTRICT.
-    const { count } = await supabase
-      .from('orders')
-      .select('id', { count: 'exact', head: true })
-      .eq('merchant_id', req.params.id)
-      .in('status', ['pending', 'accepted', 'preparing', 'ready', 'out_for_delivery']);
-    if (count > 0) {
+    const liveCount = await foodRepository.liveOrderCount(req.params.id);
+    if (liveCount > 0) {
       return res.status(409).json({ error: 'This restaurant still has live orders' });
     }
 
-    const { error } = await supabase.from('merchants').delete().eq('id', req.params.id);
-    if (error) {
-      // FK restrict from historical orders: unlist instead of deleting.
-      return res.status(409).json({
-        error: 'This restaurant has order history and cannot be deleted. Unlist it instead.',
-      });
-    }
+    await foodRepository.deleteMerchant(req.params.id);
     logAudit({
       actorId: req.adminId,
       action: 'admin_merchant_deleted',
@@ -335,26 +251,24 @@ async function deleteMerchant(req, res) {
     });
     return res.json({ deleted: true });
   } catch (err) {
+    // 23503 = FK restrict from historical orders: unlist instead of deleting.
+    if (err && err.code === '23503') {
+      return res.status(409).json({
+        error: 'This restaurant has order history and cannot be deleted. Unlist it instead.',
+      });
+    }
     console.error('admin deleteMerchant error:', err);
     return res.status(500).json({ error: 'Unexpected server error' });
   }
 }
 
-// --- Admin menu import/CRUD (any restaurant) --------------------------------
+// --- Admin menu import/CRUD (any restaurant) ----------------------------
 
 async function addCategoryForMerchant(req, res) {
   try {
-    const merchant = await loadMerchant(req.params.id);
+    const merchant = await foodRepository.loadMerchant(req.params.id);
     if (!merchant) return res.status(404).json({ error: 'Merchant not found' });
-    const { data, error } = await supabase
-      .from('menu_categories')
-      .insert({ merchant_id: merchant.id, ...req.body })
-      .select('id, name, sort_order, is_active')
-      .single();
-    if (error) {
-      console.error('admin addCategory error:', error);
-      return res.status(500).json({ error: 'Could not create the category' });
-    }
+    const data = await foodRepository.insertCategory(merchant.id, req.body);
     logAudit({
       actorId: req.adminId,
       action: 'admin_menu_category_created',
@@ -365,43 +279,34 @@ async function addCategoryForMerchant(req, res) {
     return res.status(201).json({ category: data });
   } catch (err) {
     console.error('admin addCategory error:', err);
-    return res.status(500).json({ error: 'Unexpected server error' });
+    return res.status(500).json({ error: 'Could not create the category' });
   }
 }
 
 async function updateAnyCategory(req, res) {
   try {
-    const { data, error } = await supabase
-      .from('menu_categories')
-      .update(req.body)
-      .eq('id', req.params.id)
-      .select('id, name, sort_order, is_active')
-      .single();
-    if (error || !data) return res.status(404).json({ error: 'Category not found' });
+    const data = await foodRepository.updateCategory(req.params.id, req.body);
+    if (!data) return res.status(404).json({ error: 'Category not found' });
     return res.json({ category: data });
   } catch (err) {
     console.error('admin updateCategory error:', err);
-    return res.status(500).json({ error: 'Unexpected server error' });
+    return res.status(500).json({ error: 'Could not update the category' });
   }
 }
 
 async function deleteAnyCategory(req, res) {
   try {
-    const { error } = await supabase.from('menu_categories').delete().eq('id', req.params.id);
-    if (error) {
-      console.error('admin deleteCategory error:', error);
-      return res.status(500).json({ error: 'Could not delete the category' });
-    }
+    await foodRepository.deleteCategory(req.params.id);
     return res.json({ deleted: true });
   } catch (err) {
     console.error('admin deleteCategory error:', err);
-    return res.status(500).json({ error: 'Unexpected server error' });
+    return res.status(500).json({ error: 'Could not delete the category' });
   }
 }
 
 async function addItemForMerchant(req, res) {
   try {
-    const merchant = await loadMerchant(req.params.id);
+    const merchant = await foodRepository.loadMerchant(req.params.id);
     if (!merchant) return res.status(404).json({ error: 'Merchant not found' });
     const b = req.body;
     // Markup must be >= 0: the restaurant's net can't exceed the list price.
@@ -415,24 +320,12 @@ async function addItemForMerchant(req, res) {
       b.size_options = sized.value;
     }
     if (b.category_id) {
-      const { data: cat } = await supabase
-        .from('menu_categories')
-        .select('id, merchant_id')
-        .eq('id', b.category_id)
-        .maybeSingle();
+      const cat = await foodRepository.categoryForMerchant(b.category_id);
       if (!cat || cat.merchant_id !== merchant.id) {
         return res.status(400).json({ error: 'category_id does not belong to this restaurant' });
       }
     }
-    const { data, error } = await supabase
-      .from('menu_items')
-      .insert({ merchant_id: merchant.id, ...b })
-      .select('id, category_id, name, description, price, net_price, item_type, image_url, is_available, size_options')
-      .single();
-    if (error) {
-      console.error('admin addItem error:', error);
-      return res.status(500).json({ error: 'Could not create the item' });
-    }
+    const data = await foodRepository.insertItem(merchant.id, b);
     logAudit({
       actorId: req.adminId,
       action: 'admin_menu_item_created',
@@ -443,23 +336,16 @@ async function addItemForMerchant(req, res) {
     return res.status(201).json({ item: data });
   } catch (err) {
     console.error('admin addItem error:', err);
-    return res.status(500).json({ error: 'Unexpected server error' });
+    return res.status(500).json({ error: 'Could not create the item' });
   }
 }
 
 async function suspendMerchant(req, res) {
   try {
-    const merchant = await loadMerchant(req.params.id);
+    const merchant = await foodRepository.loadMerchant(req.params.id);
     if (!merchant) return res.status(404).json({ error: 'Merchant not found' });
 
-    const { error } = await supabase
-      .from('merchants')
-      .update({ status: 'suspended' })
-      .eq('id', merchant.id);
-    if (error) {
-      console.error('suspendMerchant error:', error);
-      return res.status(500).json({ error: 'Could not suspend the merchant' });
-    }
+    await foodRepository.setMerchantStatus(merchant.id, 'suspended');
 
     logAudit({
       actorId: req.adminId,
@@ -479,23 +365,16 @@ async function suspendMerchant(req, res) {
     return res.json({ id: merchant.id, status: 'suspended' });
   } catch (err) {
     console.error('suspendMerchant error:', err);
-    return res.status(500).json({ error: 'Unexpected server error' });
+    return res.status(500).json({ error: 'Could not suspend the merchant' });
   }
 }
 
 async function reactivateMerchant(req, res) {
   try {
-    const merchant = await loadMerchant(req.params.id);
+    const merchant = await foodRepository.loadMerchant(req.params.id);
     if (!merchant) return res.status(404).json({ error: 'Merchant not found' });
 
-    const { error } = await supabase
-      .from('merchants')
-      .update({ status: 'active' })
-      .eq('id', merchant.id);
-    if (error) {
-      console.error('reactivateMerchant error:', error);
-      return res.status(500).json({ error: 'Could not reactivate the merchant' });
-    }
+    await foodRepository.setMerchantStatus(merchant.id, 'active');
 
     logAudit({
       actorId: req.adminId,
@@ -507,7 +386,7 @@ async function reactivateMerchant(req, res) {
     return res.json({ id: merchant.id, status: 'active' });
   } catch (err) {
     console.error('reactivateMerchant error:', err);
-    return res.status(500).json({ error: 'Unexpected server error' });
+    return res.status(500).json({ error: 'Could not reactivate the merchant' });
   }
 }
 
@@ -515,7 +394,7 @@ async function reactivateMerchant(req, res) {
 // the merchant settled (part of) what they owe, so credit_used goes DOWN.
 async function replenishCredit(req, res) {
   try {
-    const merchant = await loadMerchant(req.params.id);
+    const merchant = await foodRepository.loadMerchant(req.params.id);
     if (!merchant) return res.status(404).json({ error: 'Merchant not found' });
 
     const amount = round2(Number(req.body.amount));
@@ -526,23 +405,23 @@ async function replenishCredit(req, res) {
         ? 'active'
         : merchant.status;
 
-    const { error: updErr } = await supabase
-      .from('merchants')
-      .update({ credit_used: newUsed, status: newStatus })
-      .eq('id', merchant.id)
-      .eq('credit_used', merchant.credit_used); // CAS against a racing accept
-    if (updErr) {
-      console.error('replenishCredit update error:', updErr);
-      return res.status(500).json({ error: 'Could not update the credit' });
+    const applied = await foodRepository.replenishMerchantCredit({
+      id: merchant.id,
+      newUsed,
+      newStatus,
+      expectedCreditUsed: merchant.credit_used, // CAS against a racing accept
+    });
+    if (!applied) {
+      return res.status(409).json({ error: 'The credit balance changed — please retry' });
     }
 
-    await supabase.from('merchant_credit_ledger').insert({
-      merchant_id: merchant.id,
+    await foodRepository.insertCreditLedger({
+      merchantId: merchant.id,
       type: 'replenish',
       amount,
-      balance_after: newUsed,
+      balanceAfter: newUsed,
       note: (req.body && req.body.note) || null,
-      created_by: req.adminId,
+      createdBy: req.adminId,
     });
 
     logAudit({
@@ -562,28 +441,17 @@ async function replenishCredit(req, res) {
     });
   } catch (err) {
     console.error('replenishCredit error:', err);
-    return res.status(500).json({ error: 'Unexpected server error' });
+    return res.status(500).json({ error: 'Could not update the credit' });
   }
 }
 
 // --- Catalog oversight ----------------------------------------------------
 async function getMerchantMenu(req, res) {
   try {
-    const merchant = await loadMerchant(req.params.id);
+    const merchant = await foodRepository.loadMerchant(req.params.id);
     if (!merchant) return res.status(404).json({ error: 'Merchant not found' });
 
-    const [{ data: categories }, { data: items }] = await Promise.all([
-      supabase
-        .from('menu_categories')
-        .select('id, name, sort_order, is_active')
-        .eq('merchant_id', merchant.id)
-        .order('sort_order'),
-      supabase
-        .from('menu_items')
-        .select('id, category_id, name, description, price, net_price, item_type, image_url, is_available, size_options')
-        .eq('merchant_id', merchant.id)
-        .order('name'),
-    ]);
+    const { categories, items } = await foodRepository.menuForMerchant(merchant.id);
     return res.json({
       merchant: { id: merchant.id, name: merchant.name },
       categories: categories || [],
@@ -614,13 +482,8 @@ async function moderateItem(req, res) {
     if (hasNet || hasPrice) {
       let current = null;
       if (!hasNet || !hasPrice) {
-        const { data: row } = await supabase
-          .from('menu_items')
-          .select('price, net_price')
-          .eq('id', req.params.id)
-          .maybeSingle();
-        if (!row) return res.status(404).json({ error: 'Menu item not found' });
-        current = row;
+        current = await foodRepository.itemPrices(req.params.id);
+        if (!current) return res.status(404).json({ error: 'Menu item not found' });
       }
       const effPrice = hasPrice ? Number(b.price) : Number(current.price);
       const effNet = hasNet
@@ -630,17 +493,8 @@ async function moderateItem(req, res) {
         return res.status(400).json({ error: 'net_price must be <= price' });
       }
     }
-    const { data, error } = await supabase
-      .from('menu_items')
-      .update(req.body)
-      .eq('id', req.params.id)
-      .select('id, name, price, net_price, is_available, size_options')
-      .single();
-    // 23514 = the net_price <= price CHECK — surface it as a clean 400, not a 404.
-    if (error && error.code === '23514') {
-      return res.status(400).json({ error: 'net_price must be <= price' });
-    }
-    if (error || !data) return res.status(404).json({ error: 'Menu item not found' });
+    const data = await foodRepository.updateItem(req.params.id, req.body);
+    if (!data) return res.status(404).json({ error: 'Menu item not found' });
 
     logAudit({
       actorId: req.adminId,
@@ -651,6 +505,10 @@ async function moderateItem(req, res) {
     });
     return res.json({ item: data });
   } catch (err) {
+    // 23514 = the net_price <= price CHECK — surface it as a clean 400.
+    if (err && err.code === '23514') {
+      return res.status(400).json({ error: 'net_price must be <= price' });
+    }
     console.error('moderateItem error:', err);
     return res.status(500).json({ error: 'Unexpected server error' });
   }
@@ -658,11 +516,7 @@ async function moderateItem(req, res) {
 
 async function removeItem(req, res) {
   try {
-    const { error } = await supabase.from('menu_items').delete().eq('id', req.params.id);
-    if (error) {
-      console.error('admin removeItem error:', error);
-      return res.status(500).json({ error: 'Could not delete the item' });
-    }
+    await foodRepository.deleteItem(req.params.id);
     logAudit({
       actorId: req.adminId,
       action: 'admin_menu_item_deleted',
@@ -672,48 +526,23 @@ async function removeItem(req, res) {
     return res.json({ deleted: true });
   } catch (err) {
     console.error('admin removeItem error:', err);
-    return res.status(500).json({ error: 'Unexpected server error' });
+    return res.status(500).json({ error: 'Could not delete the item' });
   }
 }
 
 // --- Orders + payment reconciliation ---------------------------------------
 async function listOrders(req, res) {
   try {
-    const paymentStatus = (req.query.payment_status || '').toString();
-    const status = (req.query.status || '').toString();
-
-    let query = supabase
-      .from('orders')
-      .select(
-        'id, order_code, status, payment_status, payment_method, subtotal, delivery_fee, ' +
-          'platform_margin_total, vat_amount, total, delivery_address, delivery_street, delivery_building, contact_phone, created_at, accepted_at, ' +
-          'merchants ( id, name ), profiles!orders_customer_id_fkey ( full_name, mobile_number ), ' +
-          'deliveries ( driver_id, status, pickup_photo_path, delivery_photo_path, profiles ( full_name ) ), ' +
-          'order_items ( name_snapshot, size_snapshot, quantity, line_total )'
-      )
-      .order('created_at', { ascending: false })
-      .limit(100);
-    if (paymentStatus) query = query.eq('payment_status', paymentStatus);
-    if (status) query = query.eq('status', status);
-
-    const { data, error } = await query;
-    if (error) {
-      console.error('admin food listOrders error:', error);
-      return res.status(500).json({ error: 'Could not load orders' });
-    }
+    const data = await foodRepository.listOrders({
+      status: (req.query.status || '').toString() || null,
+      paymentStatus: (req.query.payment_status || '').toString() || null,
+    });
 
     // Fetch the proof references for awaiting STC payments in one shot.
     const awaitingIds = (data || [])
       .filter((o) => o.payment_status === 'awaiting')
       .map((o) => o.id);
-    const { data: payments } = awaitingIds.length
-      ? await supabase
-          .from('order_payments')
-          .select('order_id, gateway_transaction_id, gateway_raw, created_at')
-          .in('order_id', awaitingIds)
-          .eq('status', 'awaiting')
-          .order('created_at', { ascending: false })
-      : { data: [] };
+    const payments = await foodRepository.awaitingPaymentsForOrders(awaitingIds);
     const latestPayment = new Map();
     for (const p of payments || []) {
       if (!latestPayment.has(p.order_id)) latestPayment.set(p.order_id, p);
@@ -778,13 +607,8 @@ async function listOrders(req, res) {
     });
   } catch (err) {
     console.error('admin food listOrders error:', err);
-    return res.status(500).json({ error: 'Unexpected server error' });
+    return res.status(500).json({ error: 'Could not load orders' });
   }
-}
-
-async function loadOrderByCode(code) {
-  const { data } = await supabase.from('orders').select('*').eq('order_code', code).maybeSingle();
-  return data;
 }
 
 // POST /api/admin/food/orders/:code/assign-driver { driver_id }
@@ -793,17 +617,13 @@ async function loadOrderByCode(code) {
 // and call/WhatsApp contact (pushed over the fd-order channel).
 async function assignDriver(req, res) {
   try {
-    const order = await loadOrderByCode(req.params.code);
+    const order = await foodRepository.loadOrderByCode(req.params.code);
     if (!order) return res.status(404).json({ error: 'Order not found' });
     if (['delivered', 'cancelled', 'rejected'].includes(order.status)) {
       return res.status(409).json({ error: `Cannot assign a rider to a ${order.status} order` });
     }
 
-    const { data: driver } = await supabase
-      .from('profiles')
-      .select('id, role, full_name, whatsapp_number, mobile_number, driver_approved')
-      .eq('id', req.body.driver_id)
-      .maybeSingle();
+    const driver = await foodRepository.driverForAssignment(req.body.driver_id);
     if (!driver || driver.role !== 'driver') {
       return res.status(404).json({ error: 'Driver not found' });
     }
@@ -811,19 +631,12 @@ async function assignDriver(req, res) {
       return res.status(409).json({ error: 'This driver is not approved yet' });
     }
 
-    const { error: upsertErr } = await supabase.from('deliveries').upsert(
-      {
-        order_id: order.id,
-        driver_id: driver.id,
-        fee: order.delivery_fee,
-        status: 'assigned',
-      },
-      { onConflict: 'order_id' }
-    );
-    if (upsertErr) {
-      console.error('food assignDriver upsert error:', upsertErr);
-      return res.status(500).json({ error: 'Could not assign the rider' });
-    }
+    await foodRepository.upsertDelivery({
+      orderId: order.id,
+      driverId: driver.id,
+      fee: order.delivery_fee,
+      status: 'assigned',
+    });
 
     logAudit({
       actorId: req.adminId,
@@ -868,13 +681,13 @@ async function assignDriver(req, res) {
     });
   } catch (err) {
     console.error('food assignDriver error:', err);
-    return res.status(500).json({ error: 'Unexpected server error' });
+    return res.status(500).json({ error: 'Could not assign the rider' });
   }
 }
 
 async function verifyPayment(req, res) {
   try {
-    const order = await loadOrderByCode(req.params.code);
+    const order = await foodRepository.loadOrderByCode(req.params.code);
     if (!order) return res.status(404).json({ error: 'Order not found' });
     if (order.payment_status === 'paid') {
       return res.status(409).json({ error: 'Payment is already verified' });
@@ -883,40 +696,31 @@ async function verifyPayment(req, res) {
     // Promote the awaiting proof row (if any) to paid, then mark the order.
     // When a proof row exists it becomes THE payment record, so tell
     // markOrderPaid not to insert a second (duplicate) paid row.
-    const { data: promoted } = await supabase
-      .from('order_payments')
-      .update({ status: 'paid' })
-      .eq('order_id', order.id)
-      .eq('status', 'awaiting')
-      .select('id');
+    const promoted = await foodRepository.promoteAwaitingPayments(order.id);
     await markOrderPaid(order, {
       provider: order.payment_method,
       transactionId: order.gateway_transaction_id,
       actorId: req.adminId,
-      skipPaymentRow: !!(promoted && promoted.length),
+      skipPaymentRow: promoted > 0,
     });
 
     return res.json({ orderCode: order.order_code, paymentStatus: 'paid' });
   } catch (err) {
     console.error('food verifyPayment error:', err);
-    return res.status(500).json({ error: 'Unexpected server error' });
+    return res.status(500).json({ error: 'Could not verify the payment' });
   }
 }
 
 async function rejectPayment(req, res) {
   try {
-    const order = await loadOrderByCode(req.params.code);
+    const order = await foodRepository.loadOrderByCode(req.params.code);
     if (!order) return res.status(404).json({ error: 'Order not found' });
     if (order.payment_status === 'paid') {
       return res.status(409).json({ error: 'Payment is already verified; refund instead' });
     }
 
-    await supabase
-      .from('order_payments')
-      .update({ status: 'failed' })
-      .eq('order_id', order.id)
-      .eq('status', 'awaiting');
-    await supabase.from('orders').update({ payment_status: 'failed' }).eq('id', order.id);
+    await foodRepository.failAwaitingPayments(order.id);
+    await foodRepository.setOrderPaymentStatus(order.id, 'failed');
 
     logAudit({
       actorId: req.adminId,
@@ -932,7 +736,7 @@ async function rejectPayment(req, res) {
     return res.json({ orderCode: order.order_code, paymentStatus: 'failed' });
   } catch (err) {
     console.error('food rejectPayment error:', err);
-    return res.status(500).json({ error: 'Unexpected server error' });
+    return res.status(500).json({ error: 'Could not reject the payment' });
   }
 }
 
@@ -992,17 +796,12 @@ async function advanceOrderStatus(req, res) {
 // rider's mandatory pickup/delivery proof photos (private bucket).
 async function getOrderPhotos(req, res) {
   try {
-    const order = await loadOrderByCode(req.params.code);
+    const order = await foodRepository.loadOrderByCode(req.params.code);
     if (!order) return res.status(404).json({ error: 'Order not found' });
 
-    const { data: delivery } = await supabase
-      .from('deliveries')
-      .select('pickup_photo_path, delivery_photo_path')
-      .eq('order_id', order.id)
-      .maybeSingle();
+    const delivery = await foodRepository.deliveryPhotos(order.id);
     if (!delivery) return res.json({ pickup: null, delivery: null });
 
-    const { createProofDownloadUrl } = require('../../lib/storage');
     const [pickup, deliveryPhoto] = await Promise.all([
       delivery.pickup_photo_path ? createProofDownloadUrl(delivery.pickup_photo_path) : null,
       delivery.delivery_photo_path ? createProofDownloadUrl(delivery.delivery_photo_path) : null,
@@ -1017,7 +816,7 @@ async function getOrderPhotos(req, res) {
     return res.json({ pickup, delivery: deliveryPhoto });
   } catch (err) {
     console.error('getOrderPhotos error:', err);
-    return res.status(500).json({ error: 'Unexpected server error' });
+    return res.status(500).json({ error: 'Could not load the photos' });
   }
 }
 
@@ -1026,8 +825,6 @@ async function getOrderPhotos(req, res) {
 // told refunds take a few hours up to one day; /refund below closes it).
 // Delegates to the SAME core the restaurant's own dashboard uses, so the
 // credit reversal and the refund bookkeeping cannot diverge between the two.
-// It used to be written out here, which is why cancelling never gave the
-// restaurant its platform margin back and never released a held rider.
 async function cancelOrder(req, res) {
   const { httpStatus, body } = await cancelOrderCore({
     orderCode: req.params.code,
@@ -1043,7 +840,7 @@ async function cancelOrder(req, res) {
 // money was actually returned (policy: within a few hours up to one day).
 async function refundPayment(req, res) {
   try {
-    const order = await loadOrderByCode(req.params.code);
+    const order = await foodRepository.loadOrderByCode(req.params.code);
     if (!order) return res.status(404).json({ error: 'Order not found' });
     if (order.payment_status !== 'paid') {
       return res.status(409).json({ error: `Payment is ${order.payment_status}; nothing to refund` });
@@ -1052,12 +849,8 @@ async function refundPayment(req, res) {
       return res.status(409).json({ error: 'Only cancelled or rejected orders can be refunded' });
     }
 
-    await supabase
-      .from('order_payments')
-      .update({ status: 'refunded' })
-      .eq('order_id', order.id)
-      .eq('status', 'paid');
-    await supabase.from('orders').update({ payment_status: 'refunded' }).eq('id', order.id);
+    await foodRepository.refundPaidPayments(order.id);
+    await foodRepository.setOrderPaymentStatus(order.id, 'refunded');
 
     logAudit({
       actorId: req.adminId,
@@ -1073,7 +866,7 @@ async function refundPayment(req, res) {
     return res.json({ orderCode: order.order_code, paymentStatus: 'refunded' });
   } catch (err) {
     console.error('food refundPayment error:', err);
-    return res.status(500).json({ error: 'Unexpected server error' });
+    return res.status(500).json({ error: 'Could not refund the payment' });
   }
 }
 
@@ -1102,7 +895,7 @@ async function createMerchantImageUploadUrlHandler(req, res) {
 
     // The image lives under the merchant's id. Confirm the merchant exists so we
     // never leave orphaned objects for a bad id.
-    const merchant = await loadMerchant(req.params.id);
+    const merchant = await foodRepository.loadMerchant(req.params.id);
     if (!merchant) return res.status(404).json({ error: 'Merchant not found' });
 
     const path = buildMerchantImagePath(merchant.id, kind, file_name);
@@ -1145,7 +938,7 @@ async function setMerchantOwner(req, res) {
     const pwError = passwordError(password);
     if (pwError) return res.status(400).json({ error: pwError });
 
-    const merchant = await loadMerchant(req.params.id);
+    const merchant = await foodRepository.loadMerchant(req.params.id);
     if (!merchant) return res.status(404).json({ error: 'Merchant not found' });
     if (merchant.owner_id) {
       return res.status(409).json({
@@ -1163,63 +956,33 @@ async function setMerchantOwner(req, res) {
     // and apply the admin's password to it.
     let ownerId = null;
     let reusedExistingAccount = false;
-    const { data: created, error: createErr } = await supabase.auth.admin.createUser({
-      email,
-      password,
-      email_confirm: true,
-      user_metadata: { full_name: b.full_name || null, mobile_number: b.phone || null },
-    });
-    if (createErr) {
-      const msg = (createErr.message || '').toLowerCase();
-      const alreadyExists = msg.includes('already') || createErr.status === 422;
-      if (!alreadyExists) {
-        console.error('setMerchantOwner createUser error:', createErr);
-        return res.status(500).json({ error: 'Could not create the owner account' });
-      }
-      if (!existingProfile) {
-        return res.status(409).json({
-          error: 'An account with this email exists but could not be linked. Please check the address.',
-        });
-      }
+    if (existingProfile) {
+      const existingUser = await authRepository.getUserById(existingProfile.id);
+      if (!existingUser) return res.status(409).json({ error: 'Account is not available for linking.' });
       ownerId = existingProfile.id;
       reusedExistingAccount = true;
-      // The admin typed a password; it must work regardless of which branch we
-      // took, otherwise the owner is handed credentials that do not sign in.
-      const { error: pwErr } = await supabase.auth.admin.updateUserById(ownerId, {
-        password,
-        email_confirm: true,
-      });
-      if (pwErr) {
-        console.error('setMerchantOwner updateUserById error:', pwErr);
-        return res.status(500).json({ error: 'Could not set the owner password' });
-      }
+      await authRepository.updatePassword(ownerId, await hashPassword(password));
+      await authRepository.setDisabled(ownerId, false);
     } else {
-      ownerId = created.user.id;
+      if (await authRepository.getUserByEmail(email)) {
+        return res.status(409).json({ error: 'An account with this email exists but could not be linked. Please check the address.' });
+      }
+      const created = await authRepository.createUser({ email, passwordHash: await hashPassword(password) });
+      ownerId = created.id;
     }
 
-    const { error: profileErr } = await supabase
-      .from('profiles')
-      .upsert(
-        {
-          id: ownerId,
-          role: 'merchant',
-          email,
-          full_name: b.full_name ?? null,
-          mobile_number: b.phone ?? null,
-        },
-        { onConflict: 'id' }
-      );
-    if (profileErr) {
-      console.error('setMerchantOwner profile upsert error:', profileErr);
-      return res.status(500).json({ error: 'Could not set the merchant role' });
-    }
+    await profileRepository.upsertProfile(
+      {
+        id: ownerId,
+        role: 'merchant',
+        email,
+        full_name: b.full_name ?? null,
+        mobile_number: b.phone ?? null,
+      },
+    );
 
-    const { error: linkErr } = await supabase
-      .from('merchants')
-      .update({ owner_id: ownerId })
-      .eq('id', merchant.id);
-    if (linkErr) {
-      console.error('setMerchantOwner link error:', linkErr);
+    const linked = await foodRepository.linkMerchantOwner(merchant.id, ownerId);
+    if (!linked) {
       return res.status(500).json({ error: 'Could not link the owner to the restaurant' });
     }
 
@@ -1255,7 +1018,7 @@ async function setMerchantOwnerPassword(req, res) {
     const pwError = passwordError(password);
     if (pwError) return res.status(400).json({ error: pwError });
 
-    const merchant = await loadMerchant(req.params.id);
+    const merchant = await foodRepository.loadMerchant(req.params.id);
     if (!merchant) return res.status(404).json({ error: 'Merchant not found' });
     if (!merchant.owner_id) {
       return res.status(409).json({
@@ -1263,12 +1026,8 @@ async function setMerchantOwnerPassword(req, res) {
       });
     }
 
-    const { error: pwErr } = await supabase.auth.admin.updateUserById(merchant.owner_id, {
-      password,
-      email_confirm: true,
-    });
-    if (pwErr) {
-      console.error('setMerchantOwnerPassword error:', pwErr);
+    const updated = await authRepository.updatePassword(merchant.owner_id, await hashPassword(password));
+    if (!updated) {
       return res.status(500).json({ error: 'Could not update the owner password' });
     }
 
@@ -1341,33 +1100,18 @@ async function getSettlement(req, res) {
       return res.status(400).json({ error: 'Date range too large — export at most 400 days at a time' });
     }
 
-    // Page past Supabase's ~1000-row cap so the export is COMPLETE (unlike
-    // listOrders, which caps at 100).
     const PAGE = 1000;
     const MAX_ROWS = 50000;
     const raw = [];
     for (let offset = 0; ; offset += PAGE) {
-      const { data, error } = await supabase
-        .from('orders')
-        .select(
-          'order_code, created_at, status, payment_status, payment_method, ' +
-            'subtotal, delivery_fee, driver_fee, platform_margin_total, vat_amount, total, merchants ( id, name )'
-        )
-        .gte('created_at', range.from.toISOString())
-        .lt('created_at', range.toExclusive.toISOString())
-        // Fulfilled orders PLUS refunded ones. Refunds only exist on
-        // cancelled/rejected orders (refundPayment gates on that), so a plain
-        // "status not in (...)" filter would silently drop every refund from
-        // the report — the refunded bucket must see those rows.
-        .or('status.not.in.(pending,cancelled,rejected),payment_status.eq.refunded')
-        .order('created_at', { ascending: false })
-        .range(offset, offset + PAGE - 1);
-      if (error) {
-        console.error('food getSettlement error:', error);
-        return res.status(500).json({ error: 'Could not build the settlement report' });
-      }
-      raw.push(...(data || []));
-      if (!data || data.length < PAGE || raw.length >= MAX_ROWS) break;
+      const page = await foodRepository.settlementPage({
+        from: range.from,
+        toExclusive: range.toExclusive,
+        limit: PAGE,
+        offset,
+      });
+      raw.push(...page);
+      if (!page.length || page.length < PAGE || raw.length >= MAX_ROWS) break;
     }
 
     const rows = raw.map((o) => {
@@ -1382,9 +1126,9 @@ async function getSettlement(req, res) {
         restaurantPayout: round2(subtotal - markup), // = sum of net prices
         platformMarkup: markup,
         deliveryFee: round2(Number(o.delivery_fee || 0)),
-        // The delivery fee is now split (0041). driverFee is the rider's
-        // share; the remainder is ours. Read off the row so a historical
-        // order reports the deal it was actually placed on.
+        // The delivery fee is split. driverFee is the rider's share; the
+        // remainder is ours. Read off the row so a historical order reports
+        // the deal it was actually placed on.
         driverFee: round2(Number(o.driver_fee || 0)),
         platformDeliveryShare: round2(Number(o.delivery_fee || 0) - Number(o.driver_fee || 0)),
         // VAT is collected on the platform's behalf and owed onward to the
@@ -1476,7 +1220,7 @@ async function getSettlement(req, res) {
     });
   } catch (err) {
     console.error('food getSettlement error:', err);
-    return res.status(500).json({ error: 'Unexpected server error' });
+    return res.status(500).json({ error: 'Could not build the settlement report' });
   }
 }
 

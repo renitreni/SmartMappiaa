@@ -10,7 +10,10 @@
 // cleanup script can find and remove exactly the demo rows and nothing else.
 // =====================================================================
 require('dotenv').config();
-const { supabase } = require('../../lib/supabase');
+const database = require('../../lib/database/pool');
+const authRepository = require('../../repositories/authRepository');
+const profileRepository = require('../../repositories/profileRepository');
+const { hashPassword } = require('../../lib/passwords');
 
 // Marker stamped on every demo booking (notes column). Cleanup keys off this.
 const DEMO_TAG = '__DEMO__';
@@ -31,43 +34,52 @@ const DRIVER_AT = { lat: 24.72, lng: 46.69 }; // a few km out -> shows a live ET
 const frontendBase = () => process.env.DEMO_FRONTEND_URL || 'http://localhost:5173';
 
 async function findUserByEmail(email) {
-  for (let page = 1; page <= 10; page++) {
-    const { data, error } = await supabase.auth.admin.listUsers({ page, perPage: 200 });
-    if (error) throw error;
-    const u = (data.users || []).find((x) => (x.email || '').toLowerCase() === email);
-    if (u) return u;
-    if (!data.users || data.users.length < 200) break;
-  }
-  return null;
+  return authRepository.getUserByEmail(email);
 }
 
 // Create (or reuse) the approved demo driver; returns its id.
 async function ensureDemoDriver() {
-  let id;
-  const { data: created, error } = await supabase.auth.admin.createUser({
-    email: DEMO_DRIVER.email,
-    password: DEMO_DRIVER.password,
-    email_confirm: true,
-  });
-  if (error) {
-    const existing = await findUserByEmail(DEMO_DRIVER.email);
-    if (!existing) throw error;
-    id = existing.id;
-  } else {
-    id = created.user.id;
-  }
-  await supabase.from('profiles').upsert(
-    {
-      id,
-      role: 'driver',
-      full_name: DEMO_DRIVER.full_name,
-      whatsapp_number: DEMO_DRIVER.whatsapp_number,
+  let user = await authRepository.getUserByEmail(DEMO_DRIVER.email);
+  if (!user) {
+    user = await authRepository.createUser({
       email: DEMO_DRIVER.email,
-      driver_approved: true,
-    },
-    { onConflict: 'id' }
+      passwordHash: await hashPassword(DEMO_DRIVER.password),
+    });
+  }
+  await profileRepository.upsertProfile({
+    id: user.id,
+    role: 'driver',
+    full_name: DEMO_DRIVER.full_name,
+    whatsapp_number: DEMO_DRIVER.whatsapp_number,
+    email: DEMO_DRIVER.email,
+    driver_approved: true,
+  });
+  return user.id;
+}
+
+// Generic insert helper: keys become columns, returns the inserted row.
+async function insertRow(table, fields) {
+  const names = Object.keys(fields);
+  const { rows } = await database.query(
+    `INSERT INTO public.${table} (${names.join(',')})
+     VALUES (${names.map((_, i) => `$${i + 1}`).join(',')}) RETURNING *`,
+    names.map((key) => fields[key]),
   );
-  return id;
+  return rows[0];
+}
+
+// Insert many rows of the same shape in one statement.
+async function insertRows(table, rows) {
+  if (!rows.length) return;
+  const names = Object.keys(rows[0]);
+  const values = rows.flatMap((row) => names.map((key) => row[key]));
+  const tuples = rows.map(
+    (_, r) => `(${names.map((_, c) => `$${r * names.length + c + 1}`).join(',')})`,
+  );
+  await database.query(
+    `INSERT INTO public.${table} (${names.join(',')}) VALUES ${tuples.join(',')}`,
+    values,
+  );
 }
 
 // Common booking fields (always tagged DEMO_TAG). Pass overrides to set status etc.
@@ -92,7 +104,7 @@ function demoBooking(overrides = {}) {
 }
 
 module.exports = {
-  supabase,
+  database,
   DEMO_TAG,
   DEMO_DRIVER,
   PICKUP,
@@ -101,5 +113,7 @@ module.exports = {
   frontendBase,
   findUserByEmail,
   ensureDemoDriver,
+  insertRow,
+  insertRows,
   demoBooking,
 };

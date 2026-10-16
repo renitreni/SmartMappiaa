@@ -27,21 +27,17 @@
 // re-derive once the rides behind it are gone.
 // ---------------------------------------------------------------------
 require('dotenv').config();
-const { supabase } = require('../lib/supabase');
+const database = require('../lib/database/pool');
 
 const confirmed = process.argv.includes('--confirm');
 
 async function countOf(table) {
-  const { count, error } = await supabase.from(table).select('id', { count: 'exact', head: true });
-  return error ? `error: ${error.message}` : count || 0;
+  const { rows } = await database.query(`SELECT count(*)::int AS count FROM public.${table}`);
+  return rows[0].count;
 }
 
 async function deleteAll(table) {
-  const { error } = await supabase
-    .from(table)
-    .delete()
-    .not('id', 'is', null);
-  if (error) throw new Error(`${table}: ${error.message}`);
+  await database.query(`DELETE FROM public.${table}`);
 }
 
 async function run() {
@@ -52,9 +48,9 @@ async function run() {
     console.log(`  ${t.padEnd(24)} ${before[t]}`);
   }
 
-  const { data: rides } = await supabase
-    .from('bookings')
-    .select('booking_status, payment_status, fare_amount');
+  const { rows: rides } = await database.query(
+    `SELECT booking_status, payment_status, fare_amount FROM public.bookings`,
+  );
 
   const byStatus = {};
   let revenue = 0;
@@ -69,10 +65,9 @@ async function run() {
     .forEach(([s, n]) => console.log(`  ${s.padEnd(24)} ${n}`));
   console.log(`  ${'verified revenue'.padEnd(24)} SAR ${Math.round(revenue * 100) / 100}`);
 
-  const { data: owing } = await supabase
-    .from('profiles')
-    .select('id, full_name, cash_owed')
-    .gt('cash_owed', 0);
+  const { rows: owing } = await database.query(
+    `SELECT id, full_name, cash_owed FROM public.profiles WHERE cash_owed > 0`,
+  );
 
   console.log('\nPAYMENT PROOF IMAGES LEFT IN STORAGE');
   console.log(`  ${before.payment_proofs} row(s) cascade away; their uploads do not. Empty the`);

@@ -10,7 +10,7 @@
 // Each function returns { httpStatus, body } instead of writing to `res` —
 // callers just do res.status(httpStatus).json(body).
 // ---------------------------------------------------------------------
-const { supabase } = require('./supabase');
+const database = require('./database/pool');
 const { config } = require('./config');
 const { round2 } = require('./foodMoney');
 const { logFoodEvent } = require('./foodEvents');
@@ -35,13 +35,13 @@ function creditView(merchant) {
 }
 
 async function loadOrderByCode(code) {
-  const { data } = await supabase.from('orders').select('*').eq('order_code', code).maybeSingle();
-  return data;
+  const { rows } = await database.query('SELECT * FROM public.orders WHERE order_code=$1 LIMIT 1', [code]);
+  return rows[0] || null;
 }
 
 async function loadMerchantById(id) {
-  const { data } = await supabase.from('merchants').select('*').eq('id', id).maybeSingle();
-  return data;
+  const { rows } = await database.query('SELECT * FROM public.merchants WHERE id=$1 LIMIT 1', [id]);
+  return rows[0] || null;
 }
 
 const auditAction = (base, actorRole) => (actorRole === 'admin' ? `admin_${base}` : `merchant_${base}`);
@@ -90,13 +90,10 @@ async function acceptOrderCore({ orderCode, actorId, actorRole }) {
 
   // Flip the order pending -> accepted with a CAS so two simultaneous
   // accepts cannot both win. Nothing to roll back now that no money moves.
-  const { data: acceptedRows, error: acceptErr } = await supabase
-    .from('orders')
-    .update({ status: 'accepted', accepted_at: new Date().toISOString() })
-    .eq('id', order.id)
-    .eq('status', 'pending')
-    .select('order_code');
-  if (acceptErr || !acceptedRows || acceptedRows.length === 0) {
+  const { rows: acceptedRows } = await database.query(
+    `UPDATE public.orders SET status='accepted',accepted_at=now() WHERE id=$1 AND status='pending' RETURNING order_code`, [order.id],
+  );
+  if (acceptedRows.length === 0) {
     return { httpStatus: 409, body: { error: 'Order is no longer pending' } };
   }
 
@@ -147,13 +144,10 @@ async function rejectOrderCore({ orderCode, actorId, actorRole, reason }) {
     return { httpStatus: 409, body: { error: `Order is already ${order.status}` } };
   }
 
-  const { data: rows } = await supabase
-    .from('orders')
-    .update({ status: 'rejected', reject_reason: reason || null })
-    .eq('id', order.id)
-    .eq('status', 'pending')
-    .select('order_code');
-  if (!rows || rows.length === 0) {
+  const { rows } = await database.query(
+    `UPDATE public.orders SET status='rejected',reject_reason=$2 WHERE id=$1 AND status='pending' RETURNING order_code`, [order.id,reason || null],
+  );
+  if (rows.length === 0) {
     return { httpStatus: 409, body: { error: 'Order is no longer pending' } };
   }
 
@@ -196,17 +190,12 @@ async function advanceOrderStatusCore({ orderCode, actorId, actorRole, status })
     return { httpStatus: 409, body: { error: `Cannot move an order from "${order.status}" to "${status}"` } };
   }
 
-  const patch = { status };
-  if (status === 'ready') patch.ready_at = new Date().toISOString();
-  if (status === 'delivered') patch.delivered_at = new Date().toISOString();
-
-  const { data: rows, error } = await supabase
-    .from('orders')
-    .update(patch)
-    .eq('id', order.id)
-    .eq('status', order.status)
-    .select('order_code');
-  if (error || !rows || rows.length === 0) {
+  const { rows } = await database.query(
+    `UPDATE public.orders SET status=$3, ready_at=CASE WHEN $3='ready' THEN now() ELSE ready_at END,
+       delivered_at=CASE WHEN $3='delivered' THEN now() ELSE delivered_at END
+     WHERE id=$1 AND status=$2 RETURNING order_code`, [order.id,order.status,status],
+  );
+  if (rows.length === 0) {
     return { httpStatus: 409, body: { error: 'Order status changed — please refresh' } };
   }
 
@@ -279,18 +268,11 @@ async function cancelOrderCore({
     };
   }
 
-  const { data: rows } = await supabase
-    .from('orders')
-    .update({
-      status: 'cancelled',
-      reject_reason: reason || null,
-      cancelled_by: cancelledBy,
-      cancelled_at: new Date().toISOString(),
-    })
-    .eq('id', order.id)
-    .eq('status', order.status)
-    .select('order_code');
-  if (!rows || rows.length === 0) {
+  const { rows } = await database.query(
+    `UPDATE public.orders SET status='cancelled',reject_reason=$3,cancelled_by=$4,cancelled_at=now()
+     WHERE id=$1 AND status=$2 RETURNING order_code`, [order.id,order.status,reason || null,cancelledBy],
+  );
+  if (rows.length === 0) {
     return { httpStatus: 409, body: { error: 'The order status changed — please retry' } };
   }
 
@@ -298,11 +280,10 @@ async function cancelOrderCore({
   // unexpired: a rider tapping Accept seconds later wins the CAS and claims a
   // cancelled order, and the customer gets a "rider assigned" push for an
   // order they were just told was cancelled.
-  await supabase
-    .from('dispatch_offers')
-    .update({ status: 'cancelled', responded_at: new Date().toISOString() })
-    .eq('order_id', order.id)
-    .eq('status', 'pending');
+  await database.query(
+    `UPDATE public.dispatch_offers SET status='cancelled',responded_at=now()
+     WHERE order_id=$1 AND status='pending'`, [order.id],
+  );
 
   // Free a rider who was holding it and had not collected yet.
   try {

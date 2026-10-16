@@ -1,6 +1,6 @@
 const express = require('express');
 const multer = require('multer');
-const { supabase } = require('../lib/supabase');
+const objectStorage = require('../lib/objectStorage');
 const { config } = require('../lib/config');
 const { verifyGrant } = require('../lib/fileGrants');
 
@@ -33,11 +33,8 @@ router.post('/upload', acceptUpload, async (req, res) => {
     if (!mime || !grant.allowedMimeTypes.includes(mime) || req.file.size > grant.maxBytes) {
       return res.status(400).json({ error: 'The file type or size is not allowed.' });
     }
-    const { error } = await supabase.storage.from(grant.bucket).upload(grant.path, req.file.buffer, {
-      contentType: mime,
-      upsert: false,
-    });
-    if (error) throw error;
+    await objectStorage.ensureBucket(grant.bucket);
+    await objectStorage.putObject(grant.bucket, grant.path, req.file.buffer, mime);
     return res.status(201).json({ path: grant.path });
   } catch (err) {
     console.error('API file upload failed:', err.message || err);
@@ -48,11 +45,10 @@ router.post('/upload', acceptUpload, async (req, res) => {
 router.get('/private', async (req, res) => {
   try {
     const grant = verifyGrant(req.query.grant, 'download');
-    const { data, error } = await supabase.storage.from(grant.bucket).download(grant.path);
-    if (error || !data) return res.status(404).json({ error: 'File not found' });
+    const file = await objectStorage.getObject(grant.bucket, grant.path);
     res.set('Cache-Control', 'private, no-store');
-    res.type(data.type || 'application/octet-stream');
-    return res.send(Buffer.from(await data.arrayBuffer()));
+    res.type(file.contentType || 'application/octet-stream');
+    return res.send(file.body);
   } catch {
     return res.status(400).json({ error: 'The download authorization is invalid or expired.' });
   }
@@ -64,11 +60,10 @@ router.get('/public/:bucket/*', async (req, res) => {
     if (!publicBuckets.has(req.params.bucket)) return res.status(404).end();
     const path = req.params[0];
     if (!path || path.includes('..')) return res.status(400).end();
-    const { data, error } = await supabase.storage.from(req.params.bucket).download(path);
-    if (error || !data) return res.status(404).end();
+    const file = await objectStorage.getObject(req.params.bucket, path);
     res.set('Cache-Control', 'public, max-age=86400, immutable');
-    res.type(data.type || 'application/octet-stream');
-    return res.send(Buffer.from(await data.arrayBuffer()));
+    res.type(file.contentType || 'application/octet-stream');
+    return res.send(file.body);
   } catch {
     return res.status(404).end();
   }

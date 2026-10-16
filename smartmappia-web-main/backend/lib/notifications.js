@@ -4,7 +4,7 @@
 // Every alert is written to the recipient's inbox and, when configured, sent
 // to that recipient's registered web-push devices.
 // ---------------------------------------------------------------------
-const { supabase } = require('./supabase');
+const database = require('./database/pool');
 const { sendWebPush } = require('./webPush');
 
 const COPY = {
@@ -135,21 +135,13 @@ async function logNotification({
   try {
     const sentAt = new Date().toISOString();
     const copy = notificationCopy(type, title, body);
-    const { data, error } = await supabase
-      .from('notification_events')
-      .insert({
-        user_id: userId,
-        booking_id: bookingId,
-        order_id: orderId,
-        shop_order_id: shopOrderId,
-        type,
-        channel,
-        code,
-        sent_at: sentAt,
-      })
-      .select('id, type, booking_id, order_id, shop_order_id, code, channel, read_at, sent_at, created_at')
-      .single();
-    if (error) throw error;
+    const { rows } = await database.query(
+      `INSERT INTO public.notification_events(user_id,booking_id,order_id,shop_order_id,type,channel,code,sent_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+       RETURNING id,type,booking_id,order_id,shop_order_id,code,channel,read_at,sent_at,created_at`,
+      [userId,bookingId,orderId,shopOrderId,type,channel,code,sentAt],
+    );
+    const data = rows[0];
 
     const payload = {
       id: data.id,
@@ -175,12 +167,8 @@ async function logNotification({
 }
 
 async function notifyAdmins(notification) {
-  const { data, error } = await supabase.from('profiles').select('id').eq('role', 'admin');
-  if (error) {
-    console.error('notifyAdmins lookup error:', error.message || error);
-    return;
-  }
-  await Promise.all((data || []).map(({ id }) => logNotification({ ...notification, userId: id })));
+  const { rows } = await database.query("SELECT id FROM public.profiles WHERE role='admin'");
+  await Promise.all(rows.map(({ id }) => logNotification({ ...notification, userId: id })));
 }
 
 module.exports = { logNotification, notifyAdmins };

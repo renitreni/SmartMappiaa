@@ -6,7 +6,7 @@
 // assigned driver contact, and the full timeline. Keyed ONLY by the public
 // booking code; internal UUIDs are never returned (spec §15).
 // ---------------------------------------------------------------------
-const { supabase } = require('../lib/supabase');
+const trackingRepository = require('../repositories/trackingRepository');
 const { travelEtaMinutes } = require('../lib/eta');
 const { latestDriverFix } = require('../lib/tracking');
 
@@ -18,44 +18,20 @@ async function getTracking(req, res) {
     const { bookingCode } = req.params;
 
     // Fetch the booking (incl. internal ids we use server-side but never return).
-    const { data: booking, error } = await supabase
-      .from('bookings')
-      .select(
-        'id, assigned_driver_id, booking_code, trip_type, airport_terminal, ' +
-          'pickup_address, pickup_street, pickup_building, pickup_lat, pickup_lng, ' +
-          'dropoff_address, dropoff_street, dropoff_building, dropoff_lat, dropoff_lng, ' +
-          'pickup_datetime, fare_amount, currency, passenger_mobile, passenger_whatsapp, ' +
-          'payment_method, payment_status, booking_status, verification_mode, driver_ride_status, ' +
-          'confirmed_at, created_at'
-      )
-      .eq('booking_code', bookingCode)
-      .single();
-
-    if (error || !booking) {
+    const booking = await trackingRepository.bookingByCode(bookingCode);
+    if (!booking) {
       return res.status(404).json({ error: 'Booking not found' });
     }
 
     // Timeline events, oldest first.
-    const { data: events, error: eventsErr } = await supabase
-      .from('tracking_events')
-      .select('event_type, title, message, created_at')
-      .eq('booking_id', booking.id)
-      .order('created_at', { ascending: true });
-    if (eventsErr) {
-      console.error('tracking events query error:', eventsErr);
-      return res.status(500).json({ error: 'Unexpected server error' });
-    }
+    const events = await trackingRepository.eventsForBooking(booking.id);
 
     // Assigned driver contact (safe fields only) + latest live position.
     let driver = null;
     let driverLocation = null;
     let liveEtaMinutes = null;
     if (booking.assigned_driver_id) {
-      const { data: d } = await supabase
-        .from('profiles')
-        .select('full_name, whatsapp_number')
-        .eq('id', booking.assigned_driver_id)
-        .single();
+      const d = await trackingRepository.driverContact(booking.assigned_driver_id);
       if (d) {
         driver = { name: d.full_name, whatsapp: d.whatsapp_number };
       }

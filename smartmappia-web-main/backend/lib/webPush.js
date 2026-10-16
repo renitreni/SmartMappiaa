@@ -1,5 +1,5 @@
 const webpush = require('web-push');
-const { supabase } = require('./supabase');
+const database = require('./database/pool');
 
 const publicKey = process.env.VAPID_PUBLIC_KEY || '';
 const privateKey = process.env.VAPID_PRIVATE_KEY || '';
@@ -15,22 +15,15 @@ function getWebPushConfig() {
 }
 
 async function removeExpiredSubscription(id) {
-  const { error } = await supabase.from('device_push_tokens').delete().eq('id', id);
-  if (error) console.error('removeExpiredSubscription error:', error.message || error);
+  await database.query('DELETE FROM public.device_push_tokens WHERE id=$1', [id]);
 }
 
 async function sendWebPush(userId, payload) {
   if (!configured || !userId) return;
 
-  const { data: tokens, error } = await supabase
-    .from('device_push_tokens')
-    .select('id, token')
-    .eq('user_id', userId)
-    .eq('platform', 'web');
-  if (error) {
-    console.error('sendWebPush token lookup error:', error.message || error);
-    return;
-  }
+  const { rows: tokens } = await database.query(
+    "SELECT id,token FROM public.device_push_tokens WHERE user_id=$1 AND platform='web'", [userId],
+  );
 
   await Promise.allSettled(
     (tokens || []).map(async ({ id, token }) => {

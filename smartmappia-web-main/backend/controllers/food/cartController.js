@@ -9,7 +9,7 @@
 // sends money. The subtotal/minimum returned here is a DISPLAY HINT for
 // the cart screen; checkout recomputes everything from scratch.
 // ---------------------------------------------------------------------
-const { supabase } = require('../../lib/supabase');
+const database = require('../../lib/database/pool');
 const { config } = require('../../lib/config');
 const { round2 } = require('../../lib/foodMoney');
 const { vatFor } = require('../../lib/vat');
@@ -21,12 +21,10 @@ const MAX_QTY = 50;
 
 // Joins the LIVE menu, not a snapshot — prices can move between add-to-cart and checkout.
 async function buildCartSummary(cart) {
-  const { data: lines, error } = await supabase
-    .from('cart_items')
-    .select('id, quantity, unit_price, size, menu_item_id, menu_items ( id, name, price, image_url, is_available, item_type, size_options )')
-    .eq('cart_id', cart.id)
-    .order('created_at');
-  if (error) throw error;
+  const { rows: lines } = await database.query(
+    `SELECT ci.id,ci.quantity,ci.unit_price,ci.size,ci.menu_item_id,to_jsonb(mi) AS menu_items
+     FROM public.cart_items ci LEFT JOIN public.menu_items mi ON mi.id=ci.menu_item_id
+     WHERE ci.cart_id=$1 ORDER BY ci.created_at`, [cart.id]);
 
   const items = (lines || []).map((line) => {
     const menu = line.menu_items;
@@ -74,14 +72,10 @@ async function buildCartSummary(cart) {
 }
 
 async function loadOwnCart(userId, merchantId) {
-  const { data, error } = await supabase
-    .from('carts')
-    .select('id, merchant_id')
-    .eq('customer_id', userId)
-    .eq('merchant_id', merchantId)
-    .maybeSingle();
-  if (error) throw error;
-  return data;
+  const { rows } = await database.query(
+    'SELECT id,merchant_id FROM public.carts WHERE customer_id=$1 AND merchant_id=$2 LIMIT 1',
+    [userId,merchantId]);
+  return rows[0] || null;
 }
 
 async function getCart(req, res) {
@@ -116,18 +110,11 @@ async function addCartItem(req, res) {
     const size = req.body.size || null;
 
     // Server reads the item + restaurant state itself.
-    const { data: item, error: itemErr } = await supabase
-      .from('menu_items')
-      .select(
-        'id, merchant_id, name, price, is_available, size_options, ' +
-          'merchants ( is_active, status, accepting_orders )'
-      )
-      .eq('id', menu_item_id)
-      .maybeSingle();
-    if (itemErr) {
-      console.error('addCartItem load error:', itemErr);
-      return res.status(500).json({ error: 'Could not load the menu item' });
-    }
+    const { rows: itemRows } = await database.query(
+      `SELECT mi.id,mi.merchant_id,mi.name,mi.price,mi.is_available,mi.size_options,
+       to_jsonb(m) AS merchants FROM public.menu_items mi
+       LEFT JOIN public.merchants m ON m.id=mi.merchant_id WHERE mi.id=$1 LIMIT 1`, [menu_item_id]);
+    const item = itemRows[0];
     if (!item) return res.status(404).json({ error: 'Menu item not found' });
     if (!item.is_available) {
       return res.status(409).json({ error: 'This item is currently unavailable' });
@@ -159,53 +146,28 @@ async function addCartItem(req, res) {
 
     let cart = await loadOwnCart(req.userId, item.merchant_id);
     if (!cart) {
-      const { data: created, error: cartErr } = await supabase
-        .from('carts')
-        .upsert(
-          { customer_id: req.userId, merchant_id: item.merchant_id },
-          { onConflict: 'customer_id,merchant_id' }
-        )
-        .select('id, merchant_id')
-        .single();
-      if (cartErr) {
-        console.error('addCartItem cart create error:', cartErr);
-        return res.status(500).json({ error: 'Could not create your cart' });
-      }
-      cart = created;
+      const { rows } = await database.query(
+        `INSERT INTO public.carts(customer_id,merchant_id) VALUES($1,$2)
+         ON CONFLICT(customer_id,merchant_id) DO UPDATE SET merchant_id=EXCLUDED.merchant_id
+         RETURNING id,merchant_id`, [req.userId,item.merchant_id]);
+      cart = rows[0];
     }
 
     // Same item + same size again = bump the quantity (capped). A different
     // size is a separate line (unique index covers cart+item+size).
-    let existingQuery = supabase
-      .from('cart_items')
-      .select('id, quantity')
-      .eq('cart_id', cart.id)
-      .eq('menu_item_id', item.id);
-    existingQuery = sizeOption ? existingQuery.eq('size', sizeOption.id) : existingQuery.is('size', null);
-    const { data: existing } = await existingQuery.maybeSingle();
+    const { rows: existingRows } = await database.query(
+      'SELECT id,quantity FROM public.cart_items WHERE cart_id=$1 AND menu_item_id=$2 AND size IS NOT DISTINCT FROM $3 LIMIT 1',
+      [cart.id,item.id,sizeOption ? sizeOption.id : null]);
+    const existing = existingRows[0];
 
     if (existing) {
       const nextQty = Math.min(existing.quantity + quantity, MAX_QTY);
-      const { error: updErr } = await supabase
-        .from('cart_items')
-        .update({ quantity: nextQty, unit_price: unitPrice })
-        .eq('id', existing.id);
-      if (updErr) {
-        console.error('addCartItem update error:', updErr);
-        return res.status(500).json({ error: 'Could not update your cart' });
-      }
+      await database.query('UPDATE public.cart_items SET quantity=$2,unit_price=$3 WHERE id=$1',
+        [existing.id,nextQty,unitPrice]);
     } else {
-      const { error: insErr } = await supabase.from('cart_items').insert({
-        cart_id: cart.id,
-        menu_item_id: item.id,
-        quantity: Math.min(quantity, MAX_QTY),
-        size: sizeOption ? sizeOption.id : null,
-        unit_price: unitPrice, // display snapshot; checkout re-reads live prices
-      });
-      if (insErr) {
-        console.error('addCartItem insert error:', insErr);
-        return res.status(500).json({ error: 'Could not add the item to your cart' });
-      }
+      await database.query(
+        'INSERT INTO public.cart_items(cart_id,menu_item_id,quantity,size,unit_price) VALUES($1,$2,$3,$4,$5)',
+        [cart.id,item.id,Math.min(quantity,MAX_QTY),sizeOption ? sizeOption.id : null,unitPrice]);
     }
 
     logFoodEvent({
@@ -224,14 +186,10 @@ async function addCartItem(req, res) {
 
 // null if the line isn't the caller's — never let one customer touch another's cart.
 async function loadOwnCartLine(userId, lineId) {
-  const { data, error } = await supabase
-    .from('cart_items')
-    .select('id, cart_id, carts ( id, customer_id, merchant_id )')
-    .eq('id', lineId)
-    .maybeSingle();
-  if (error) throw error;
-  if (!data || !data.carts || data.carts.customer_id !== userId) return null;
-  return data;
+  const { rows } = await database.query(
+    `SELECT ci.id,ci.cart_id,to_jsonb(c) AS carts FROM public.cart_items ci
+     JOIN public.carts c ON c.id=ci.cart_id WHERE ci.id=$1 AND c.customer_id=$2 LIMIT 1`, [lineId,userId]);
+  return rows[0] || null;
 }
 
 async function updateCartItem(req, res) {
@@ -241,16 +199,10 @@ async function updateCartItem(req, res) {
     if (!line) return res.status(404).json({ error: 'Cart item not found' });
 
     if (quantity === 0) {
-      await supabase.from('cart_items').delete().eq('id', line.id);
+      await database.query('DELETE FROM public.cart_items WHERE id=$1', [line.id]);
     } else {
-      const { error } = await supabase
-        .from('cart_items')
-        .update({ quantity: Math.min(quantity, MAX_QTY) })
-        .eq('id', line.id);
-      if (error) {
-        console.error('updateCartItem error:', error);
-        return res.status(500).json({ error: 'Could not update the quantity' });
-      }
+      await database.query('UPDATE public.cart_items SET quantity=$2 WHERE id=$1',
+        [line.id,Math.min(quantity,MAX_QTY)]);
     }
     return res.json(await buildCartSummary({ id: line.cart_id, merchant_id: line.carts.merchant_id }));
   } catch (err) {
@@ -264,7 +216,7 @@ async function removeCartItem(req, res) {
     const line = await loadOwnCartLine(req.userId, req.params.id);
     if (!line) return res.status(404).json({ error: 'Cart item not found' });
 
-    await supabase.from('cart_items').delete().eq('id', line.id);
+    await database.query('DELETE FROM public.cart_items WHERE id=$1', [line.id]);
     return res.json(await buildCartSummary({ id: line.cart_id, merchant_id: line.carts.merchant_id }));
   } catch (err) {
     console.error('removeCartItem error:', err);

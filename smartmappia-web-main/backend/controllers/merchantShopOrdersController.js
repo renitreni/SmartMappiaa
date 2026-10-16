@@ -16,7 +16,7 @@
 // delivered are rider-only, evidenced by photo proof and a geofence. The
 // route schema enforces this; so does STATUS_FLOW in shopOrderActions.
 // ---------------------------------------------------------------------
-const { supabase } = require('../lib/supabase');
+const ordersRepository = require('../repositories/merchantShopOrdersRepository');
 const {
   acceptOrderCore,
   rejectOrderCore,
@@ -26,23 +26,10 @@ const {
 } = require('../lib/shopOrderActions');
 const { requireOwnedStore } = require('./merchantShopController');
 
-const ORDER_SELECT =
-  'id, order_code, status, subtotal, delivery_fee, vat_amount, vat_rate, total, ' +
-  'delivery_address, delivery_street, delivery_building, contact_phone, payment_status, payment_method, reject_reason, ' +
-  'created_at, accepted_at, packed_at, ready_at, delivered_at, ' +
-  'shop_order_items ( id, name_snapshot, variant_label_snapshot, sku_snapshot, ' +
-  'unit_price, quantity, line_total ), ' +
-  'shop_deliveries ( status, driver_id, pickup_photo_path, delivery_photo_path ), ' +
-  'profiles!shop_orders_customer_id_fkey ( full_name, mobile_number, whatsapp_number )';
-
 // A foreign order code is a 404, never a 403: a store must not be able to
 // probe whether an order code exists at another store.
 async function assertOwnedOrder(storeId, code, res) {
-  const { data } = await supabase
-    .from('shop_orders')
-    .select('id, merchant_id')
-    .eq('order_code', code)
-    .maybeSingle();
+  const data = await ordersRepository.ownedOrder(storeId, code);
   if (!data || data.merchant_id !== storeId) {
     res.status(404).json({ error: 'Order not found' });
     return false;
@@ -55,21 +42,11 @@ async function listOrders(req, res) {
     const store = await requireOwnedStore(req, res);
     if (!store) return undefined;
 
-    const { data, error } = await supabase
-      .from('shop_orders')
-      .select(ORDER_SELECT)
-      .eq('merchant_id', store.id)
-      .order('created_at', { ascending: false })
-      .limit(100);
-    if (error) {
-      console.error('merchant shop listOrders error:', error);
-      return res.status(500).json({ error: 'Could not load your orders' });
-    }
+    const data = await ordersRepository.listForStore(store.id, 100);
 
     return res.json({
-      orders: (data || []).map((o) => {
-        const delivery = Array.isArray(o.shop_deliveries) ? o.shop_deliveries[0] : o.shop_deliveries;
-        const customer = o.profiles;
+      orders: data.map((o) => {
+        const delivery = o.delivery_status ? o : null;
         return {
           orderCode: o.order_code,
           status: o.status,
@@ -90,14 +67,14 @@ async function listOrders(req, res) {
           packedAt: o.packed_at,
           readyAt: o.ready_at,
           deliveredAt: o.delivered_at,
-          items: o.shop_order_items || [],
-          customer: customer
+          items: o.items || [],
+          customer: o.customer_name
             ? {
-                name: customer.full_name,
+                name: o.customer_name,
                 // The order's own number wins: the customer may have edited
                 // it after placing the order.
-                mobile: o.contact_phone || customer.mobile_number,
-                whatsapp: customer.whatsapp_number,
+                mobile: o.contact_phone || o.customer_mobile,
+                whatsapp: o.customer_whatsapp,
               }
             : null,
           rider: delivery

@@ -7,7 +7,7 @@
 // via its column defaults (see the SQL schema), so we only send the data
 // that comes from the booking form.
 // ---------------------------------------------------------------------
-const { supabase } = require('../lib/supabase');
+const bookingsRepository = require('../repositories/bookingsRepository');
 const { quoteFare } = require('../lib/fare');
 const { haversineKm } = require('../lib/geo');
 const { exceedsMaxRadius } = require('../lib/deliveryPricing');
@@ -118,9 +118,7 @@ async function createBooking(req, res) {
     });
 
     // --- insert the booking (tied to the signed-in passenger) ---
-    const { data: booking, error } = await supabase
-      .from('bookings')
-      .insert({
+    const booking = await bookingsRepository.create({
         user_id: req.userId,
         trip_type: b.trip_type,
         airport_terminal: b.airport_terminal ?? null,
@@ -157,22 +155,11 @@ async function createBooking(req, res) {
         ...(isCash ? { booking_status: 'confirmed' } : {}),
         // booking_code, payment_status (and booking_status for STC Pay)
         // come from database defaults.
-      })
-      .select(
-        'id, booking_code, fare_amount, vat_amount, vat_rate, total_amount, currency, ' +
-          'booking_status, payment_status, payment_method'
-      )
-      .single();
-
-    if (error) {
-      console.error('createBooking insert error:', error);
-      return res.status(500).json({ error: 'Could not create booking' });
-    }
+      });
 
     // --- start the tracking timeline (spec section 7) ---
-    await supabase.from('tracking_events').insert({
-      booking_id: booking.id,
-      event_type: 'booking_created',
+    await addTrackingEvent(booking.id, {
+      eventType: 'booking_created',
       title: isCash ? 'Booking confirmed' : 'Booking created',
       message: isCash
         ? 'Your booking is confirmed. Pay the driver in cash at pickup.'
@@ -234,22 +221,7 @@ async function createBooking(req, res) {
 // so a passenger only ever sees their own trips.
 async function listMyBookings(req, res) {
   try {
-    const { data, error } = await supabase
-      .from('bookings')
-      .select(
-        'booking_code, trip_type, airport_terminal, pickup_address, dropoff_address, ' +
-          'pickup_street, pickup_building, dropoff_street, dropoff_building, ' +
-          'pickup_datetime, fare_amount, vat_amount, vat_rate, total_amount, currency, ' +
-          'payment_status, payment_method, booking_status, driver_ride_status, created_at'
-      )
-      .eq('user_id', req.userId)
-      .order('created_at', { ascending: false })
-      .limit(50);
-    if (error) {
-      console.error('listMyBookings error:', error);
-      return res.status(500).json({ error: 'Could not load your bookings' });
-    }
-    return res.json({ bookings: data || [] });
+    return res.json({ bookings: await bookingsRepository.listForUser(req.userId, 50) });
   } catch (err) {
     console.error('listMyBookings error:', err);
     return res.status(500).json({ error: 'Unexpected server error' });
@@ -259,18 +231,8 @@ async function listMyBookings(req, res) {
 async function getBookingByCode(req, res) {
   try {
     const { bookingCode } = req.params;
-    const { data, error } = await supabase
-      .from('bookings')
-      .select(
-        'booking_code, trip_type, airport_terminal, pickup_address, dropoff_address, ' +
-          'pickup_street, pickup_building, dropoff_street, dropoff_building, ' +
-          'pickup_datetime, fare_amount, vat_amount, vat_rate, total_amount, currency, ' +
-          'payment_status, booking_status'
-      )
-      .eq('booking_code', bookingCode)
-      .single();
-
-    if (error || !data) {
+    const data = await bookingsRepository.byCode(bookingCode);
+    if (!data) {
       return res.status(404).json({ error: 'Booking not found' });
     }
     return res.json(data);
@@ -286,12 +248,8 @@ async function cancelBooking(req, res) {
     const { bookingCode } = req.params;
     const reason = (req.body && req.body.reason) || null;
 
-    const { data: booking, error } = await supabase
-      .from('bookings')
-      .select('id, booking_code, booking_status, assigned_driver_id, user_id')
-      .eq('booking_code', bookingCode)
-      .single();
-    if (error || !booking) {
+    const booking = await bookingsRepository.cancellationDetails(bookingCode);
+    if (!booking) {
       return res.status(404).json({ error: 'Booking not found' });
     }
     // Fail closed on a null owner. user_id is null for guest rides and is
@@ -310,21 +268,8 @@ async function cancelBooking(req, res) {
       });
     }
 
-    const wasAvailable = booking.booking_status === 'confirmed' && !booking.assigned_driver_id;
-
-    const { data: updated, error: updErr } = await supabase
-      .from('bookings')
-      .update({
-        booking_status: 'cancelled',
-        driver_ride_status: booking.assigned_driver_id ? 'cancelled' : null,
-      })
-      .eq('id', booking.id)
-      .select('booking_code, booking_status')
-      .single();
-    if (updErr) {
-      console.error('cancel booking update error:', updErr);
-      return res.status(500).json({ error: 'Unexpected server error' });
-    }
+    const updated = await bookingsRepository.cancel({ id: booking.id, statuses: CANCELLABLE_STATUSES });
+    if (!updated) return res.status(409).json({ error: 'Booking can no longer be cancelled' });
 
     await addTrackingEvent(booking.id, {
       eventType: 'booking_cancelled',
@@ -358,12 +303,8 @@ async function updateBookingContact(req, res) {
     const { bookingCode } = req.params;
     const b = req.body; // validated by the route schema
 
-    const { data: booking, error } = await supabase
-      .from('bookings')
-      .select('id, booking_code, booking_status, user_id')
-      .eq('booking_code', bookingCode)
-      .single();
-    if (error || !booking) return res.status(404).json({ error: 'Booking not found' });
+    const booking = await bookingsRepository.contactDetails(bookingCode);
+    if (!booking) return res.status(404).json({ error: 'Booking not found' });
     // Same nullable-owner trap as cancelBooking above — fail closed.
     if (!booking.user_id || (req.userId !== booking.user_id && req.role !== 'admin')) {
       return res.status(403).json({ error: 'You can only edit your own booking' });
@@ -381,16 +322,11 @@ async function updateBookingContact(req, res) {
       return res.status(400).json({ error: 'Nothing to update' });
     }
 
-    const { data: updated, error: updErr } = await supabase
-      .from('bookings')
-      .update(patch)
-      .eq('id', booking.id)
-      .select('booking_code, passenger_mobile, passenger_whatsapp')
-      .single();
-    if (updErr) {
-      console.error('updateBookingContact error:', updErr);
-      return res.status(500).json({ error: 'Could not update the contact number' });
-    }
+    const updated = await bookingsRepository.updateContact({
+      booking, userId: req.userId, isAdmin: req.role === 'admin',
+      statuses: CONTACT_EDITABLE_STATUSES, patch,
+    });
+    if (!updated) return res.status(409).json({ error: 'The booking changed; refresh and try again' });
 
     await addTrackingEvent(booking.id, {
       eventType: 'contact_updated',

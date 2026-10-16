@@ -8,7 +8,7 @@
 // another customer's card is the worst thing this feature can do, so there
 // is exactly one door and it cannot be opened without a user id.
 // ---------------------------------------------------------------------
-const { supabase } = require('./supabase');
+const database = require('./database/pool');
 const { config } = require('./config');
 const tap = require('./tap');
 const { logAudit } = require('./audit');
@@ -37,14 +37,9 @@ function expiringSoon(method, now = new Date()) {
 }
 
 async function listMethods(userId) {
-  const { data, error } = await supabase
-    .from('saved_payment_methods')
-    .select(PUBLIC_COLUMNS)
-    .eq('user_id', userId)
-    .is('deleted_at', null)
-    .order('is_default', { ascending: false })
-    .order('created_at', { ascending: false });
-  if (error) throw error;
+  const { rows: data } = await database.query(
+    `SELECT ${PUBLIC_COLUMNS} FROM public.saved_payment_methods WHERE user_id=$1 AND deleted_at IS NULL
+     ORDER BY is_default DESC,created_at DESC`, [userId]);
   const now = new Date();
   return (data || []).map((m) => ({
     ...m,
@@ -68,32 +63,22 @@ async function listMethods(userId) {
 // confirm that some other user owns that id.
 async function loadOwnedMethod(userId, methodId) {
   if (!userId || !methodId) return null;
-  const { data } = await supabase
-    .from('saved_payment_methods')
-    .select(
-      'id, user_id, gateway_customer_id, gateway_card_id, payment_agreement_id, brand, last4, exp_month, exp_year'
-    )
-    .eq('id', methodId)
-    .eq('user_id', userId)
-    .is('deleted_at', null)
-    .maybeSingle();
-  return data || null;
+  const { rows } = await database.query(
+    `SELECT id,user_id,gateway_customer_id,gateway_card_id,payment_agreement_id,brand,last4,exp_month,exp_year
+     FROM public.saved_payment_methods WHERE id=$1 AND user_id=$2 AND deleted_at IS NULL LIMIT 1`, [methodId,userId]);
+  return rows[0] || null;
 }
 
 // One Tap customer per person, created lazily and cached. Tap's charge API
 // requires a customer on every request, so this runs on the first card
 // payment and never again.
 async function ensureCustomer(profile) {
-  const { data: existing, error: readErr } = await supabase
-    .from('payment_customers')
-    .select('gateway_customer_id')
-    .eq('user_id', profile.id)
-    .eq('provider', 'tap')
-    .maybeSingle();
+  const { rows: existingRows } = await database.query(
+    "SELECT gateway_customer_id FROM public.payment_customers WHERE user_id=$1 AND provider='tap' LIMIT 1", [profile.id]);
+  const existing = existingRows[0];
   // A failed read is not "no customer yet". Carrying on would create a Tap
   // customer the insert below can't save either, and a fresh orphan at Tap
   // on every retry.
-  if (readErr) throw readErr;
   if (existing && existing.gateway_customer_id) return existing.gateway_customer_id;
 
   const customer = await tap.createCustomer(profile);
@@ -102,19 +87,17 @@ async function ensureCustomer(profile) {
     throw new tap.TapError('gateway', 'The payment gateway did not return a customer');
   }
 
-  const { error } = await supabase
-    .from('payment_customers')
-    .insert({ user_id: profile.id, provider: 'tap', gateway_customer_id: gatewayCustomerId });
-  if (error) {
+  try {
+    await database.query(
+      "INSERT INTO public.payment_customers(user_id,provider,gateway_customer_id) VALUES($1,'tap',$2)",
+      [profile.id,gatewayCustomerId]);
+  } catch (error) {
     // 23505: a concurrent request created it first. Theirs wins — re-read
     // rather than ending up with two customers for one person.
     if (error.code === '23505') {
-      const { data } = await supabase
-        .from('payment_customers')
-        .select('gateway_customer_id')
-        .eq('user_id', profile.id)
-        .eq('provider', 'tap')
-        .maybeSingle();
+      const { rows } = await database.query(
+        "SELECT gateway_customer_id FROM public.payment_customers WHERE user_id=$1 AND provider='tap' LIMIT 1", [profile.id]);
+      const data = rows[0];
       if (data && data.gateway_customer_id) return data.gateway_customer_id;
     }
     throw error;
@@ -137,11 +120,9 @@ async function saveMethodFromCharge({ userId, charge, consentReference }) {
     (charge.payment_agreement && charge.payment_agreement.id) || null;
   const details = tap.safeCardDetails(card);
 
-  const { data: existing } = await supabase
-    .from('saved_payment_methods')
-    .select('id, user_id, deleted_at')
-    .eq('gateway_card_id', cardId)
-    .maybeSingle();
+  const { rows: existingRows } = await database.query(
+    'SELECT id,user_id,deleted_at FROM public.saved_payment_methods WHERE gateway_card_id=$1 LIMIT 1', [cardId]);
+  const existing = existingRows[0];
 
   if (existing) {
     // Should be impossible — uq_spm_card_global makes one card id global,
@@ -155,53 +136,27 @@ async function saveMethodFromCharge({ userId, charge, consentReference }) {
       });
       return null;
     }
-    await supabase
-      .from('saved_payment_methods')
-      .update({
-        gateway_customer_id: customerId,
-        // An agreement can appear later (Tap activates it, or the first
-        // charge predated activation) — take it whenever it shows up, but
-        // never overwrite a good one with null.
-        ...(agreementId ? { payment_agreement_id: agreementId } : {}),
-        brand: details.brand,
-        funding: details.funding,
-        last4: details.last4,
-        exp_month: details.expMonth,
-        exp_year: details.expYear,
-        // Re-adding a card the customer previously removed revives the row.
-        deleted_at: null,
-      })
-      .eq('id', existing.id);
+    await database.query(
+      `UPDATE public.saved_payment_methods SET gateway_customer_id=$2,
+       payment_agreement_id=COALESCE($3,payment_agreement_id),brand=$4,funding=$5,last4=$6,
+       exp_month=$7,exp_year=$8,deleted_at=NULL WHERE id=$1`,
+      [existing.id,customerId,agreementId,details.brand,details.funding,details.last4,details.expMonth,details.expYear]);
     return existing.id;
   }
 
   // First card becomes the default so the picker always has a preselection.
-  const { count } = await supabase
-    .from('saved_payment_methods')
-    .select('id', { count: 'exact', head: true })
-    .eq('user_id', userId)
-    .is('deleted_at', null);
-
-  const { data: inserted, error } = await supabase
-    .from('saved_payment_methods')
-    .insert({
-      user_id: userId,
-      provider: 'tap',
-      gateway_customer_id: customerId,
-      gateway_card_id: cardId,
-      payment_agreement_id: agreementId,
-      brand: details.brand,
-      funding: details.funding,
-      last4: details.last4,
-      exp_month: details.expMonth,
-      exp_year: details.expYear,
-      is_default: !count,
-      consent_reference: consentReference || null,
-    })
-    .select('id')
-    .single();
-
-  if (error) {
+  const { rows: currentRows } = await database.query(
+    'SELECT count(*)::int AS count FROM public.saved_payment_methods WHERE user_id=$1 AND deleted_at IS NULL', [userId]);
+  let inserted;
+  try {
+    const { rows } = await database.query(
+      `INSERT INTO public.saved_payment_methods(user_id,provider,gateway_customer_id,gateway_card_id,
+       payment_agreement_id,brand,funding,last4,exp_month,exp_year,is_default,consent_reference)
+       VALUES($1,'tap',$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING id`,
+      [userId,customerId,cardId,agreementId,details.brand,details.funding,details.last4,
+        details.expMonth,details.expYear,currentRows[0].count === 0,consentReference || null]);
+    inserted = rows[0];
+  } catch (error) {
     // 23505: the other of the two paths (webhook / synchronous) got there
     // first. Already saved is a success.
     if (error.code === '23505') return null;
@@ -238,11 +193,9 @@ async function softDeleteMethod(userId, methodId) {
     });
   }
 
-  await supabase
-    .from('saved_payment_methods')
-    .update({ deleted_at: new Date().toISOString(), is_default: false })
-    .eq('id', method.id)
-    .eq('user_id', userId);
+  await database.query(
+    'UPDATE public.saved_payment_methods SET deleted_at=now(),is_default=false WHERE id=$1 AND user_id=$2',
+    [method.id,userId]);
 
   logAudit({
     actorId: userId,
@@ -257,28 +210,19 @@ async function softDeleteMethod(userId, methodId) {
 // Moving the default is a single statement in Postgres because
 // uq_spm_one_default would otherwise make "clear old, set new" a 23505 race.
 async function setDefault(userId, methodId) {
-  const { data, error } = await supabase.rpc('set_default_payment_method', {
-    p_user_id: userId,
-    p_id: methodId,
-  });
-  if (error) throw error;
-  return data === true;
+  const { rows } = await database.query('SELECT public.set_default_payment_method($1,$2) AS result', [userId,methodId]);
+  return rows[0].result === true;
 }
 
 async function markUsed(methodId) {
-  await supabase
-    .from('saved_payment_methods')
-    .update({ last_used_at: new Date().toISOString() })
-    .eq('id', methodId);
+  await database.query('UPDATE public.saved_payment_methods SET last_used_at=now() WHERE id=$1', [methodId]);
 }
 
 // Drop a card we have learned is no longer usable (expired, or Tap no
 // longer recognises it). Local only — there is nothing left to revoke.
 async function retireMethod(methodId, reason) {
-  await supabase
-    .from('saved_payment_methods')
-    .update({ deleted_at: new Date().toISOString(), is_default: false })
-    .eq('id', methodId);
+  await database.query(
+    'UPDATE public.saved_payment_methods SET deleted_at=now(),is_default=false WHERE id=$1', [methodId]);
   console.warn('Retired saved payment method:', methodId, reason);
 }
 
@@ -289,12 +233,9 @@ async function retireMethod(methodId, reason) {
 // Deliberately one-way: a card Tap knows about but we did not save has no
 // consent evidence behind it and must never become chargeable here.
 async function reconcileWithGateway(userId) {
-  const { data: rows } = await supabase
-    .from('saved_payment_methods')
-    .select('id, gateway_customer_id, gateway_card_id')
-    .eq('user_id', userId)
-    .is('deleted_at', null)
-    .limit(config.tap.maxSavedCards);
+  const { rows } = await database.query(
+    `SELECT id,gateway_customer_id,gateway_card_id FROM public.saved_payment_methods
+     WHERE user_id=$1 AND deleted_at IS NULL LIMIT $2`, [userId,config.tap.maxSavedCards]);
   if (!rows || !rows.length) return;
 
   const customerId = rows[0].gateway_customer_id;

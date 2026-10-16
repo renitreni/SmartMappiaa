@@ -1,8 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert');
 
-process.env.SESSION_ENCRYPTION_KEY ||= 'test-only-session-key-not-for-production';
-process.env.SUPABASE_SERVICE_ROLE_KEY ||= 'test-service-role';
+process.env.APP_SIGNING_KEY ||= 'test-only-app-signing-key-not-for-production';
 
 const { uploadGrant, verifyGrant } = require('../lib/fileGrants');
 

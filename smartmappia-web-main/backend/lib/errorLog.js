@@ -17,7 +17,7 @@
 // rejected, so redact() runs over every message and stack before insert.
 // ---------------------------------------------------------------------
 const crypto = require('node:crypto');
-const { supabase } = require('./supabase');
+const database = require('./database/pool');
 const { currentContext } = require('./requestContext');
 
 // Kept from before the wrap so the logger's own failures don't re-enter it.
@@ -168,27 +168,17 @@ async function logError({
 
     const ctx = context || currentContext();
 
-    const { error } = await supabase.from('error_logs').insert({
-      severity,
-      label: cleanLabel,
-      message: cleanMessage,
-      error_name: errorName,
-      stack: stack ? redact(stack).slice(0, STACK_MAX) : null,
-      request_id: ctx ? ctx.requestId : null,
-      method: ctx ? ctx.method : null,
-      path: ctx ? ctx.path : null,
-      status_code: statusCode,
-      ip: ctx ? ctx.ip : null,
-      user_agent: ctx ? ctx.userAgent : null,
-      user_id: ctx ? ctx.userId : null,
-      user_email: ctx ? ctx.userEmail : null,
-      user_role: ctx ? ctx.userRole : null,
-      fingerprint,
-      suppressed_count: suppressed,
-    });
-
-    // PostgREST reports failures in the body rather than throwing.
-    if (error) rawConsoleError('logError insert failed:', error.message || error);
+    await database.query(`INSERT INTO public.error_logs
+      (severity,label,message,error_name,stack,request_id,method,path,status_code,ip,user_agent,user_id,user_email,user_role,fingerprint,suppressed_count)
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)`, [
+      severity, cleanLabel, cleanMessage, errorName,
+      stack ? redact(stack).slice(0, STACK_MAX) : null,
+      ctx ? ctx.requestId : null, ctx ? ctx.method : null,
+      ctx ? ctx.path : null, statusCode, ctx ? ctx.ip : null,
+      ctx ? ctx.userAgent : null, ctx ? ctx.userId : null,
+      ctx ? ctx.userEmail : null, ctx ? ctx.userRole : null,
+      fingerprint, suppressed,
+    ]);
   } catch (err) {
     rawConsoleError('logError threw:', (err && err.message) || err);
   }
@@ -251,9 +241,10 @@ const PRUNE_INTERVAL_MS = 24 * 60 * 60 * 1000;
 function startErrorLogPruner(keepDays = 30) {
   const run = async () => {
     try {
-      const { data, error } = await supabase.rpc('prune_error_logs', { keep_days: keepDays });
-      if (error) rawConsoleError('prune_error_logs failed:', error.message || error);
-      else if (data) console.log(`[error_logs] pruned ${data} row(s) older than ${keepDays} days`);
+      const { rowCount } = await database.query(
+        `DELETE FROM public.error_logs WHERE occurred_at < now() - make_interval(days => $1)`, [keepDays],
+      );
+      if (rowCount) console.log(`[error_logs] pruned ${rowCount} row(s) older than ${keepDays} days`);
     } catch (err) {
       rawConsoleError('prune_error_logs threw:', (err && err.message) || err);
     }

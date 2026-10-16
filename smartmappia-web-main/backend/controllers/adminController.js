@@ -10,7 +10,7 @@
 // share one state machine. The admin's profile id is optional (interim
 // shared-secret auth has no user context) and passed via x-admin-id.
 // ---------------------------------------------------------------------
-const { supabase } = require('../lib/supabase');
+const adminRepository = require('../repositories/adminRepository');
 const { addTrackingEvent } = require('../lib/tracking');
 const { verifyBookingPayment, rejectBookingPayment } = require('../lib/payments');
 const { createProofDownloadUrl, createDriverDocDownloadUrl } = require('../lib/storage');
@@ -30,44 +30,25 @@ const ACTIVE_BOOKING = ['driver_assigned', 'driver_on_the_way', 'arrived', 'in_p
 
 async function getStats(req, res) {
   try {
-    const { data: bookings, error } = await supabase
-      .from('bookings')
-      .select('booking_status, payment_status, fare_amount, created_at');
-    if (error) { console.error('admin query error:', error); return res.status(500).json({ error: 'Unexpected server error' }); }
-
-    const { data: drivers, error: dErr } = await supabase
-      .from('profiles')
-      .select('driver_approved')
-      .eq('role', 'driver');
-    if (dErr) { console.error('admin drivers query error:', dErr); return res.status(500).json({ error: 'Unexpected server error' }); }
-
-    const startOfToday = new Date();
-    startOfToday.setHours(0, 0, 0, 0);
+    const [bookings, driverSummary] = await Promise.all([
+      adminRepository.bookingStats(), adminRepository.driverStats(),
+    ]);
 
     const bookingsByStatus = {};
     const paymentsByStatus = {};
-    let revenue = 0;
-    let completed = 0;
-    let cancelled = 0;
-    let active = 0;
-    let today = 0;
-
-    for (const b of bookings || []) {
-      bookingsByStatus[b.booking_status] = (bookingsByStatus[b.booking_status] || 0) + 1;
-      paymentsByStatus[b.payment_status] = (paymentsByStatus[b.payment_status] || 0) + 1;
-      if (b.payment_status === 'verified') revenue += Number(b.fare_amount) || 0;
-      if (b.booking_status === 'completed') completed += 1;
-      if (b.booking_status === 'cancelled') cancelled += 1;
-      if (ACTIVE_BOOKING.includes(b.booking_status)) active += 1;
-      if (b.created_at && new Date(b.created_at) >= startOfToday) today += 1;
+    let totalBookings=0,revenue=0,completed=0,cancelled=0,active=0,today=0;
+    for(const row of bookings){
+      const count=Number(row.count); totalBookings+=count; revenue+=Number(row.revenue)||0; today+=Number(row.today_count)||0;
+      bookingsByStatus[row.booking_status]=(bookingsByStatus[row.booking_status]||0)+count;
+      paymentsByStatus[row.payment_status]=(paymentsByStatus[row.payment_status]||0)+count;
+      if(row.booking_status==='completed') completed+=count;
+      if(row.booking_status==='cancelled') cancelled+=count;
+      if(ACTIVE_BOOKING.includes(row.booking_status)) active+=count;
     }
-
-    const totalDrivers = (drivers || []).length;
-    const approvedDrivers = (drivers || []).filter((d) => d.driver_approved).length;
 
     return res.json({
       totals: {
-        bookings: (bookings || []).length,
+        bookings: totalBookings,
         completed,
         cancelled,
         active,
@@ -78,9 +59,9 @@ async function getStats(req, res) {
         awaitingPayment: paymentsByStatus.awaiting_proof || 0,
       },
       drivers: {
-        total: totalDrivers,
-        approved: approvedDrivers,
-        pending: totalDrivers - approvedDrivers,
+        total: Number(driverSummary.total),
+        approved: Number(driverSummary.approved),
+        pending: Number(driverSummary.total)-Number(driverSummary.approved),
       },
       bookingsByStatus,
       paymentsByStatus,
@@ -105,17 +86,7 @@ async function getReports(req, res) {
     const to = new Date();
     const from = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
 
-    const { data, error } = await supabase
-      .from('bookings')
-      .select(
-        'booking_code, created_at, booking_status, payment_status, fare_amount, ' +
-          'currency, trip_type, passenger_name'
-      )
-      .gte('created_at', from.toISOString())
-      .order('created_at', { ascending: true });
-    if (error) { console.error('admin query error:', error); return res.status(500).json({ error: 'Unexpected server error' }); }
-
-    const rows = data || [];
+    const rows = await adminRepository.reportBookings(from);
     const byMonth = days > 90; // bucket by month for long ranges, else by day
     const series = {};
     let revenue = 0;
@@ -163,12 +134,7 @@ async function getReports(req, res) {
 // --- GET /api/admin/drivers ------------------------------------------
 async function listDrivers(req, res) {
   try {
-    const { data, error } = await supabase
-      .from('profiles')
-      .select('id, full_name, email, whatsapp_number, mobile_number, national_id, vehicle_type, vehicle_plate, driver_approved, created_at')
-      .eq('role', 'driver')
-      .order('created_at', { ascending: false });
-    if (error) { console.error('admin query error:', error); return res.status(500).json({ error: 'Unexpected server error' }); }
+    const data = await adminRepository.listDrivers();
     return res.json({ drivers: data });
   } catch (err) {
     console.error('listDrivers error:', err);
@@ -180,14 +146,8 @@ async function listDrivers(req, res) {
 async function setDriverApproval(req, res) {
   try {
     const approved = req.body && req.body.approved !== false; // default true
-    const { data, error } = await supabase
-      .from('profiles')
-      .update({ driver_approved: approved })
-      .eq('id', req.params.driverId)
-      .eq('role', 'driver')
-      .select('id, full_name, driver_approved')
-      .single();
-    if (error || !data) return res.status(404).json({ error: 'Driver not found' });
+    const data = await adminRepository.setDriverApproval(req.params.driverId, approved);
+    if (!data) return res.status(404).json({ error: 'Driver not found' });
     return res.json({ id: data.id, fullName: data.full_name, driverApproved: data.driver_approved });
   } catch (err) {
     console.error('setDriverApproval error:', err);
@@ -201,12 +161,7 @@ async function setDriverApproval(req, res) {
 // rides), and their most recent settlement. Owing drivers first.
 async function listDriverCash(req, res) {
   try {
-    const { data, error } = await supabase
-      .from('profiles')
-      .select('id, full_name, whatsapp_number, mobile_number, cash_owed, cash_owed_limit')
-      .eq('role', 'driver')
-      .order('cash_owed', { ascending: false });
-    if (error) { console.error('admin query error:', error); return res.status(500).json({ error: 'Unexpected server error' }); }
+    const data = await adminRepository.listDriverCash();
 
     const drivers = (data || []).map((d) => ({
       id: d.id,
@@ -234,13 +189,8 @@ async function settleDriverCash(req, res) {
       return res.status(400).json({ error: 'amount must be a positive number' });
     }
 
-    const { data: driver, error: dErr } = await supabase
-      .from('profiles')
-      .select('id')
-      .eq('id', req.params.driverId)
-      .eq('role', 'driver')
-      .single();
-    if (dErr || !driver) return res.status(404).json({ error: 'Driver not found' });
+    const driver = await adminRepository.driverIdentity(req.params.driverId);
+    if (!driver || driver.role !== 'driver') return res.status(404).json({ error: 'Driver not found' });
 
     const result = await settleDriverCashBalance({
       driverId: driver.id,
@@ -253,11 +203,7 @@ async function settleDriverCash(req, res) {
       return res.status(500).json({ error: 'Could not record the settlement' });
     }
 
-    const { data: fresh } = await supabase
-      .from('profiles')
-      .select('cash_owed, cash_owed_limit')
-      .eq('id', driver.id)
-      .single();
+    const fresh = await adminRepository.cashProfile(driver.id);
     return res.json({ driverId: driver.id, ...driverCashView(fresh || { cash_owed: result.balanceAfter }) });
   } catch (err) {
     console.error('settleDriverCash error:', err);
@@ -266,28 +212,12 @@ async function settleDriverCash(req, res) {
 }
 
 async function loadBooking(bookingCode) {
-  const { data, error } = await supabase
-    .from('bookings')
-    .select(
-      'id, booking_code, fare_amount, vat_amount, vat_rate, total_amount, currency, ' +
-        'payment_status, payment_method, booking_status, assigned_driver_id'
-    )
-    .eq('booking_code', bookingCode)
-    .single();
-  if (error || !data) return null;
-  return data;
+  return adminRepository.bookingByCode(bookingCode);
 }
 
 // Latest proof id for a booking (the one under review), or null.
 async function latestProofId(bookingId) {
-  const { data } = await supabase
-    .from('payment_proofs')
-    .select('id')
-    .eq('booking_id', bookingId)
-    .order('created_at', { ascending: false })
-    .limit(1)
-    .maybeSingle();
-  return data ? data.id : null;
+  return adminRepository.latestProofId(bookingId);
 }
 
 // --- GET /api/admin/bookings -----------------------------------------
@@ -296,24 +226,10 @@ async function listBookings(req, res) {
     const limit = Math.min(Number(req.query.limit) || 50, 200);
     const offset = Math.max(Number(req.query.offset) || 0, 0);
 
-    let query = supabase
-      .from('bookings')
-      .select(
-        'booking_code, passenger_name, passenger_whatsapp, trip_type, pickup_datetime, ' +
-          'fare_amount, currency, payment_method, payment_status, booking_status, driver_ride_status, ' +
-          'assigned_driver_id, created_at',
-        { count: 'exact' }
-      )
-      .order('created_at', { ascending: false })
-      .range(offset, offset + limit - 1);
-
-    if (req.query.booking_status) query = query.eq('booking_status', req.query.booking_status);
-    if (req.query.payment_status) query = query.eq('payment_status', req.query.payment_status);
-
-    const { data, error, count } = await query;
-    if (error) { console.error('admin query error:', error); return res.status(500).json({ error: 'Unexpected server error' }); }
-
-    return res.json({ total: count ?? data.length, limit, offset, bookings: data });
+    const { rows, total } = await adminRepository.listBookings({
+      limit, offset, bookingStatus: req.query.booking_status, paymentStatus: req.query.payment_status,
+    });
+    return res.json({ total, limit, offset, bookings: rows });
   } catch (err) {
     console.error('listBookings error:', err);
     return res.status(500).json({ error: 'Unexpected server error' });
@@ -323,20 +239,12 @@ async function listBookings(req, res) {
 // --- GET /api/admin/bookings/:bookingCode ----------------------------
 async function getBookingDetail(req, res) {
   try {
-    const { data: booking, error } = await supabase
-      .from('bookings')
-      .select('*')
-      .eq('booking_code', req.params.bookingCode)
-      .single();
-    if (error || !booking) {
+    const booking = await adminRepository.bookingDetail(req.params.bookingCode);
+    if (!booking) {
       return res.status(404).json({ error: 'Booking not found' });
     }
 
-    const { data: proofs } = await supabase
-      .from('payment_proofs')
-      .select('id, file_url, file_name, file_mime_type, file_size_bytes, status, rejection_reason, reviewed_at, created_at')
-      .eq('booking_id', booking.id)
-      .order('created_at', { ascending: false });
+    const proofs = await adminRepository.proofs(booking.id);
 
     // Attach a short-lived signed download URL to each proof so the admin
     // can view the private file. Best-effort per proof.
@@ -352,11 +260,7 @@ async function getBookingDetail(req, res) {
       })
     );
 
-    const { data: payments } = await supabase
-      .from('payments')
-      .select('id, provider, amount, currency, status, manual_reference, verified_by_system, verification_mode, verified_at, created_at')
-      .eq('booking_id', booking.id)
-      .order('created_at', { ascending: false });
+    const payments = await adminRepository.payments(booking.id);
 
     // Assigned driver (name/phone) + when the assignment happened, so the
     // admin sees Accepted Time / Assigned Driver / delivery status at a
@@ -364,24 +268,11 @@ async function getBookingDetail(req, res) {
     let driver = null;
     let driverAssignedAt = null;
     if (booking.assigned_driver_id) {
-      const { data: d } = await supabase
-        .from('profiles')
-        .select('id, full_name, mobile_number, whatsapp_number')
-        .eq('id', booking.assigned_driver_id)
-        .maybeSingle();
-      driver = d || null;
-      const { data: ev } = await supabase
-        .from('tracking_events')
-        .select('created_at')
-        .eq('booking_id', booking.id)
-        .eq('event_type', 'driver_assigned')
-        .order('created_at', { ascending: false })
-        .limit(1)
-        .maybeSingle();
-      driverAssignedAt = ev ? ev.created_at : null;
+      driver = await adminRepository.driverContact(booking.assigned_driver_id);
+      driverAssignedAt = await adminRepository.driverAssignedAt(booking.id);
     }
 
-    return res.json({ booking, proofs: proofsWithUrls, payments: payments || [], driver, driverAssignedAt });
+    return res.json({ booking, proofs: proofsWithUrls, payments, driver, driverAssignedAt });
   } catch (err) {
     console.error('getBookingDetail error:', err);
     return res.status(500).json({ error: 'Unexpected server error' });
@@ -475,29 +366,16 @@ async function assignDriver(req, res) {
     }
 
     // Confirm the target is a real driver profile.
-    const { data: driver, error: driverErr } = await supabase
-      .from('profiles')
-      .select('id, full_name, role')
-      .eq('id', driverId)
-      .single();
-    if (driverErr || !driver) {
+    const driver = await adminRepository.driverForAssignment(driverId);
+    if (!driver) {
       return res.status(404).json({ error: 'Driver profile not found' });
     }
     if (driver.role !== 'driver') {
       return res.status(400).json({ error: 'Target profile is not a driver' });
     }
 
-    const { data: updated, error } = await supabase
-      .from('bookings')
-      .update({
-        assigned_driver_id: driver.id,
-        driver_ride_status: 'assigned',
-        booking_status: 'driver_assigned',
-      })
-      .eq('id', booking.id)
-      .select('booking_code, booking_status, driver_ride_status')
-      .single();
-    if (error) { console.error('admin query error:', error); return res.status(500).json({ error: 'Unexpected server error' }); }
+    const updated = await adminRepository.assignDriver(booking.id, driver.id);
+    if (!updated) return res.status(409).json({ error: 'Could not assign driver to this booking' });
 
     await addTrackingEvent(booking.id, {
       eventType: 'driver_assigned',
@@ -529,20 +407,9 @@ async function assignDriver(req, res) {
 // Lists a driver's verification documents with short-lived signed download URLs.
 async function listDriverDocuments(req, res) {
   try {
-    const { data: driver, error: dErr } = await supabase
-      .from('profiles')
-      .select('id, full_name, email, whatsapp_number, driver_approved, driver_verification_status')
-      .eq('id', req.params.driverId)
-      .eq('role', 'driver')
-      .maybeSingle();
-    if (dErr || !driver) return res.status(404).json({ error: 'Driver not found' });
-
-    const { data: docs, error } = await supabase
-      .from('driver_documents')
-      .select('id, doc_type, status, rejection_reason, file_name, mime_type, expiry_date, storage_path, reviewed_at, created_at')
-      .eq('driver_id', req.params.driverId)
-      .order('created_at', { ascending: false });
-    if (error) { console.error('listDriverDocuments error:', error); return res.status(500).json({ error: 'Unexpected server error' }); }
+    const driver = await adminRepository.driverDocumentSummary(req.params.driverId);
+    if (!driver) return res.status(404).json({ error: 'Driver not found' });
+    const docs = await adminRepository.driverDocuments(req.params.driverId);
 
     // Attach a signed download URL per doc (best-effort; never expose storage_path).
     const documents = [];
@@ -585,45 +452,15 @@ async function reviewDriverDocument(req, res) {
       return res.status(400).json({ error: 'rejection_reason is required when rejecting' });
     }
 
-    const { data: doc, error: updErr } = await supabase
-      .from('driver_documents')
-      .update({
-        status,
-        rejection_reason: reason,
-        reviewed_by_admin_id: adminId(req),
-        reviewed_at: new Date().toISOString(),
-      })
-      .eq('id', req.params.docId)
-      .eq('driver_id', req.params.driverId)
-      .select('id, doc_type, status')
-      .single();
-    if (updErr || !doc) return res.status(404).json({ error: 'Document not found for this driver' });
-
-    // Recompute the driver's overall standing.
-    const { data: allDocs } = await supabase
-      .from('driver_documents')
-      .select('doc_type, status')
-      .eq('driver_id', req.params.driverId);
-    const verifiedTypes = new Set((allDocs || []).filter((d) => d.status === 'verified').map((d) => d.doc_type));
-    const allRequiredVerified = config.driverDocs.requiredTypes.every((t) => verifiedTypes.has(t));
-
-    let verificationStatus;
-    let driverApproved;
-    if (status === 'rejected') {
-      verificationStatus = 'rejected';
-      driverApproved = false;
-    } else if (allRequiredVerified) {
-      verificationStatus = 'approved';
-      driverApproved = true;
-    } else {
-      verificationStatus = 'submitted';
-      driverApproved = false;
-    }
-
-    await supabase
-      .from('profiles')
-      .update({ driver_verification_status: verificationStatus, driver_approved: driverApproved })
-      .eq('id', req.params.driverId);
+    const review = await adminRepository.reviewDriverDocument({
+      driverId:req.params.driverId,docId:req.params.docId,status,reason,adminId:adminId(req),
+      requiredTypes:config.driverDocs.requiredTypes,
+    });
+    if (!review) return res.status(404).json({ error: 'Document not found for this driver' });
+    const {doc,driverApproved,verificationStatus,allRequiredVerified}= {
+      doc:review,driverApproved:review.driverApproved,verificationStatus:review.verificationStatus,
+      allRequiredVerified:review.allRequiredVerified,
+    };
 
     return res.json({
       docId: doc.id,

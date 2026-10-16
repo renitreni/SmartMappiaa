@@ -9,28 +9,22 @@
 //
 // Business rules live in lib/merchantHours.js; this file is transport only.
 // ---------------------------------------------------------------------
-const { supabase } = require('./../lib/supabase');
+const database = require('../lib/database/pool');
 const { listHours, replaceHours, setAcceptingOrders } = require('../lib/merchantHours');
 const { logAudit } = require('../lib/audit');
 
 async function loadMerchant(id) {
-  const { data } = await supabase
-    .from('merchants')
-    .select('id, name, vertical, accepting_orders')
-    .eq('id', id)
-    .maybeSingle();
-  return data || null;
+  const { rows } = await database.query(
+    'SELECT id,name,vertical,accepting_orders FROM public.merchants WHERE id=$1 LIMIT 1', [id]);
+  return rows[0] || null;
 }
 
 // merchants.owner_id is unique (0009), so one owner resolves to one merchant
 // across both verticals.
 async function loadOwnedMerchant(ownerId) {
-  const { data } = await supabase
-    .from('merchants')
-    .select('id, name, vertical, accepting_orders')
-    .eq('owner_id', ownerId)
-    .maybeSingle();
-  return data || null;
+  const { rows } = await database.query(
+    'SELECT id,name,vertical,accepting_orders FROM public.merchants WHERE owner_id=$1 LIMIT 1', [ownerId]);
+  return rows[0] || null;
 }
 
 async function respondWithHours(res, merchant) {

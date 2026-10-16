@@ -16,7 +16,7 @@
 //      in 0029 only stop the anon key. Exact stock is sales velocity, so
 //      the response carries a banded availability instead.
 // ---------------------------------------------------------------------
-const { supabase } = require('../../lib/supabase');
+const storefrontRepository = require('../../repositories/storefrontRepository');
 const { config } = require('../../lib/config');
 const { logShopEvent } = require('../../lib/foodEvents');
 const { availabilityBand } = require('../../lib/shopMoney');
@@ -24,8 +24,6 @@ const { publicHoursState, groupHoursByMerchant } = require('../../lib/storeHours
 const { deliveryTerms } = require('../../lib/deliveryPricing');
 const { getMaxDistanceKm } = require('../../lib/settings');
 
-const PUBLIC_STORE_FIELDS =
-  'id, name, cuisine_type, description, logo_url, address, lat, lng, service_radius_km, is_featured, badge, accepting_orders';
 
 // Whitelist a catalogue row for public consumption. This function is the
 // single place a product becomes customer-visible; net_price and
@@ -66,23 +64,8 @@ function publicProduct(p) {
 async function ratingsForStores(merchantIds) {
   const out = new Map();
   if (!merchantIds.length) return out;
-  const { data, error } = await supabase
-    .from('shop_ratings')
-    .select('merchant_id, product_rating')
-    .in('merchant_id', merchantIds);
-  if (error) {
-    console.error('ratingsForStores error:', error);
-    return out;
-  }
-  const agg = new Map();
-  for (const r of data || []) {
-    const e = agg.get(r.merchant_id) || { sum: 0, n: 0 };
-    e.sum += Number(r.product_rating) || 0;
-    e.n += 1;
-    agg.set(r.merchant_id, e);
-  }
-  for (const [mid, e] of agg) {
-    out.set(mid, { rating: Math.round((e.sum / e.n) * 10) / 10, reviewCount: e.n });
+  for (const r of await storefrontRepository.ratings('shop', merchantIds)) {
+    out.set(r.merchant_id, { rating: Number(r.rating), reviewCount: Number(r.review_count) });
   }
   return out;
 }
@@ -93,35 +76,12 @@ async function listStores(req, res) {
     const category = (req.query.category || '').toString().trim();
     const featuredOnly = String(req.query.featured || '') === 'true';
 
-    let query = supabase
-      .from('merchants')
-      .select(PUBLIC_STORE_FIELDS)
-      .eq('vertical', 'shop')
-      .eq('is_active', true)
-      .eq('status', 'active')
-      .order('is_featured', { ascending: false })
-      .order('name')
-      .limit(100);
-
-    // Escape LIKE wildcards so user input can't turn into a pattern.
-    if (q) query = query.ilike('name', `%${q.replace(/[%_]/g, '\\$&')}%`);
-    if (category) query = query.eq('cuisine_type', category);
-    if (featuredOnly) query = query.eq('is_featured', true);
-
-    const { data, error } = await query;
-    if (error) {
-      console.error('listStores error:', error);
-      return res.status(500).json({ error: 'Could not load stores' });
-    }
+    const data = await storefrontRepository.listMerchants('shop', {
+      q, category, featured: featuredOnly, limit: 100,
+    });
 
     // Distinct store categories drive the filter chips on discovery.
-    const { data: categories } = await supabase
-      .from('merchants')
-      .select('cuisine_type')
-      .eq('vertical', 'shop')
-      .eq('is_active', true)
-      .eq('status', 'active')
-      .not('cuisine_type', 'is', null);
+    const categories = await storefrontRepository.cuisines('shop');
 
     const ratingMap = await ratingsForStores((data || []).map((m) => m.id));
 
@@ -129,14 +89,7 @@ async function listStores(req, res) {
     // A closed store still ships — it stays on the grid, greyed out, showing
     // when it reopens — so this deliberately does NOT filter anything out.
     const storeIds = (data || []).map((m) => m.id);
-    let hourRows = [];
-    if (storeIds.length > 0) {
-      const res2 = await supabase
-        .from('merchant_hours')
-        .select('merchant_id, weekday, opens_at, closes_at')
-        .in('merchant_id', storeIds);
-      hourRows = res2.data || [];
-    }
+    const hourRows = await storefrontRepository.hours(storeIds);
     const hoursByMerchant = groupHoursByMerchant(hourRows);
 
     return res.json({
@@ -169,16 +122,7 @@ async function listStores(req, res) {
 async function getStore(req, res) {
   try {
     const { id } = req.params;
-    const { data: store, error } = await supabase
-      .from('merchants')
-      .select(`${PUBLIC_STORE_FIELDS}, vertical, is_active, status`)
-      .eq('id', id)
-      .maybeSingle();
-
-    if (error) {
-      console.error('getStore error:', error);
-      return res.status(500).json({ error: 'Could not load the store' });
-    }
+    const store = await storefrontRepository.merchantById('shop', id);
     // A food merchant reached by id is a 404 here, not a 403 — the storefront
     // must not confirm that some other kind of merchant exists at that id.
     // Note a CLOSED store is still a 200: the page renders with a banner and
@@ -187,12 +131,7 @@ async function getStore(req, res) {
       return res.status(404).json({ error: 'Store not found or no longer listed' });
     }
 
-    const { data: storeHourRows } = await supabase
-      .from('merchant_hours')
-      .select('weekday, opens_at, closes_at')
-      .eq('merchant_id', store.id)
-      .order('weekday')
-      .order('opens_at');
+    const storeHourRows = await storefrontRepository.hours([store.id]);
     Object.assign(
       store,
       publicHoursState({
@@ -201,24 +140,8 @@ async function getStore(req, res) {
       })
     );
 
-    const [{ data: categories }, { data: products }] = await Promise.all([
-      supabase
-        .from('product_categories')
-        .select('id, name, sort_order')
-        .eq('merchant_id', id)
-        .eq('is_active', true)
-        .order('sort_order'),
-      // Unavailable products are included, flagged, so the catalogue can
-      // render them greyed out instead of silently vanishing.
-      supabase
-        .from('products')
-        .select(
-          'id, category_id, name, description, brand, unit, weight_grams, price, image_url, ' +
-            'is_available, track_stock, stock_quantity, low_stock_threshold, ' +
-            'product_variants ( id, label, sku, price, stock_quantity, sort_order, is_available )'
-        )
-        .eq('merchant_id', id)
-        .order('name'),
+    const [categories, products] = await Promise.all([
+      storefrontRepository.menuCategories(id), storefrontRepository.products(id),
     ]);
 
     logShopEvent({
@@ -231,8 +154,8 @@ async function getStore(req, res) {
     const { vertical, is_active, status, ...publicStore } = store;
     return res.json({
       store: publicStore,
-      categories: categories || [],
-      products: (products || []).map(publicProduct),
+      categories,
+      products: products.map(publicProduct),
       deliveryFee: config.shop.deliveryFeeSar,
       delivery: deliveryTerms(config.shop.deliveryFeeSar, await getMaxDistanceKm()),
       minOrder: config.shop.minOrderSar,
@@ -243,4 +166,4 @@ async function getStore(req, res) {
   }
 }
 
-module.exports = { listStores, getStore, publicProduct, PUBLIC_STORE_FIELDS };
+module.exports = { listStores, getStore, publicProduct };

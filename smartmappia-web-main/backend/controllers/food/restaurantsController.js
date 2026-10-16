@@ -7,15 +7,13 @@
 // safe display fields. The optional bearer token is used purely to tag
 // the view_menu analytics event with a user id.
 // ---------------------------------------------------------------------
-const { supabase } = require('../../lib/supabase');
+const storefrontRepository = require('../../repositories/storefrontRepository');
 const { config } = require('../../lib/config');
 const { logFoodEvent } = require('../../lib/foodEvents');
 const { publicHoursState, groupHoursByMerchant } = require('../../lib/storeHours');
 const { deliveryTerms } = require('../../lib/deliveryPricing');
 const { getMaxDistanceKm } = require('../../lib/settings');
 
-const PUBLIC_MERCHANT_FIELDS =
-  'id, name, cuisine_type, description, logo_url, address, lat, lng, service_radius_km, is_featured, badge, accepting_orders';
 
 // Real restaurant ratings, aggregated from the `ratings` table (food_rating).
 // Returns Map(merchant_id -> { rating, reviewCount }); empty until customers
@@ -23,23 +21,8 @@ const PUBLIC_MERCHANT_FIELDS =
 async function ratingsForMerchants(merchantIds) {
   const out = new Map();
   if (!merchantIds.length) return out;
-  const { data, error } = await supabase
-    .from('ratings')
-    .select('merchant_id, food_rating')
-    .in('merchant_id', merchantIds);
-  if (error) {
-    console.error('ratingsForMerchants error:', error);
-    return out;
-  }
-  const agg = new Map();
-  for (const r of data || []) {
-    const e = agg.get(r.merchant_id) || { sum: 0, n: 0 };
-    e.sum += Number(r.food_rating) || 0;
-    e.n += 1;
-    agg.set(r.merchant_id, e);
-  }
-  for (const [mid, e] of agg) {
-    out.set(mid, { rating: Math.round((e.sum / e.n) * 10) / 10, reviewCount: e.n });
+  for (const r of await storefrontRepository.ratings('food', merchantIds)) {
+    out.set(r.merchant_id, { rating: Number(r.rating), reviewCount: Number(r.review_count) });
   }
   return out;
 }
@@ -50,74 +33,25 @@ async function listRestaurants(req, res) {
     const cuisine = (req.query.cuisine || '').toString().trim();
     const featuredOnly = String(req.query.featured || '') === 'true';
 
-    let query = supabase
-      .from('merchants')
-      .select(PUBLIC_MERCHANT_FIELDS)
-      // merchants is shared with the Ecommerce vertical (migration 0026).
-      // Without this filter, stores would appear in restaurant discovery.
-      .eq('vertical', 'food')
-      .eq('is_active', true)
-      .eq('status', 'active')
-      // Featured restaurants lead the grid (drives the homepage section),
-      // then alphabetical.
-      .order('is_featured', { ascending: false })
-      .order('name')
-      .limit(100);
-
-    // Escape LIKE wildcards so user input can't turn into a pattern.
-    if (q) query = query.ilike('name', `%${q.replace(/[%_]/g, '\\$&')}%`);
-    if (cuisine) query = query.eq('cuisine_type', cuisine);
-    if (featuredOnly) query = query.eq('is_featured', true);
-
-    const { data, error } = await query;
-    if (error) {
-      console.error('listRestaurants error:', error);
-      return res.status(500).json({ error: 'Could not load restaurants' });
-    }
+    const data = await storefrontRepository.listMerchants('food', {
+      q, category: cuisine, featured: featuredOnly, limit: 100,
+    });
 
     // Distinct cuisines drive the filter chips on the discovery screen.
-    const { data: cuisines } = await supabase
-      .from('merchants')
-      .select('cuisine_type')
-      .eq('vertical', 'food')
-      .eq('is_active', true)
-      .eq('status', 'active')
-      .not('cuisine_type', 'is', null);
+    const cuisines = await storefrontRepository.cuisines('food');
 
     const ratingMap = await ratingsForMerchants((data || []).map((m) => m.id));
 
     // Menu readiness: discovery cards need to know which restaurants still
     // have an empty menu so the UI can warn instead of opening a blank page.
     const merchantIds = (data || []).map((m) => m.id);
-    const itemCountByMerchant = new Map();
-    if (merchantIds.length) {
-      const { data: menuRows, error: menuErr } = await supabase
-        .from('menu_items')
-        .select('merchant_id')
-        .in('merchant_id', merchantIds);
-      if (menuErr) {
-        console.error('listRestaurants menu count error:', menuErr);
-      } else {
-        for (const row of menuRows || []) {
-          itemCountByMerchant.set(
-            row.merchant_id,
-            (itemCountByMerchant.get(row.merchant_id) || 0) + 1
-          );
-        }
-      }
-    }
+    const itemCountByMerchant = new Map((await storefrontRepository.menuCounts(merchantIds))
+      .map((row) => [row.merchant_id, Number(row.item_count)]));
 
     // Opening hours for the whole page in one round trip. A closed
     // restaurant still ships — it stays on the grid, greyed out, showing
     // when it reopens — so this deliberately filters nothing out.
-    let hourRows = [];
-    if (merchantIds.length) {
-      const { data: rows } = await supabase
-        .from('merchant_hours')
-        .select('merchant_id, weekday, opens_at, closes_at')
-        .in('merchant_id', merchantIds);
-      hourRows = rows || [];
-    }
+    const hourRows = await storefrontRepository.hours(merchantIds);
     const hoursByMerchant = groupHoursByMerchant(hourRows);
 
     return res.json({
@@ -153,16 +87,7 @@ async function listRestaurants(req, res) {
 async function getRestaurant(req, res) {
   try {
     const { id } = req.params;
-    const { data: merchant, error } = await supabase
-      .from('merchants')
-      .select(`${PUBLIC_MERCHANT_FIELDS}, vertical, is_active, status`)
-      .eq('id', id)
-      .maybeSingle();
-
-    if (error) {
-      console.error('getRestaurant error:', error);
-      return res.status(500).json({ error: 'Could not load the restaurant' });
-    }
+    const merchant = await storefrontRepository.merchantById('food', id);
     // A shop merchant reached by id is a 404 here, not a partial render — the
     // food storefront must not confirm that some other kind of merchant sits
     // at that id, and its catalogue lives in different tables anyway.
@@ -172,12 +97,7 @@ async function getRestaurant(req, res) {
       return res.status(404).json({ error: 'Restaurant not found or no longer listed' });
     }
 
-    const { data: merchantHours } = await supabase
-      .from('merchant_hours')
-      .select('weekday, opens_at, closes_at')
-      .eq('merchant_id', merchant.id)
-      .order('weekday')
-      .order('opens_at');
+    const merchantHours = await storefrontRepository.hours([merchant.id]);
     Object.assign(
       merchant,
       publicHoursState({
@@ -186,20 +106,8 @@ async function getRestaurant(req, res) {
       })
     );
 
-    const [{ data: categories }, { data: items }] = await Promise.all([
-      supabase
-        .from('menu_categories')
-        .select('id, name, sort_order')
-        .eq('merchant_id', id)
-        .eq('is_active', true)
-        .order('sort_order'),
-      // Unavailable items are included, flagged, so the menu can render
-      // them greyed out instead of silently vanishing.
-      supabase
-        .from('menu_items')
-        .select('id, category_id, name, description, price, item_type, image_url, is_available, size_options')
-        .eq('merchant_id', id)
-        .order('name'),
+    const [categories, items] = await Promise.all([
+      storefrontRepository.menuCategories(id), storefrontRepository.menuItems(id),
     ]);
 
     // PRD analytics: view_menu fires when a restaurant profile is opened.

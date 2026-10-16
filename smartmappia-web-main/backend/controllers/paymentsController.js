@@ -4,11 +4,11 @@
 //   - createProofUploadUrl   : POST /api/bookings/:bookingCode/payment-proof/signed-url
 //   - recordPaymentProof     : POST /api/bookings/:bookingCode/payment-proof
 //
-// The file itself is uploaded by the browser directly to Supabase Storage
+// The file itself is uploaded by the browser directly to S3-compatible storage
 // using the signed URL — it never touches this server. Business rules live
 // in lib/payments.js so the verify state machine is shared with admin review.
 // ---------------------------------------------------------------------
-const { supabase } = require('../lib/supabase');
+const paymentProofRepository = require('../repositories/paymentProofRepository');
 const { config } = require('../lib/config');
 const { fareBreakdown, payableAmount, bookingVat } = require('../lib/fare');
 const { addTrackingEvent } = require('../lib/tracking');
@@ -24,16 +24,7 @@ const {
 const PAYABLE_STATUSES = ['awaiting_proof', 'proof_uploaded', 'under_review', 'rejected'];
 
 async function loadBooking(bookingCode) {
-  const { data, error } = await supabase
-    .from('bookings')
-    .select(
-      'id, booking_code, fare_amount, vat_amount, vat_rate, total_amount, currency, ' +
-        'payment_method, payment_status, booking_status'
-    )
-    .eq('booking_code', bookingCode)
-    .single();
-  if (error || !data) return null;
-  return data;
+  return paymentProofRepository.bookingForPayment(bookingCode);
 }
 
 // Cash rides pay the driver at pickup — none of the online STC Pay proof
@@ -184,35 +175,7 @@ async function recordPaymentProof(req, res) {
       return res.status(400).json({ error: 'Validation failed', details: errors });
     }
 
-    const { data: proof, error: proofErr } = await supabase
-      .from('payment_proofs')
-      .insert({
-        booking_id: booking.id,
-        file_url: b.path,
-        file_name: b.file_name ?? null,
-        file_mime_type: b.mime_type ?? null,
-        file_size_bytes: b.size_bytes ?? null,
-        file_hash: b.file_hash ?? null,
-        status: 'uploaded',
-      })
-      .select('id')
-      .single();
-    if (proofErr) {
-      console.error('recordPaymentProof insert error:', proofErr);
-      return res.status(500).json({ error: 'Could not record payment proof' });
-    }
-
-    const { error: bookErr } = await supabase
-      .from('bookings')
-      .update({
-        payment_status: 'proof_uploaded',
-        booking_status: 'payment_under_review',
-      })
-      .eq('id', booking.id);
-    if (bookErr) {
-      console.error('recordPaymentProof booking update error:', bookErr);
-      return res.status(500).json({ error: 'Could not update booking status' });
-    }
+    const proof = await paymentProofRepository.record({ booking, proof: b });
 
     await addTrackingEvent(booking.id, {
       eventType: 'proof_uploaded',

@@ -17,3 +17,7 @@ test('staging may explicitly override the API and trailing slashes are normalize
 test('development uses the Vite same-origin proxy', () => {
   assert.strictEqual(resolveApiBase({ dev: true, configured: 'https://api.smartmappia.com' }), '');
 });
+
+test('Docker single-origin builds use the frontend origin for API requests', () => {
+  assert.strictEqual(resolveApiBase({ dev: false, configured: '/' }), '');
+});

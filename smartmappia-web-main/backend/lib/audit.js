@@ -8,17 +8,15 @@
 // never breaks the request that triggered it. Never put secrets, tokens,
 // or raw payment data in `meta`.
 // ---------------------------------------------------------------------
-const { supabase } = require('./supabase');
+const database = require('./database/pool');
 
 async function logAudit({ actorId = null, action, resourceType = null, resourceId = null, meta = null }) {
   try {
-    await supabase.from('audit_logs').insert({
-      actor_id: actorId,
-      action,
-      resource_type: resourceType,
-      resource_id: resourceId != null ? String(resourceId) : null,
-      meta,
-    });
+    await database.query(
+      `INSERT INTO public.audit_logs(actor_id,action,resource_type,resource_id,meta)
+       VALUES ($1,$2,$3,$4,$5)`,
+      [actorId, action, resourceType, resourceId != null ? String(resourceId) : null, meta],
+    );
   } catch (err) {
     console.error('logAudit error:', err.message || err);
   }

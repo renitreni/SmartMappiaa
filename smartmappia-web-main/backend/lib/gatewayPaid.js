@@ -21,7 +21,7 @@
 // Every path here is idempotent. A replayed webhook, or the synchronous
 // confirm racing the webhook, is a no-op rather than a double-credit.
 // ---------------------------------------------------------------------
-const { supabase } = require('./supabase');
+const paymentRepository = require('../repositories/gatewayPaymentRepository');
 const { payableAmount } = require('./fare');
 
 // Tolerance for the amount cross-check. Tap returns decimals and our totals
@@ -88,17 +88,7 @@ const VERTICALS = {
     // absence of that rather than a single named status.
     unsettledPaymentStatus: 'pending',
     async load(code) {
-      const { data } = await supabase
-        .from('bookings')
-        .select(
-          // customer_id:user_id — see the note in cardPaymentsController; the
-          // ride table names its owner differently to the two order tables.
-          'id, booking_code, customer_id:user_id, fare_amount, vat_amount, vat_rate, total_amount, ' +
-            'currency, payment_method, payment_status, booking_status'
-        )
-        .eq('booking_code', code)
-        .maybeSingle();
-      return data || null;
+      return paymentRepository.rideByCode(code);
     },
     // Rides charge fare + VAT, and that snapshot is authoritative.
     expectedAmount: (booking) => payableAmount(booking),
@@ -135,15 +125,7 @@ async function recordChargeStart({ vertical, code, chargeId }) {
   if (!isKnownVertical(vertical) || !code || !chargeId) return false;
   const handler = VERTICALS[vertical];
   try {
-    const { error } = await supabase
-      .from(handler.table)
-      .update({ gateway_charge_id: chargeId })
-      .eq(handler.codeColumn, code);
-    if (error) {
-      console.error('recordChargeStart failed', { vertical, code, error: error.message });
-      return false;
-    }
-    return true;
+    return await paymentRepository.recordChargeStart(vertical, code, chargeId);
   } catch (err) {
     console.error('recordChargeStart threw', { vertical, code, err: err && err.message });
     return false;
@@ -160,12 +142,8 @@ async function recordChargeStart({ vertical, code, chargeId }) {
 async function findByChargeId(chargeId) {
   if (!chargeId) return null;
   for (const [vertical, handler] of Object.entries(VERTICALS)) {
-    const { data } = await supabase
-      .from(handler.table)
-      .select(`${handler.codeColumn}`)
-      .eq('gateway_charge_id', chargeId)
-      .maybeSingle();
-    if (data) return { vertical, code: data[handler.codeColumn] };
+    const data = await paymentRepository.findByChargeId(vertical, chargeId);
+    if (data) return { vertical, code: data.code };
   }
   return null;
 }

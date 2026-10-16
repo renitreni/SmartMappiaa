@@ -7,7 +7,7 @@
 // that these transitions were previously fully trusted, unchecked client
 // claims.
 // ---------------------------------------------------------------------
-const { supabase } = require('./supabase');
+const database = require('./database/pool');
 const { config } = require('./config');
 const { distanceMeters } = require('./geo');
 
@@ -22,14 +22,14 @@ async function resolveDriverPosition(driverId, bodyLat, bodyLng) {
     return { lat: bodyLat, lng: bodyLng };
   }
 
-  const { data: loc, error } = await supabase
-    .from('driver_locations')
-    .select('lat, lng, recorded_at')
-    .eq('driver_id', driverId)
-    .order('recorded_at', { ascending: false })
-    .limit(1)
-    .maybeSingle();
-  if (error) {
+  let loc;
+  try {
+    const result = await database.query(
+      `SELECT lat, lng, recorded_at FROM public.driver_locations
+        WHERE driver_id=$1 ORDER BY recorded_at DESC LIMIT 1`, [driverId],
+    );
+    loc = result.rows[0];
+  } catch (error) {
     console.error('resolveDriverPosition lookup error:', error);
     return null;
   }

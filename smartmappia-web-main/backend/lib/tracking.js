@@ -5,21 +5,22 @@
 // Grab-style tracking page (spec §7). Centralized so controllers stay thin
 // and event writes look identical everywhere.
 // ---------------------------------------------------------------------
-const { supabase } = require('./supabase');
+const database = require('./database/pool');
 const { config } = require('./config');
 
 // Append one timeline event. Best-effort: a failed event write must never
 // break the primary action, so we surface the error to the caller to log
 // but callers generally do not abort on it.
 async function addTrackingEvent(bookingId, { eventType, title, message, createdByUserId = null }) {
-  const { error } = await supabase.from('tracking_events').insert({
-    booking_id: bookingId,
-    event_type: eventType,
-    title: title ?? null,
-    message: message ?? null,
-    created_by_user_id: createdByUserId,
-  });
-  return { error };
+  try {
+    await database.query(
+      `INSERT INTO public.tracking_events(booking_id,event_type,title,message,created_by_user_id)
+       VALUES ($1,$2,$3,$4,$5)`, [bookingId,eventType,title ?? null,message ?? null,createdByUserId],
+    );
+    return { error: null };
+  } catch (error) {
+    return { error };
+  }
 }
 
 // The driver's most recent GPS fix, or null if it is too old to be believed.
@@ -38,14 +39,12 @@ async function addTrackingEvent(bookingId, { eventType, title, message, createdB
 // Returns { lat, lng, at, heading, speedKmh } | null.
 async function latestDriverFix(driverId) {
   if (!driverId) return null;
-  const { data, error } = await supabase
-    .from('driver_locations')
-    .select('lat, lng, recorded_at, heading, speed_kmh')
-    .eq('driver_id', driverId)
-    .order('recorded_at', { ascending: false })
-    .limit(1)
-    .maybeSingle();
-  if (error || !data) return null;
+  const { rows } = await database.query(
+    `SELECT lat,lng,recorded_at,heading,speed_kmh FROM public.driver_locations
+     WHERE driver_id=$1 ORDER BY recorded_at DESC LIMIT 1`, [driverId],
+  );
+  const data=rows[0];
+  if (!data) return null;
 
   const ageMs = Date.now() - new Date(data.recorded_at).getTime();
   if (!Number.isFinite(ageMs) || ageMs > config.dispatch.driverFreshMinutes * 60 * 1000) return null;
