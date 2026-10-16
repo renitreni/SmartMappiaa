@@ -12,7 +12,7 @@
 const authRepository = require('../repositories/authRepository');
 const profileRepository = require('../repositories/profileRepository');
 const merchantRepository = require('../repositories/merchantRepository');
-const { hashPassword, verifyPassword } = require('../lib/passwords');
+const { hashPassword, verifyPassword, isLegacyHash } = require('../lib/passwords');
 const mailer = require('../lib/mailer');
 const { config } = require('../lib/config');
 const { buildProfileUpsert } = require('../lib/profileSchema');
@@ -74,6 +74,15 @@ async function login(req, res) {
     }
     if (account.disabled_at) {
       return res.status(403).json({ error: 'This account has been deactivated.' });
+    }
+    // Migrated Supabase accounts still carry bcrypt hashes. Re-hash to
+    // scrypt on first successful login so the legacy path can be retired.
+    // A rehash failure must not block the login — the bcrypt path keeps
+    // working until it succeeds on a later attempt.
+    if (isLegacyHash(account.password_hash)) {
+      hashPassword(password)
+        .then((passwordHash) => authRepository.updatePassword(account.id, passwordHash))
+        .catch((err) => console.error('legacy password rehash failed:', err.message));
     }
     const user = await authRepository.recordLogin(account.id);
     if (!user) return res.status(403).json({ error: 'This account has been deactivated.' });
