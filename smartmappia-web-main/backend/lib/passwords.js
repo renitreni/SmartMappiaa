@@ -20,7 +20,37 @@ async function hashPassword(password) {
   return `scrypt$${PARAMETERS.N}$${PARAMETERS.r}$${PARAMETERS.p}$${salt.toString('base64url')}$${key.toString('base64url')}`;
 }
 
+// ---------------------------------------------------------------------
+// Legacy bcrypt hashes (Supabase GoTrue `auth.users.encrypted_password`)
+// are verified here so migrated users keep their passwords. `verifyPassword`
+// accepts them transparently; `isLegacyHash` lets the login path re-hash
+// the account to scrypt on first successful use. Once every bcrypt hash is
+// gone from app_users this block can be removed.
+// ---------------------------------------------------------------------
+let bcrypt = null;
+try {
+  // Optional at require-time so the lib stays loadable without the
+  // dependency; verification of bcrypt hashes needs it installed.
+  bcrypt = require('bcryptjs');
+} catch {
+  bcrypt = null;
+}
+
+function isLegacyHash(stored) {
+  return /^\$2[aby]\$\d{2}\$/.test(String(stored || ''));
+}
+
+async function verifyBcryptPassword(password, stored) {
+  if (!bcrypt) return false;
+  try {
+    return await bcrypt.compare(String(password), String(stored));
+  } catch {
+    return false;
+  }
+}
+
 async function verifyPassword(password, stored) {
+  if (isLegacyHash(stored)) return verifyBcryptPassword(password, stored);
   const parts = String(stored || '').split('$');
   if (parts.length !== 6 || parts[0] !== 'scrypt') return false;
   const [, nRaw, rRaw, pRaw, saltRaw, keyRaw] = parts;
@@ -47,4 +77,4 @@ async function verifyPassword(password, stored) {
   }
 }
 
-module.exports = { hashPassword, verifyPassword, PARAMETERS };
+module.exports = { hashPassword, verifyPassword, isLegacyHash, PARAMETERS };
