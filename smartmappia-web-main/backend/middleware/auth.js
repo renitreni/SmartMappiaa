@@ -4,7 +4,6 @@
 //   requireToken          -> valid token only (profile may not exist yet)
 //   requireAuth           -> valid token + an existing profile  (req.userId)
 //   requireAdmin          -> requireAuth + role 'admin'         (req.adminId)
-//   requireSuperAdmin     -> requireAdmin + is_super_admin      (req.superAdminId)
 //   requireDriver         -> requireAuth + role 'driver'        (req.driverId)
 //   requireMerchant       -> requireAuth + role 'merchant'      (req.merchantOwnerId)
 //   requireMerchantVertical('food'|'shop')
@@ -67,27 +66,6 @@ function requireAdmin(req, res, next) {
   requireAuth(req, res, () => {
     if (req.role !== 'admin') return res.status(403).json({ error: 'Admin access required' });
     req.adminId = req.userId;
-    return next();
-  });
-}
-
-// The tier above admin (0043): may create, edit, deactivate and reset the
-// password of other admins, and may change app_settings.
-//
-// is_super_admin is a COLUMN, not a role — adding 'super_admin' to the
-// user_role enum would have failed every `role !== 'admin'` check above
-// and every is_admin() RLS policy, locking a super admin out of the very
-// portal they administer. Composing through requireAdmin also means a
-// super admin keeps the whole ordinary admin surface for free.
-//
-// Unlike requireDriver/requireMerchant there is NO bypass here: a plain
-// admin is exactly who this is meant to keep out.
-function requireSuperAdmin(req, res, next) {
-  requireAdmin(req, res, () => {
-    if (!req.profile.is_super_admin) {
-      return res.status(403).json({ error: 'Super admin access required' });
-    }
-    req.superAdminId = req.userId;
     return next();
   });
 }
@@ -180,7 +158,6 @@ module.exports = {
   requireToken,
   requireAuth,
   requireAdmin,
-  requireSuperAdmin,
   requireDriver,
   requireMerchant,
   requireMerchantVertical,

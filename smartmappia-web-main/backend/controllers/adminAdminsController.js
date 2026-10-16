@@ -1,6 +1,9 @@
 // ---------------------------------------------------------------------
-// Super-admin surface (migration 0043). Everything here sits behind
-// requireSuperAdmin — a plain admin gets 403, not a hidden button.
+// Admin account management (migration 0043, tier removed 2026-10).
+// Any admin may manage admin accounts, platform settings and login
+// activity; routes/admin.js only runs the router-wide requireAdmin.
+// Self-deactivation, demoting the last super admin, and ADMIN_EMAILS
+// accounts are still refused below.
 //
 //   listAdmins        : GET    /api/admin/admins
 //   createAdmin       : POST   /api/admin/admins
@@ -124,7 +127,7 @@ async function createAdmin(req, res) {
     );
 
     await logAudit({
-      actorId: req.superAdminId,
+      actorId: req.adminId,
       action: 'admin.create',
       resourceType: 'profile',
       resourceId: userId,
@@ -158,9 +161,9 @@ async function updateAdmin(req, res) {
     if (b.is_super_admin !== undefined && b.is_super_admin !== target.is_super_admin) {
       // Dropping your own super-admin flag is a one-way door: the moment it
       // is written you can no longer reach this endpoint to undo it.
-      if (target.id === req.superAdminId && !b.is_super_admin) {
+      if (target.id === req.adminId && !b.is_super_admin) {
         return res.status(409).json({
-          error: 'You cannot remove your own super admin access. Ask another super admin to do it.',
+          error: 'You cannot remove your own super admin access. Ask another admin to do it.',
         });
       }
       if (!b.is_super_admin && (await countOtherSuperAdmins(target.id)) === 0) {
@@ -176,7 +179,7 @@ async function updateAdmin(req, res) {
     await profileRepository.updateProfile(target.id, patch);
 
     await logAudit({
-      actorId: req.superAdminId,
+      actorId: req.adminId,
       action: 'admin.update',
       resourceType: 'profile',
       resourceId: target.id,
@@ -216,7 +219,7 @@ async function resetAdminPassword(req, res) {
     // The new password is deliberately NOT in meta: audit_logs is readable
     // by every admin, and a credential does not belong in a log row.
     await logAudit({
-      actorId: req.superAdminId,
+      actorId: req.adminId,
       action: 'admin.password_reset',
       resourceType: 'profile',
       resourceId: target.id,
@@ -235,7 +238,7 @@ async function deactivateAdmin(req, res) {
     const target = await loadAdmin(req.params.id);
     if (!target) return res.status(404).json({ error: 'Admin not found' });
 
-    if (target.id === req.superAdminId) {
+    if (target.id === req.adminId) {
       return res.status(409).json({ error: 'You cannot deactivate your own account.' });
     }
     if (isEnvAdmin(target.email)) {
@@ -256,10 +259,10 @@ async function deactivateAdmin(req, res) {
     if (!disabled) {
       return res.status(500).json({ error: 'Could not deactivate the account' });
     }
-    await profileRepository.updateProfile(target.id, { disabled_at: new Date().toISOString(), disabled_by: req.superAdminId });
+    await profileRepository.updateProfile(target.id, { disabled_at: new Date().toISOString(), disabled_by: req.adminId });
 
     await logAudit({
-      actorId: req.superAdminId,
+      actorId: req.adminId,
       action: 'admin.deactivate',
       resourceType: 'profile',
       resourceId: target.id,
@@ -281,7 +284,7 @@ async function reactivateAdmin(req, res) {
     await profileRepository.updateProfile(target.id, { disabled_at: null, disabled_by: null });
 
     await logAudit({
-      actorId: req.superAdminId,
+      actorId: req.adminId,
       action: 'admin.reactivate',
       resourceType: 'profile',
       resourceId: target.id,
@@ -335,7 +338,7 @@ async function updateSettings(req, res) {
       if (value !== null && (!Number.isFinite(value) || value <= 0)) {
         return res.status(400).json({ error: 'max_distance_km must be a positive number, or null for no limit' });
       }
-      await setMaxDistanceKm(value, req.superAdminId);
+      await setMaxDistanceKm(value, req.adminId);
       changed.max_distance_km = value;
     }
 
@@ -343,7 +346,7 @@ async function updateSettings(req, res) {
       if (typeof b.stcpay_enabled !== 'boolean') {
         return res.status(400).json({ error: 'stcpay_enabled must be true or false' });
       }
-      await setStcPayEnabled(b.stcpay_enabled, req.superAdminId);
+      await setStcPayEnabled(b.stcpay_enabled, req.adminId);
       changed.stcpay_enabled = b.stcpay_enabled;
     }
 
@@ -352,7 +355,7 @@ async function updateSettings(req, res) {
     // "who turned STC Pay off" without parsing meta.
     for (const [key, value] of Object.entries(changed)) {
       await logAudit({
-        actorId: req.superAdminId,
+        actorId: req.adminId,
         action: 'settings.update',
         resourceType: 'app_settings',
         resourceId: key,
