@@ -1,6 +1,6 @@
 const express = require('express');
 const router = express.Router();
-const { requireAdmin, requireSuperAdmin } = require('../middleware/auth');
+const { requireAdmin } = require('../middleware/auth');
 const { validateBody } = require('../lib/validate');
 const {
   getStats,
@@ -69,10 +69,10 @@ router.post(
   errors.resolveError
 );
 
-// --- Super admin only (migration 0043) --------------------------------
-// Managing who has the portal, and the platform-wide settings. This is
-// the one section a plain admin cannot reach: requireSuperAdmin runs in
-// ADDITION to the router-wide requireAdmin above, and there is no bypass.
+// --- Admin account management (was super admin only, migration 0043) ----
+// Any admin may manage admin accounts and platform settings; the router-wide
+// requireAdmin above is the only gate. Self-deactivation, demoting the last
+// super admin, and ADMIN_EMAILS accounts are still refused in the controller.
 //
 // Note the ordering rule from the errors section applies here too:
 // /login-events/summary is declared before any /login-events/:id would be.
@@ -83,10 +83,9 @@ const ADMIN_BODY = {
   is_super_admin: { type: 'boolean' },
 };
 
-router.get('/admins', requireSuperAdmin, supers.listAdmins);
+router.get('/admins', supers.listAdmins);
 router.post(
   '/admins',
-  requireSuperAdmin,
   validateBody({ email: { type: 'string', required: true, maxLength: 254 }, ...ADMIN_BODY }),
   supers.createAdmin
 );
@@ -94,20 +93,18 @@ router.post(
 // the same shape with the requirement dropped rather than a second copy.
 router.patch(
   '/admins/:id',
-  requireSuperAdmin,
   validateBody({ ...ADMIN_BODY, full_name: { type: 'string', maxLength: 120 } }),
   supers.updateAdmin
 );
-router.post('/admins/:id/password', requireSuperAdmin, supers.resetAdminPassword);
-router.post('/admins/:id/deactivate', requireSuperAdmin, supers.deactivateAdmin);
-router.post('/admins/:id/reactivate', requireSuperAdmin, supers.reactivateAdmin);
+router.post('/admins/:id/password', supers.resetAdminPassword);
+router.post('/admins/:id/deactivate', supers.deactivateAdmin);
+router.post('/admins/:id/reactivate', supers.reactivateAdmin);
 
 // Readable by any admin (knowing the distance limit is not privileged),
-// writable only by a super admin.
+// writable by any admin.
 router.get('/settings', supers.getSettings);
 router.patch(
   '/settings',
-  requireSuperAdmin,
   validateBody({
     max_distance_km: { type: 'number', min: 0.1, max: 100000, nullable: true },
     stcpay_enabled: { type: 'boolean' },
@@ -115,8 +112,8 @@ router.patch(
   supers.updateSettings
 );
 
-router.get('/login-events/summary', requireSuperAdmin, supers.loginEventSummary);
-router.get('/login-events', requireSuperAdmin, supers.listLoginEvents);
+router.get('/login-events/summary', supers.loginEventSummary);
+router.get('/login-events', supers.listLoginEvents);
 
 // --- Food Delivery oversight (PRD: merchant credit + reconciliation) ---
 // Restaurants are onboarded by ADMINS: they contact SmartMappia, an admin

@@ -125,19 +125,15 @@ export const ADMIN_NAV = [
   { id: 'shop', label: 'Shop', icon: ShoppingBag },
   { id: 'reports', label: 'Reports', icon: BarChart3 },
   { id: 'errors', label: 'Errors', icon: AlertTriangle },
-  // TEMPORARY: superOnly on 'admins' is commented out so every admin account
-  // sees the Admins menu. Restore by uncommenting the flag below. Settings
-  // remains super admin only. Either way this is presentation — the control
-  // is requireSuperAdmin on the backend routes, and hiding a tab is not it.
-  { id: 'admins', label: 'Admins', icon: ShieldCheck /* TEMPORARY: , superOnly: true */ },
-  { id: 'settings', label: 'Settings', icon: SlidersHorizontal, superOnly: true },
+  { id: 'admins', label: 'Admins', icon: ShieldCheck },
+  { id: 'settings', label: 'Settings', icon: SlidersHorizontal },
 ];
 
-// The tabs this account may actually see. Also used by AdminPage to
-// validate ?tab=, so a plain admin deep-linked to ?tab=admins lands on the
-// overview rather than on a tab whose every request would 403.
-export function adminNavFor(isSuperAdmin) {
-  return ADMIN_NAV.filter((n) => !n.superOnly || isSuperAdmin);
+// Every tab is visible to every admin (the backend super-admin tier was
+// removed); kept as a function so AdminPage's ?tab= validation has a stable
+// API to call.
+export function adminNavFor() {
+  return ADMIN_NAV;
 }
 
 const PAGE_COPY = {
@@ -234,7 +230,7 @@ function SidebarBrand({ expanded = false }) {
 }
 
 export default function AdminLayout({ activeTab, onTabChange, onRefresh, children }) {
-  const { user, signOut, isSuperAdmin } = useAuth();
+  const { user, signOut } = useAuth();
   const [mobileNav, setMobileNav] = useState(false);
   const copy = PAGE_COPY[activeTab] || PAGE_COPY.overview;
   const initial = (user?.email || 'A')[0].toUpperCase();
@@ -244,7 +240,7 @@ export default function AdminLayout({ activeTab, onTabChange, onRefresh, childre
     setMobileNav(false);
   }
 
-  const visibleNav = adminNavFor(isSuperAdmin);
+  const visibleNav = adminNavFor();
 
   const nav = visibleNav.map(({ id, label, icon }) => (
     <NavButton

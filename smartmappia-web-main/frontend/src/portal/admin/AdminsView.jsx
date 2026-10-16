@@ -1,10 +1,9 @@
 // ---------------------------------------------------------------------
 // Admin — who has the portal, and who has been signing in (0043).
-//
-// TEMPORARY: visible to every admin account — the sidebar's superOnly flag
-// is commented out — but the data and every mutation below still 403
-// server-side behind requireSuperAdmin for a plain admin: the list and
-// login activity load, create/edit/reset/deactivate do not.
+// Visible to and usable by every admin: the backend super-admin tier was
+// removed, so the list, login activity and every mutation below work for
+// any admin (self-deactivation and the last super admin are still refused
+// server-side).
 //
 // Two sections, the two halves of the same question:
 //   Admins        — the CRUD: create, edit, promote, deactivate, reset.

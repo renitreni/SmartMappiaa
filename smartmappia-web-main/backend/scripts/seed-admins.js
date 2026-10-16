@@ -1,29 +1,28 @@
 // Provision the named administrator accounts in the app-owned PostgreSQL store.
+// Passwords are fixed (not generated) so the same script always repairs these
+// two accounts to a known state; run it again after a credential change.
 require('dotenv').config();
-const crypto = require('node:crypto');
 const { seedAccount } = require('./lib/seedAccount');
 
 const ADMINS = [
-  { email: 'ruth@smartmappia.com', full_name: 'Ruth' },
-  { email: 'nawaf@smartmappia.com', full_name: 'Nawaf' },
+  { email: 'ferdz@smartmappia.com', full_name: 'Ferdz', password: 'smartmappia2026Sabado' },
+  { email: 'ruth@smartmappia.com', full_name: 'Ruth', password: 'smartmappia2026Ruth' },
 ];
-const strongPassword = () => crypto.randomBytes(15).toString('base64url');
 
 (async () => {
   const results = [];
   for (const admin of ADMINS) {
-    const password = strongPassword();
+    const { password, ...account } = admin;
     const result = await seedAccount({
-      ...admin, password,
+      ...account, password,
       profile: { role: 'admin', full_name: admin.full_name, driver_approved: true },
     });
-    results.push({ ...admin, password, created: result.created });
+    results.push({ ...account, created: result.created });
   }
   for (const admin of results) {
-    console.log(`${admin.full_name} (${admin.created ? 'created' : 'password reset'})`);
-    console.log(`  email: ${admin.email}\n  password: ${admin.password}`);
+    console.log(`${admin.full_name} (${admin.created ? 'created' : 'repaired'})`);
+    console.log(`  email: ${admin.email}`);
   }
-  console.log('Deliver these temporary passwords privately and require a password change.');
 })().catch((error) => {
   console.error('seed-admins failed:', error.message || error);
   process.exitCode = 1;
