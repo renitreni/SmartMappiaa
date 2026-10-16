@@ -1,10 +1,10 @@
 // ---------------------------------------------------------------------
-// Supabase Realtime — server-side broadcast.
+// Application-owned realtime — server-side broadcast to the dedicated service.
 //
 // Passengers book as guests (no Supabase auth), so postgres_changes can't
 // safely reach them without leaking internal ids. Instead the server PUSHES
-// Broadcast messages over Supabase's stateless HTTP API. The frontend uses
-// an anon client only to SUBSCRIBE. Channels are keyed by public data:
+// Broadcast messages over its internal HTTP API. The API authorizes each SSE
+// subscriber before proxying the stream. Redis fans events across instances.
 //
 //   booking-<bookingCode>  -> one passenger watching their own booking
 //   drivers-available      -> shared feed of new / taken ride requests
@@ -13,8 +13,8 @@
 // Every payload contains ONLY safe fields (never the booking UUID).
 // Failures are swallowed: realtime is a nicety, never blocks the request.
 // ---------------------------------------------------------------------
-const url = process.env.SUPABASE_URL;
-const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+const url = process.env.REALTIME_INTERNAL_URL || 'http://realtime:4100';
+const key = process.env.REALTIME_PUBLISH_TOKEN || '';
 const { fetchWithTimeout } = require('./httpTimeout');
 
 async function broadcast(topic, event, payload) {
@@ -23,14 +23,14 @@ async function broadcast(topic, event, payload) {
     // that was true for ERRORS but not for LATENCY -- these calls are
     // awaited from inside the dispatch loop and the order controllers, so a
     // hanging broadcast endpoint was blocking order acceptance itself.
-    const res = await fetchWithTimeout(3000)(`${url}/realtime/v1/api/broadcast`, {
+    if (!key) throw new Error('REALTIME_PUBLISH_TOKEN is not configured');
+    const res = await fetchWithTimeout(3000)(`${url}/publish`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        apikey: key,
         Authorization: `Bearer ${key}`,
       },
-      body: JSON.stringify({ messages: [{ topic, event, payload }] }),
+      body: JSON.stringify({ topic, event, payload }),
     });
     if (!res.ok) {
       console.error('realtime broadcast failed:', res.status, await res.text());

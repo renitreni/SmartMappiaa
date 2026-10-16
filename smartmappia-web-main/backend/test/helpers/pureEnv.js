@@ -13,11 +13,12 @@
 //      that shows up as a failing assertion rather than as silent drift.
 //
 //   2. MAKE THE REAL DATABASE UNREACHABLE. These tests are pure and must
-//      never open a socket, but lib/supabase.js is required at module top by
-//      ledger.js and driverCash.js and it throws without credentials.
-//      Overwriting (not defaulting) the two Supabase vars means that even on
-//      a machine with production credentials exported, a test process can
-//      only ever build a client pointed at a dead loopback address.
+//      never open a socket: they mock lib/database/pool at the module
+//      boundary, so no test ever reaches for PostgreSQL. Pointing DATABASE_URL
+//      at a dead loopback address is belt-and-braces: even a test that
+//      accidentally constructs the pool can only ever fail fast, never touch
+//      a real database — even on a machine with production credentials
+//      exported.
 //
 // The mutations are process-local: `node --test` runs each test FILE in its
 // own child process, so nothing here leaks between files or into the app.
@@ -53,9 +54,8 @@ const MONEY_ENV_KEYS = [
 
 for (const key of MONEY_ENV_KEYS) delete process.env[key];
 
-// Syntactically valid, semantically dead. createClient() accepts them and
-// opens nothing until a query is issued, and no test issues one.
-process.env.SUPABASE_URL = 'http://127.0.0.1:1/never-used-by-tests';
-process.env.SUPABASE_SERVICE_ROLE_KEY = 'test-service-role-key-not-a-real-credential';
+// Syntactically valid, semantically dead: even a pool constructed by
+// accident connects nowhere, and no test issues a query anyway.
+process.env.DATABASE_URL = 'postgres://nobody:nopassword@127.0.0.1:1/never-used-by-tests';
 
 module.exports = { MONEY_ENV_KEYS };

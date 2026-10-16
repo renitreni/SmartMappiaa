@@ -1,100 +1,30 @@
-// ---------------------------------------------------------------------
-// Seed (or repair) the named admin accounts: Ruth and Nawaf.
-//
-//   npm run seed:admins
-//
-// Mirrors seed-admin.js but for a LIST of admins. For each entry it creates a
-// Supabase auth user (email already confirmed) with a STRONG RANDOM password,
-// then upserts an admin profile. Idempotent — if the user already exists the
-// password is reset to a fresh random value. The generated passwords are PRINTED
-// ONCE at the end; record them and have each admin change theirs on first login.
-//
-// Needs SUPABASE_URL + SUPABASE_SERVICE_ROLE_KEY in the environment
-// (loaded from .env, same as the server).
-//
-// Reminder: also add these emails to ADMIN_EMAILS in .env so the auto-admin
-// sync rule keeps them admin (the profile row already carries role:'admin',
-// which syncProfile preserves — this is belt-and-suspenders).
-// ---------------------------------------------------------------------
+// Provision the named administrator accounts in the app-owned PostgreSQL store.
 require('dotenv').config();
-const crypto = require('crypto');
-const { supabase } = require('../lib/supabase');
+const crypto = require('node:crypto');
+const { seedAccount } = require('./lib/seedAccount');
 
-// The admins to provision. Passwords are generated at runtime (never hardcoded).
 const ADMINS = [
   { email: 'ruth@smartmappia.com', full_name: 'Ruth' },
   { email: 'nawaf@smartmappia.com', full_name: 'Nawaf' },
 ];
+const strongPassword = () => crypto.randomBytes(15).toString('base64url');
 
-// A strong, human-typeable temporary password (base64url, no ambiguous padding).
-function strongPassword() {
-  return crypto.randomBytes(15).toString('base64url'); // ~20 chars, 120 bits
-}
-
-// Find an existing auth user by email (listUsers is paginated).
-async function findUserByEmail(targetEmail) {
-  for (let page = 1; page <= 20; page++) {
-    const { data, error } = await supabase.auth.admin.listUsers({ page, perPage: 200 });
-    if (error) throw error;
-    const match = (data.users || []).find((u) => (u.email || '').toLowerCase() === targetEmail);
-    if (match) return match;
-    if (!data.users || data.users.length < 200) break; // last page
-  }
-  return null;
-}
-
-async function seedOne({ email, full_name }) {
-  const lcEmail = email.toLowerCase();
-  const password = strongPassword();
-
-  // Create the auth user (or reuse the existing one + reset the password).
-  let userId;
-  let note;
-  const { data: created, error: createErr } = await supabase.auth.admin.createUser({
-    email: lcEmail,
-    password,
-    email_confirm: true,
-  });
-  if (createErr) {
-    const existing = await findUserByEmail(lcEmail);
-    if (!existing) throw createErr;
-    userId = existing.id;
-    await supabase.auth.admin.updateUserById(userId, { password, email_confirm: true });
-    note = 'already existed — password reset';
-  } else {
-    userId = created.user.id;
-    note = 'created';
-  }
-
-  const { error: profileErr } = await supabase
-    .from('profiles')
-    .upsert(
-      { id: userId, role: 'admin', email: lcEmail, full_name, driver_approved: true },
-      { onConflict: 'id' }
-    );
-  if (profileErr) throw profileErr;
-
-  return { email: lcEmail, full_name, password, note };
-}
-
-async function run() {
+(async () => {
   const results = [];
   for (const admin of ADMINS) {
-    results.push(await seedOne(admin));
+    const password = strongPassword();
+    const result = await seedAccount({
+      ...admin, password,
+      profile: { role: 'admin', full_name: admin.full_name, driver_approved: true },
+    });
+    results.push({ ...admin, password, created: result.created });
   }
-
-  console.log('\n✅ Admin accounts ready. Sign in at /login:\n');
-  for (const r of results) {
-    console.log(`  ${r.full_name} (${r.note})`);
-    console.log(`     email:    ${r.email}`);
-    console.log(`     password: ${r.password}`);
-    console.log('');
+  for (const admin of results) {
+    console.log(`${admin.full_name} (${admin.created ? 'created' : 'password reset'})`);
+    console.log(`  email: ${admin.email}\n  password: ${admin.password}`);
   }
-  console.log('Give each admin their password privately and have them CHANGE IT on first login.');
-  console.log('Make sure these emails are also in ADMIN_EMAILS in backend/.env.\n');
-}
-
-run().catch((err) => {
-  console.error('seed-admins failed:', err.message || err);
-  process.exit(1);
+  console.log('Deliver these temporary passwords privately and require a password change.');
+})().catch((error) => {
+  console.error('seed-admins failed:', error.message || error);
+  process.exitCode = 1;
 });

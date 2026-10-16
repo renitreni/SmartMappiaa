@@ -9,8 +9,8 @@
 //   driver_net          = gross_fare - commission - manual_payment_fee
 //   platform_net        = gross_fare - driver_net   (= commission + fee)
 // ---------------------------------------------------------------------
-const { supabase } = require('./supabase');
 const { config } = require('./config');
+const ledgerRepository = require('../repositories/ledgerRepository');
 
 const { round2 } = require('./money');
 
@@ -41,31 +41,17 @@ function computeLedger({ grossFare, commissionRate, manualPaymentFee } = {}) {
 // a retried "complete ride" call never double-counts a payout.
 //   booking: { id, fare_amount }
 async function createLedgerEntryForBooking({ booking, driverId = null }) {
-  const { data: existing, error: existErr } = await supabase
-    .from('ledger_entries')
-    .select('*')
-    .eq('booking_id', booking.id)
-    .maybeSingle();
-  if (existErr) return { error: existErr };
-  if (existing) return { ledger: existing, skipped: true };
-
   const amounts = computeLedger({ grossFare: booking.fare_amount });
   // In test mode the payout is simulated (not real money) per the schema enum.
   const payoutStatus = config.autoVerifyTestMode ? 'simulated_test' : 'pending';
 
-  const { data: ledger, error } = await supabase
-    .from('ledger_entries')
-    .insert({
-      booking_id: booking.id,
-      driver_id: driverId,
-      ...amounts,
-      payout_status: payoutStatus,
-    })
-    .select('*')
-    .single();
-  if (error) return { error };
-
-  return { ledger, skipped: false };
+  try {
+    return await ledgerRepository.createForBooking({
+      bookingId: booking.id, driverId, amounts, payoutStatus,
+    });
+  } catch (error) {
+    return { error };
+  }
 }
 
 module.exports = { computeLedger, round2, createLedgerEntryForBooking };

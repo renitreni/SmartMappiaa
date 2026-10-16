@@ -32,8 +32,7 @@ router.post('/password/reset/request', validateBody({
   email: { type: 'string', required: true, maxLength: 254 },
 }), requestPasswordReset);
 router.post('/password/reset/exchange', validateBody({
-  state: { type: 'string', required: true, maxLength: 128 },
-  code: { type: 'string', required: true, maxLength: 2048 },
+  token: { type: 'string', required: true, maxLength: 128 },
 }), exchangePasswordReset);
 router.post('/password/reset/complete', validateBody({
   ticket: { type: 'string', required: true, maxLength: 128 },

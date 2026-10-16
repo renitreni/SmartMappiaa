@@ -4,32 +4,19 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const path = require('node:path');
 
-// lib/settings.js is the one module here that talks to the database, so
-// the client is replaced in the require cache before it is loaded. Same
-// spirit as pureEnv: the test process must never open a socket.
-const supabasePath = require.resolve('../lib/supabase');
+// Replace the repository before loading the service so tests never open a socket.
+const repositoryPath = require.resolve('../repositories/appSettingsRepository');
 
 let nextResult = { data: null, error: null };
 
-require.cache[supabasePath] = {
-  id: supabasePath,
-  filename: supabasePath,
+require.cache[repositoryPath] = {
+  id: repositoryPath,
+  filename: repositoryPath,
   loaded: true,
   paths: [],
   exports: {
-    supabase: {
-      from() {
-        return {
-          select() {
-            return {
-              eq() {
-                return { maybeSingle: async () => nextResult };
-              },
-            };
-          },
-        };
-      },
-    },
+    getSetting: async () => nextResult,
+    setSetting: async () => ({ data: null, error: null }),
   },
 };
 

@@ -15,8 +15,8 @@
 // derived from notification_events: one indexed predicate per pass instead
 // of a per-order history count, and it gives us a CAS token for free.
 // ---------------------------------------------------------------------
-const { supabase } = require('./supabase');
 const { config } = require('./config');
+const reminderRepository = require('../repositories/foodPreparingReminderRepository');
 const { logNotification, notifyAdmins } = require('./notifications');
 const { pushMerchantFeed, pingFoodAdmin } = require('./realtime');
 const { logAudit } = require('./audit');
@@ -43,29 +43,13 @@ async function sweepOrdersAwaitingPreparing() {
   const now = Date.now();
   const firstDueCutoff = new Date(now - intervalMs).toISOString();
 
-  const { data, error } = await supabase
-    .from('orders')
-    .select(
-      'id, order_code, status, payment_status, payment_method, customer_id, merchant_id, ' +
-        'created_at, preparing_reminder_count, preparing_reminder_last_at, ' +
-        'merchants ( owner_id, name )'
-    )
-    .in('status', AWAITING_PREPARING)
-    .lt('preparing_reminder_count', config.food.preparingReminderMaxCount)
-    .lte('created_at', firstDueCutoff)
-    // Due-ness has to be in the QUERY, not just the loop below. Filtering
-    // after the limit lets a backlog of recently-reminded orders fill all 200
-    // slots and starve the ones actually due — they would never be picked up.
-    // last_at is null (never reminded, and created_at is already past the
-    // cutoff) or itself a full interval old.
-    .or(`preparing_reminder_last_at.is.null,preparing_reminder_last_at.lte.${firstDueCutoff}`)
-    // Most overdue first, so the limit truncates the least urgent tail rather
-    // than an arbitrary slice. Never-reminded orders sort ahead of the rest.
-    .order('preparing_reminder_last_at', { ascending: true, nullsFirst: true })
-    .order('created_at', { ascending: true })
-    .limit(200);
-
-  if (error) {
+  let data;
+  try {
+    data = await reminderRepository.dueOrders({
+      cutoff: firstDueCutoff, intervalMs,
+      maxCount: config.food.preparingReminderMaxCount, limit: 200,
+    });
+  } catch (error) {
     console.error('sweepOrdersAwaitingPreparing error:', error);
     return;
   }
@@ -84,23 +68,18 @@ async function sweepOrdersAwaitingPreparing() {
     // second sweeper before the first interval settles — cannot both win, so
     // a reminder is never delivered twice.
     const attempt = order.preparing_reminder_count + 1;
-    const { data: claimed, error: claimErr } = await supabase
-      .from('orders')
-      .update({
-        preparing_reminder_count: attempt,
-        preparing_reminder_last_at: new Date(now).toISOString(),
-      })
-      .eq('id', order.id)
-      .eq('preparing_reminder_count', order.preparing_reminder_count)
-      .eq('status', order.status)
-      .select('order_code');
-    if (claimErr) {
+    let claimed;
+    try {
+      claimed = await reminderRepository.claimReminder({
+        order, attempt, at: new Date(now).toISOString(),
+      });
+    } catch (claimErr) {
       console.error('sweepOrdersAwaitingPreparing claim error:', claimErr);
       continue;
     }
-    if (!claimed || claimed.length === 0) continue;
+    if (!claimed) continue;
 
-    const merchant = Array.isArray(order.merchants) ? order.merchants[0] : order.merchants;
+    const merchant = { owner_id: order.merchant_owner_id, name: order.merchant_name };
     const waitedMinutes = Math.round((now - Date.parse(order.created_at)) / 60000);
 
     // Best-effort from here: the reminder is already claimed, so a delivery

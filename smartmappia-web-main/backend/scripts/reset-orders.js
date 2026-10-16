@@ -35,23 +35,17 @@
 // stops there.
 // ---------------------------------------------------------------------
 require('dotenv').config();
-const { supabase } = require('../lib/supabase');
+const database = require('../lib/database/pool');
 
 const confirmed = process.argv.includes('--confirm');
 
 async function countOf(table) {
-  const { count, error } = await supabase.from(table).select('id', { count: 'exact', head: true });
-  return error ? `error: ${error.message}` : count || 0;
+  const { rows } = await database.query(`SELECT count(*)::int AS count FROM public.${table}`);
+  return rows[0].count;
 }
 
-// Delete every row without naming ids: `neq` on a column that is never null
-// is the PostgREST idiom for "all", since a bare delete is refused.
 async function deleteAll(table) {
-  const { error } = await supabase
-    .from(table)
-    .delete()
-    .not('id', 'is', null);
-  if (error) throw new Error(`${table}: ${error.message}`);
+  await database.query(`DELETE FROM public.${table}`);
 }
 
 async function run() {
@@ -62,21 +56,18 @@ async function run() {
     console.log(`  ${t.padEnd(24)} ${before[t]}`);
   }
 
-  const { data: heldStock } = await supabase
-    .from('shop_orders')
-    .select('id, order_code')
-    .not('stock_reserved_at', 'is', null)
-    .is('stock_released_at', null);
+  const { rows: heldStock } = await database.query(
+    `SELECT id, order_code FROM public.shop_orders
+     WHERE stock_reserved_at IS NOT NULL AND stock_released_at IS NULL`,
+  );
 
-  const { data: credits } = await supabase
-    .from('merchants')
-    .select('id, name, credit_used')
-    .gt('credit_used', 0);
+  const { rows: credits } = await database.query(
+    `SELECT id, name, credit_used FROM public.merchants WHERE credit_used > 0`,
+  );
 
-  const { data: owing } = await supabase
-    .from('profiles')
-    .select('id, full_name, cash_owed')
-    .gt('cash_owed', 0);
+  const { rows: owing } = await database.query(
+    `SELECT id, full_name, cash_owed FROM public.profiles WHERE cash_owed > 0`,
+  );
 
   console.log('\nSHOP ORDERS STILL HOLDING STOCK');
   if (!heldStock || !heldStock.length) console.log('  none');
@@ -110,9 +101,10 @@ async function run() {
   console.log('\nAPPLYING');
 
   for (const order of heldStock || []) {
-    const { data, error } = await supabase.rpc('shop_release_stock', { p_order_id: order.id });
-    if (error) throw new Error(`shop_release_stock(${order.order_code}): ${error.message}`);
-    console.log(`  stock released  ${order.order_code}  ${JSON.stringify(data)}`);
+    const { rows } = await database.query(
+      `SELECT public.shop_release_stock($1) AS released`, [order.id],
+    );
+    console.log(`  stock released  ${order.order_code}  ${JSON.stringify(rows[0].released)}`);
   }
 
   await deleteAll('shop_orders');
@@ -123,11 +115,7 @@ async function run() {
   await deleteAll('merchant_credit_ledger');
   console.log('  merchant_credit_ledger cleared');
 
-  const { error: creditErr } = await supabase
-    .from('merchants')
-    .update({ credit_used: 0 })
-    .gt('credit_used', 0);
-  if (creditErr) throw new Error(`merchants.credit_used: ${creditErr.message}`);
+  await database.query(`UPDATE public.merchants SET credit_used = 0 WHERE credit_used > 0`);
   console.log('  merchants.credit_used zeroed');
 
   console.log('\nAFTER');

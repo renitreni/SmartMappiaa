@@ -18,7 +18,7 @@
 //   * outside the 15 km radius -> 422 { failure_reason: 'outside_radius' }
 //   * only the gateway token / transaction id is stored, never card data
 // ---------------------------------------------------------------------
-const { supabase } = require('../../lib/supabase');
+const database = require('../../lib/database/pool');
 const { config } = require('../../lib/config');
 const { chargeForOrder, respondToCharge } = require('../../lib/cardCharge');
 const { confirmGatewayPayment } = require('../../lib/gatewayPaid');
@@ -45,6 +45,7 @@ const ORDER_SELECT =
   'delivery_street, delivery_building, ' +
   'contact_phone, payment_status, payment_method, created_at, accepted_at, ready_at, delivered_at, ' +
   'reject_reason, cancelled_by, cancelled_at';
+const ORDER_SELECT_O = ORDER_SELECT.split(',').map((column) => `o.${column.trim()}`).join(', ');
 
 // Statuses during which the customer may still edit their contact number.
 const CONTACT_EDITABLE_STATUSES = ['pending', 'accepted', 'preparing', 'ready', 'out_for_delivery'];
@@ -55,13 +56,9 @@ const CONTACT_EDITABLE_STATUSES = ['pending', 'accepted', 'preparing', 'ready', 
 const ETA_IRRELEVANT_STATUSES = ['delivered', 'cancelled', 'rejected'];
 
 async function loadOrder(orderCode) {
-  const { data, error } = await supabase
-    .from('orders')
-    .select(ORDER_SELECT)
-    .eq('order_code', orderCode)
-    .maybeSingle();
-  if (error || !data) return null;
-  return data;
+  const { rows } = await database.query(
+    `SELECT ${ORDER_SELECT} FROM public.orders WHERE order_code=$1 LIMIT 1`, [orderCode]);
+  return rows[0] || null;
 }
 
 // The caller must own the order (admins pass for support).
@@ -92,15 +89,10 @@ async function checkout(req, res) {
       return res.status(400).json({ error: 'Card payment is not available right now' });
     }
 
-    const { data: merchant, error: mErr } = await supabase
-      .from('merchants')
-      .select('id, name, vertical, is_active, status, accepting_orders, lat, lng, service_radius_km, owner_id')
-      .eq('id', b.merchant_id)
-      .maybeSingle();
-    if (mErr) {
-      console.error('checkout merchant load error:', mErr);
-      return res.status(500).json({ error: 'Could not load the restaurant' });
-    }
+    const { rows: merchantRows } = await database.query(
+      `SELECT id,name,vertical,is_active,status,accepting_orders,lat,lng,service_radius_km,owner_id
+       FROM public.merchants WHERE id=$1 LIMIT 1`, [b.merchant_id]);
+    const merchant = merchantRows[0];
     // merchants is shared with the Ecommerce vertical (0026). Without the
     // vertical check a caller could pass a STORE id to food checkout: the
     // cart lookup would find nothing and it would fail as "empty cart", but
@@ -129,33 +121,22 @@ async function checkout(req, res) {
       });
     }
 
-    const { data: cart } = await supabase
-      .from('carts')
-      .select('id')
-      .eq('customer_id', req.userId)
-      .eq('merchant_id', merchant.id)
-      .maybeSingle();
-    const { data: cartLines } = cart
-      ? await supabase
-          .from('cart_items')
-          .select('menu_item_id, quantity, size')
-          .eq('cart_id', cart.id)
-      : { data: [] };
+    const { rows: carts } = await database.query(
+      'SELECT id FROM public.carts WHERE customer_id=$1 AND merchant_id=$2 LIMIT 1', [req.userId,merchant.id]);
+    const cart = carts[0] || null;
+    const { rows: cartLines } = cart
+      ? await database.query('SELECT menu_item_id,quantity,size FROM public.cart_items WHERE cart_id=$1', [cart.id])
+      : { rows: [] };
     if (!cartLines || cartLines.length === 0) {
       return res.status(422).json({ error: 'Your cart is empty', failure_reason: 'empty_cart' });
     }
 
     // Re-read the LIVE menu rows — prices/margins come from here, not
     // from the cart snapshot and certainly not from the client.
-    const { data: menuRows, error: menuErr } = await supabase
-      .from('menu_items')
-      .select('id, name, price, net_price, item_type, is_available, merchant_id, size_options')
-      .in('id', cartLines.map((l) => l.menu_item_id));
-    if (menuErr) {
-      console.error('checkout menu load error:', menuErr);
-      return res.status(500).json({ error: 'Could not load menu prices' });
-    }
-    const menuById = new Map((menuRows || []).map((m) => [m.id, m]));
+    const { rows: menuRows } = await database.query(
+      `SELECT id,name,price,net_price,item_type,is_available,merchant_id,size_options
+       FROM public.menu_items WHERE id=ANY($1::uuid[])`, [cartLines.map((l) => l.menu_item_id)]);
+    const menuById = new Map(menuRows.map((m) => [m.id, m]));
 
     const unavailable = [];
     const items = [];
@@ -214,65 +195,31 @@ async function checkout(req, res) {
     }
 
     // Create the order (order_code comes from gen_order_code()).
-    const { data: order, error: orderErr } = await supabase
-      .from('orders')
-      .insert({
-        customer_id: req.userId,
-        merchant_id: merchant.id,
-        subtotal: priced.subtotal,
-        // delivery_fee is base + surcharge; the surcharge is stored beside it
-        // so a reprinted receipt can itemise the distance charge (0034).
-        delivery_fee: priced.deliveryFee,
-        delivery_surcharge: priced.deliverySurcharge,
-        // The driver's cut of that fee, snapshotted with the rate that
-        // produced it (0041). Read back off the row at settlement, never
-        // recomputed, so repricing the split cannot restate a delivery
-        // already made or a cash balance already owed against it.
-        driver_fee: priced.driverFee,
-        driver_fee_rate: priced.driverFeeRate,
-        platform_margin_total: priced.marginTotal,
-        // VAT snapshot (migration 0025): the rate is stored alongside the
-        // amount so a reprinted receipt shows what was actually charged.
-        vat_amount: priced.vatAmount,
-        vat_rate: priced.vatRate,
-        total: priced.total,
-        distance_km: distanceKm != null ? Math.round(distanceKm * 100) / 100 : null,
-        delivery_address: b.delivery_address,
-        delivery_lat: b.delivery_lat ?? null,
-        delivery_lng: b.delivery_lng ?? null,
-        delivery_street: b.delivery_street,
-        delivery_building: b.delivery_building,
-        contact_phone: b.contact_phone || null,
-        payment_method: b.payment_method || 'stcpay',
-      })
-      .select(ORDER_SELECT)
-      .single();
-    if (orderErr) {
-      console.error('checkout order insert error:', orderErr);
-      return res.status(500).json({ error: 'Could not create the order' });
-    }
-
-    const { error: itemsErr } = await supabase.from('order_items').insert(
-      priced.lines.map((line) => ({
-        order_id: order.id,
-        menu_item_id: line.menuItemId,
-        name_snapshot: line.name,
-        size_snapshot: line.sizeLabel || null,
-        unit_price: line.unitPrice,
-        quantity: line.quantity,
-        line_total: line.lineTotal,
-        margin_per_item: line.marginPerItem,
-        margin_total: line.marginTotal,
-      }))
-    );
-    if (itemsErr) {
-      console.error('checkout order_items insert error:', itemsErr);
-      await supabase.from('orders').delete().eq('id', order.id); // don't leave a headless order
-      return res.status(500).json({ error: 'Could not create the order items' });
-    }
-
-    // Clear the cart (cascade removes its lines).
-    if (cart) await supabase.from('carts').delete().eq('id', cart.id);
+    const order = await database.transaction(async (client) => {
+      const { rows } = await client.query(
+        `INSERT INTO public.orders(customer_id,merchant_id,subtotal,delivery_fee,delivery_surcharge,
+         driver_fee,driver_fee_rate,platform_margin_total,vat_amount,vat_rate,total,distance_km,
+         delivery_address,delivery_lat,delivery_lng,delivery_street,delivery_building,contact_phone,payment_method)
+         VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)
+         RETURNING ${ORDER_SELECT}`,
+        [req.userId,merchant.id,priced.subtotal,priced.deliveryFee,priced.deliverySurcharge,
+          priced.driverFee,priced.driverFeeRate,priced.marginTotal,priced.vatAmount,priced.vatRate,
+          priced.total,distanceKm != null ? Math.round(distanceKm * 100) / 100 : null,
+          b.delivery_address,b.delivery_lat ?? null,b.delivery_lng ?? null,b.delivery_street,
+          b.delivery_building,b.contact_phone || null,b.payment_method || 'stcpay'],
+      );
+      const created = rows[0];
+      for (const line of priced.lines) {
+        await client.query(
+          `INSERT INTO public.order_items(order_id,menu_item_id,name_snapshot,size_snapshot,unit_price,
+           quantity,line_total,margin_per_item,margin_total) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
+          [created.id,line.menuItemId,line.name,line.sizeLabel || null,line.unitPrice,line.quantity,
+            line.lineTotal,line.marginPerItem,line.marginTotal],
+        );
+      }
+      if (cart) await client.query('DELETE FROM public.carts WHERE id=$1', [cart.id]);
+      return created;
+    });
 
     logFoodEvent({
       eventName: 'checkout_attempt',
@@ -361,14 +308,7 @@ async function updateOrderContact(req, res) {
     const contactPhone = (req.body.contact_phone || '').trim();
     if (!contactPhone) return res.status(400).json({ error: 'contact_phone is required' });
 
-    const { error } = await supabase
-      .from('orders')
-      .update({ contact_phone: contactPhone })
-      .eq('id', order.id);
-    if (error) {
-      console.error('updateOrderContact error:', error);
-      return res.status(500).json({ error: 'Could not update the contact number' });
-    }
+    await database.query('UPDATE public.orders SET contact_phone=$2 WHERE id=$1', [order.id,contactPhone]);
 
     logAudit({
       actorId: req.userId,
@@ -389,16 +329,11 @@ async function updateOrderContact(req, res) {
 // --- History + tracking ----------------------------------------------
 async function listOrders(req, res) {
   try {
-    const { data, error } = await supabase
-      .from('orders')
-      .select(`${ORDER_SELECT}, merchants ( id, name, logo_url, cuisine_type )`)
-      .eq('customer_id', req.userId)
-      .order('created_at', { ascending: false })
-      .limit(50);
-    if (error) {
-      console.error('listOrders error:', error);
-      return res.status(500).json({ error: 'Could not load your orders' });
-    }
+    const { rows: data } = await database.query(
+      `SELECT ${ORDER_SELECT_O},jsonb_build_object('id',m.id,'name',m.name,'logo_url',m.logo_url,
+       'cuisine_type',m.cuisine_type) AS merchants FROM public.orders o
+       LEFT JOIN public.merchants m ON m.id=o.merchant_id
+       WHERE o.customer_id=$1 ORDER BY o.created_at DESC LIMIT 50`, [req.userId]);
     return res.json({
       // platform_margin_total stays internal: with variable markup it would
       // let the customer derive the restaurant's confidential net price.
@@ -415,24 +350,18 @@ async function getOrder(req, res) {
     const order = await loadOrder(req.params.code);
     if (!assertOwner(req, res, order)) return undefined;
 
-    const [{ data: items }, { data: merchant }, { data: delivery }] = await Promise.all([
-      supabase
-        .from('order_items')
-        .select('name_snapshot, size_snapshot, unit_price, quantity, line_total')
-        .eq('order_id', order.id),
-      supabase
-        .from('merchants')
-        .select('id, name, logo_url, cuisine_type, address, lat, lng')
-        .eq('id', order.merchant_id)
-        .maybeSingle(),
-      // The rider leg (Grab-style): name + contact of the assigned driver
-      // so the customer can call / WhatsApp them from the tracking page.
-      supabase
-        .from('deliveries')
-        .select('status, driver_id, profiles ( full_name, whatsapp_number, mobile_number )')
-        .eq('order_id', order.id)
-        .maybeSingle(),
+    const [{ rows: items }, { rows: merchantRows }, { rows: deliveryRows }] = await Promise.all([
+      database.query(`SELECT name_snapshot,size_snapshot,unit_price,quantity,line_total
+        FROM public.order_items WHERE order_id=$1`, [order.id]),
+      database.query(`SELECT id,name,logo_url,cuisine_type,address,lat,lng
+        FROM public.merchants WHERE id=$1 LIMIT 1`, [order.merchant_id]),
+      database.query(`SELECT d.status,d.driver_id,CASE WHEN p.id IS NULL THEN NULL ELSE
+        jsonb_build_object('full_name',p.full_name,'whatsapp_number',p.whatsapp_number,
+        'mobile_number',p.mobile_number) END AS profiles FROM public.deliveries d
+        LEFT JOIN public.profiles p ON p.id=d.driver_id WHERE d.order_id=$1 LIMIT 1`, [order.id]),
     ]);
+    const merchant = merchantRows[0] || null;
+    const delivery = deliveryRows[0] || null;
 
     let rider = null;
     if (delivery && delivery.profiles) {
@@ -489,11 +418,9 @@ async function getOrder(req, res) {
     // Has this customer already rated the rider? (drives the stars widget)
     let driverRating = null;
     if (order.status === 'delivered') {
-      const { data: rating } = await supabase
-        .from('driver_ratings')
-        .select('stars, comment')
-        .eq('order_id', order.id)
-        .maybeSingle();
+      const { rows } = await database.query(
+        'SELECT stars,comment FROM public.driver_ratings WHERE order_id=$1 LIMIT 1', [order.id]);
+      const rating = rows[0];
       if (rating) driverRating = rating;
     }
 
@@ -610,20 +537,24 @@ async function markOrderPaid(order, { provider, transactionId = null, raw = null
   // skipPaymentRow: the caller already has a paid order_payments row (admin
   // verify promotes the awaiting proof row) — don't insert a duplicate.
   let paymentId = null;
-  if (!skipPaymentRow) {
-    const { data: payment, error: payErr } = await supabase
-      .from('order_payments')
-      .insert({
-        order_id: order.id,
-        provider,
-        amount: order.total,
-        status: 'paid',
-        gateway_transaction_id: transactionId,
-        gateway_raw: raw,
-      })
-      .select('id')
-      .single();
-    if (payErr) {
+  try {
+    paymentId = await database.transaction(async (client) => {
+      if (!skipPaymentRow) {
+        const { rows } = await client.query(
+          `INSERT INTO public.order_payments(order_id,provider,amount,status,gateway_transaction_id,gateway_raw)
+           VALUES($1,$2,$3,'paid',$4,$5) RETURNING id`,
+          [order.id,provider,order.total,transactionId,raw]);
+        paymentId = rows[0].id;
+      }
+      const { rows } = await client.query(
+        `UPDATE public.orders SET payment_status='paid',
+         gateway_transaction_id=COALESCE($2,gateway_transaction_id) WHERE id=$1 RETURNING id`,
+        [order.id,transactionId]);
+      if (!rows[0]) throw new Error('Order not found while recording payment');
+      return paymentId;
+    });
+  } catch (payErr) {
+    if (!skipPaymentRow && payErr.code === '23505') {
       // 23505 = unique violation on gateway_transaction_id: the payment row
       // already exists. That does NOT mean the order caught up -- if the
       // process died between these two writes, the row is there and the
@@ -631,34 +562,13 @@ async function markOrderPaid(order, { provider, transactionId = null, raw = null
       // redeliveries take this same early exit, so the customer stayed
       // charged for an order nobody could see, forever. Re-run the order
       // update instead; it is idempotent and CAS-guarded on 'awaiting'.
-      if (payErr.code === '23505') {
-        await supabase
-          .from('orders')
-          .update({
-            payment_status: 'paid',
-            ...(transactionId != null ? { gateway_transaction_id: transactionId } : {}),
-          })
-          .eq('id', order.id)
-          .eq('payment_status', 'awaiting');
-        return { alreadyPaid: true };
-      }
-      throw payErr;
+      await database.query(
+        `UPDATE public.orders SET payment_status='paid',gateway_transaction_id=COALESCE($2,gateway_transaction_id)
+         WHERE id=$1 AND payment_status='awaiting'`, [order.id,transactionId]);
+      return { alreadyPaid: true };
     }
-    paymentId = payment.id;
-  }
-
-  // Check this error. supabase-js RESOLVES on a PostgREST failure rather
-  // than rejecting, so an unchecked update returned normally, the webhook
-  // answered 200, and Tap never retried -- money taken, order never
-  // confirmed, nothing logged. Surfacing it makes the webhook answer
-  // non-2xx, which is exactly the case where Tap's retry is the recovery.
-  const { error: ordErr } = await supabase.from('orders').update({
-    payment_status: 'paid',
-    ...(transactionId != null ? { gateway_transaction_id: transactionId } : {}),
-  }).eq('id', order.id);
-  if (ordErr) {
-    console.error('markOrderPaid: payment recorded but order update failed', order.order_code, ordErr);
-    throw ordErr;
+    console.error('markOrderPaid: payment transaction failed', order.order_code, payErr);
+    throw payErr;
   }
 
   logFoodEvent({
@@ -736,20 +646,16 @@ async function recordPayment(req, res) {
     }
 
     // Normal flow: record the proof, keep 'awaiting' until an admin verifies.
-    const { error: payErr } = await supabase.from('order_payments').insert({
-      order_id: order.id,
-      provider: 'stcpay',
-      amount: order.total,
-      status: 'awaiting',
-      gateway_transaction_id: b.reference || null,
-      gateway_raw: {
+    try {
+      await database.query(`INSERT INTO public.order_payments
+        (order_id,provider,amount,status,gateway_transaction_id,gateway_raw)
+        VALUES($1,'stcpay',$2,'awaiting',$3,$4)`, [order.id,order.total,b.reference || null,{
         proof_path: b.path,
         file_name: b.file_name || null,
         mime_type: b.mime_type || null,
         size_bytes: b.size_bytes || null,
-      },
-    });
-    if (payErr) {
+      }]);
+    } catch (payErr) {
       if (payErr.code === '23505') {
         return res.status(409).json({ error: 'This payment reference was already submitted' });
       }
@@ -816,7 +722,7 @@ async function createCardCharge(req, res) {
 
     // Only claim the order for card once the gateway has accepted it.
     if (result.kind === 'redirect' || result.kind === 'paid') {
-      await supabase.from('orders').update({ payment_method: 'tap' }).eq('id', order.id);
+      await database.query("UPDATE public.orders SET payment_method='tap' WHERE id=$1", [order.id]);
     }
 
     return respondToCharge(res, result, order.order_code, async () => {

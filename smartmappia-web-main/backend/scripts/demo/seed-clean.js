@@ -5,23 +5,19 @@
 // events, proofs, payments, and ledger rows) and the demo driver account
 // (which cascades to its profile + location pings). Real bookings, the
 // admin account, and any real drivers are left untouched.
-const { supabase, DEMO_TAG, DEMO_DRIVER, findUserByEmail } = require('./_demo-lib');
+const { database, DEMO_TAG, DEMO_DRIVER, findUserByEmail } = require('./_demo-lib');
 
 async function run() {
   // 1. Demo bookings (FK ON DELETE CASCADE handles their child rows).
-  const { data: removed, error } = await supabase
-    .from('bookings')
-    .delete()
-    .eq('notes', DEMO_TAG)
-    .select('booking_code');
-  if (error) throw error;
+  const { rows: removed } = await database.query(
+    `DELETE FROM public.bookings WHERE notes=$1 RETURNING booking_code`, [DEMO_TAG],
+  );
   console.log(`Removed ${removed ? removed.length : 0} demo booking(s).`);
 
   // 2. The demo driver account (cascades to profile + driver_locations).
   const driver = await findUserByEmail(DEMO_DRIVER.email);
   if (driver) {
-    const { error: delErr } = await supabase.auth.admin.deleteUser(driver.id);
-    if (delErr) throw delErr;
+    await database.query(`DELETE FROM public.app_users WHERE id=$1`, [driver.id]);
     console.log(`Removed demo driver ${DEMO_DRIVER.email}.`);
   } else {
     console.log('No demo driver to remove.');

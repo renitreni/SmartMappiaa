@@ -25,7 +25,7 @@
 // cleanly. On serverless there is no sweeper — jobs still reach drivers
 // through the open-pool fallback.
 // ---------------------------------------------------------------------
-const { supabase } = require('./supabase');
+const dispatchRepository = require('../repositories/dispatchRepository');
 const { config } = require('./config');
 const { haversineKm } = require('./geo');
 const {
@@ -48,16 +48,11 @@ const { sweepOrdersAwaitingPreparing } = require('./foodPreparingReminder');
 
 // Latest fresh GPS fix per approved driver: { driverId -> {lat,lng,at,services} }.
 async function freshDriverLocations() {
-  const since = new Date(Date.now() - config.dispatch.driverFreshMinutes * 60 * 1000).toISOString();
-  const { data, error } = await supabase
-    .from('driver_locations')
-    .select('driver_id, lat, lng, recorded_at, profiles!inner ( role, driver_approved, service_types )')
-    .gte('recorded_at', since)
-    .eq('profiles.role', 'driver')
-    .eq('profiles.driver_approved', true)
-    .order('recorded_at', { ascending: false })
-    .limit(500);
-  if (error) {
+  const since = new Date(Date.now() - config.dispatch.driverFreshMinutes * 60 * 1000);
+  let data;
+  try {
+    data = await dispatchRepository.freshDriverLocations(since, 500);
+  } catch (error) {
     console.error('dispatch freshDriverLocations error:', error);
     return new Map();
   }
@@ -68,7 +63,7 @@ async function freshDriverLocations() {
         lat: row.lat,
         lng: row.lng,
         at: row.recorded_at,
-        services: row.profiles.service_types || SERVICE_TYPES,
+        services: row.service_types || SERVICE_TYPES,
       });
     }
   }
@@ -88,20 +83,12 @@ const KIND = {
 // Drivers who already saw this job (any offer status) — never re-offer.
 async function alreadyOfferedDriverIds(target) {
   const column = KIND[target.kind].column;
-  const { data } = await supabase
-    .from('dispatch_offers')
-    .select('driver_id')
-    .eq(column, target.id);
-  return new Set((data || []).map((r) => r.driver_id));
+  return new Set(await dispatchRepository.offeredDriverIds(column,target.id));
 }
 
 // Drivers currently holding ANY pending offer are busy deciding — skip them.
 async function busyDriverIds() {
-  const { data } = await supabase
-    .from('dispatch_offers')
-    .select('driver_id')
-    .eq('status', 'pending');
-  return new Set((data || []).map((r) => r.driver_id));
+  return new Set(await dispatchRepository.busyDriverIds());
 }
 
 // --- Targets ------------------------------------------------------------
@@ -109,18 +96,12 @@ async function busyDriverIds() {
 //        | { kind: 'ride', id, code, point: {lat,lng} | null }
 
 async function loadFoodTarget(orderId) {
-  const { data: order, error } = await supabase
-    .from('orders')
-    .select('id, order_code, status, payment_status, payment_method, merchant_id, merchants ( lat, lng, name, address )')
-    .eq('id', orderId)
-    .maybeSingle();
+  const order = await dispatchRepository.loadFoodTarget(orderId);
   // A dropped error here used to be indistinguishable from "order not found"
   // — a DB blip could silently orphan a job (never re-offered, never dropped
   // to the open pool). Not fixed to retry (that's a bigger change to the
   // sweep loop); logged so it's visible instead of invisible.
-  if (error) console.error('loadFoodTarget error:', error);
   if (!order) return null;
-  const m = order.merchants;
   // Dispatchable once accepted and either paid up front or cash on delivery
   // (the rider collects the cash at the door).
   const paymentOk = order.payment_status === 'paid' || order.payment_method === 'cash';
@@ -130,9 +111,10 @@ async function loadFoodTarget(orderId) {
     code: order.order_code,
     paymentMethod: order.payment_method,
     merchantId: order.merchant_id,
-    merchantName: m ? m.name : null,
-    pickupAddress: m ? m.address : null,
-    point: m && m.lat != null && m.lng != null ? { lat: m.lat, lng: m.lng } : null,
+    merchantName: order.merchant_name,
+    pickupAddress: order.merchant_address,
+    point: order.merchant_lat != null && order.merchant_lng != null
+      ? { lat: order.merchant_lat, lng: order.merchant_lng } : null,
     active: ['accepted', 'preparing', 'ready'].includes(order.status) && paymentOk,
   };
 }
@@ -140,14 +122,8 @@ async function loadFoodTarget(orderId) {
 // Shop: mirrors loadFoodTarget. Dispatchable once the store accepted AND
 // the order is either paid or cash on delivery.
 async function loadShopTarget(shopOrderId) {
-  const { data: order, error } = await supabase
-    .from('shop_orders')
-    .select('id, order_code, status, payment_status, payment_method, merchant_id, merchants ( lat, lng, name, address )')
-    .eq('id', shopOrderId)
-    .maybeSingle();
-  if (error) console.error('loadShopTarget error:', error);
+  const order = await dispatchRepository.loadShopTarget(shopOrderId);
   if (!order) return null;
-  const m = order.merchants;
   const paymentOk = order.payment_status === 'paid' || order.payment_method === 'cash';
   return {
     kind: 'shop',
@@ -155,23 +131,18 @@ async function loadShopTarget(shopOrderId) {
     code: order.order_code,
     paymentMethod: order.payment_method,
     merchantId: order.merchant_id,
-    merchantName: m ? m.name : null,
-    pickupAddress: m ? m.address : null,
-    point: m && m.lat != null && m.lng != null ? { lat: m.lat, lng: m.lng } : null,
+    merchantName: order.merchant_name,
+    pickupAddress: order.merchant_address,
+    point: order.merchant_lat != null && order.merchant_lng != null
+      ? { lat: order.merchant_lat, lng: order.merchant_lng } : null,
     active: ['accepted', 'packing', 'ready'].includes(order.status) && paymentOk,
   };
 }
 
 async function loadRideTarget(bookingId) {
-  const { data: b, error } = await supabase
-    .from('bookings')
-    .select('id, booking_code, booking_status, assigned_driver_id, pickup_address, pickup_lat, pickup_lng, ' +
-      'dropoff_address, dropoff_lat, dropoff_lng, trip_type, airport_terminal, pickup_datetime, fare_amount, currency, payment_method')
-    .eq('id', bookingId)
-    .maybeSingle();
+  const b = await dispatchRepository.loadRideTarget(bookingId);
   // Same reasoning as loadFoodTarget: log rather than silently treat a DB
   // blip as "booking not found."
-  if (error) console.error('loadRideTarget error:', error);
   if (!b) return null;
   return {
     kind: 'ride',
@@ -190,18 +161,13 @@ async function loadRideTarget(bookingId) {
 // hand a cash ride to someone who'd be blocked from accepting it; the precise
 // per-driver block lives in acceptRide / claimRide.
 async function overCashCapDriverIds() {
-  const { data } = await supabase
-    .from('profiles')
-    .select('id')
-    .gte('cash_owed', config.ledger.cashOwedLimit);
-  return new Set((data || []).map((r) => r.id));
+  return new Set(await dispatchRepository.overCashCapDriverIds(config.ledger.cashOwedLimit));
 }
 
 // --- Open pool fallback ---------------------------------------------------
 async function dropToOpenPool(target) {
   if (target.kind === 'food') {
-    await supabase.from('deliveries').update({ status: 'open' })
-      .eq('order_id', target.id).is('driver_id', null);
+    await dispatchRepository.setDeliveryOpen('food',target.id);
     broadcast('drivers-available', 'new_delivery', {
       orderCode: target.code,
       merchantName: target.merchantName,
@@ -209,8 +175,7 @@ async function dropToOpenPool(target) {
     });
     pingFoodAdmin(target.code);
   } else if (target.kind === 'shop') {
-    await supabase.from('shop_deliveries').update({ status: 'open' })
-      .eq('order_id', target.id).is('driver_id', null);
+    await dispatchRepository.setDeliveryOpen('shop',target.id);
     broadcast('drivers-available', 'new_delivery', {
       kind: 'shop',
       orderCode: target.code,
@@ -220,14 +185,9 @@ async function dropToOpenPool(target) {
     pingShopAdmin(target.code);
   } else {
     // Classic Pick & Drop behavior: visible to every online driver.
-    // Deliberately EMPTY. `drivers-available` is a plain Supabase broadcast
-    // topic with no Realtime Authorization, so anyone holding the anon key
-    // -- which ships in the JS bundle and the APK by design -- can join it.
-    // This payload used to carry both addresses, both coordinate pairs, the
-    // pickup time, the fare and the booking code, which made the channel a
-    // live feed of who is travelling where and when. Worse, the booking code
-    // is the bearer credential for the public tracking endpoint, so it also
-    // handed over the passenger's phone number.
+    // Deliberately empty: public availability only signals that the pool has
+    // changed. Drivers re-read the booking through the authenticated API, so
+    // addresses, coordinates, fare and tracking codes never enter this topic.
     //
     // The signal is "something changed"; drivers re-read through the
     // authenticated endpoint they already call. announceRequestTaken and the
@@ -281,19 +241,13 @@ async function offerNext(target) {
 
   const next = candidates[0];
   const expiresAt = new Date(Date.now() + config.dispatch.offerSeconds * 1000).toISOString();
-  const { data: offer, error } = await supabase
-    .from('dispatch_offers')
-    .insert({
-      // Exactly one of the three is set — the DB CHECK (0028) enforces it.
-      [KIND[target.kind].column]: target.id,
-      driver_id: next.driverId,
-      round: seen.size + 1,
-      distance_km: next.distanceKm != null ? Math.round(next.distanceKm * 10) / 10 : null,
-      expires_at: expiresAt,
-    })
-    .select('id, expires_at')
-    .single();
-  if (error) {
+  const jobColumn = KIND[target.kind].column;
+  let offer;
+  try {
+    offer = await dispatchRepository.createOffer({ jobColumn,targetId: target.id,driverId: next.driverId,
+      round: seen.size + 1,distanceKm: next.distanceKm != null ? Math.round(next.distanceKm * 10) / 10 : null,
+      expiresAt });
+  } catch (error) {
     // Unique violation = a pending offer already exists (concurrent sweep) — fine.
     if (error.code !== '23505') console.error('dispatch offerNext insert error:', error);
     return false;
@@ -328,20 +282,17 @@ async function startFoodDispatch(orderId) {
     const target = await loadFoodTarget(orderId);
     if (!target || !target.active) return;
 
-    const { data: existing } = await supabase
-      .from('deliveries')
-      .select('id, driver_id, status')
-      .eq('order_id', orderId)
-      .maybeSingle();
+    const existing = await dispatchRepository.getDelivery('food',orderId);
     if (existing && existing.driver_id) return; // already has a rider
 
     if (!existing) {
-      const { error } = await supabase
-        .from('deliveries')
-        .insert({ order_id: orderId, status: 'searching' });
-      if (error && error.code !== '23505') {
+      try {
+        await dispatchRepository.createDelivery('food',orderId);
+      } catch (error) {
+        if (error.code !== '23505') {
         console.error('startFoodDispatch deliveries insert error:', error);
         return;
+        }
       }
     }
     await offerNext(target);
@@ -357,20 +308,17 @@ async function startShopDispatch(shopOrderId) {
     const target = await loadShopTarget(shopOrderId);
     if (!target || !target.active) return;
 
-    const { data: existing } = await supabase
-      .from('shop_deliveries')
-      .select('id, driver_id, status')
-      .eq('order_id', shopOrderId)
-      .maybeSingle();
+    const existing = await dispatchRepository.getDelivery('shop',shopOrderId);
     if (existing && existing.driver_id) return; // already has a rider
 
     if (!existing) {
-      const { error } = await supabase
-        .from('shop_deliveries')
-        .insert({ order_id: shopOrderId, status: 'searching' });
-      if (error && error.code !== '23505') {
+      try {
+        await dispatchRepository.createDelivery('shop',shopOrderId);
+      } catch (error) {
+        if (error.code !== '23505') {
         console.error('startShopDispatch shop_deliveries insert error:', error);
         return;
+        }
       }
     }
     await offerNext(target);
@@ -401,23 +349,16 @@ async function releaseFoodDelivery(
   { previousDriverId = null, reason = null, cause = 'cancelled', actorId = null } = {}
 ) {
   // Atomic release: only if still assigned (guards against a pickup landing first).
-  const { data: released, error } = await supabase
-    .from('deliveries')
-    .update({ driver_id: null, status: 'searching' })
-    .eq('order_id', orderId)
-    .eq('status', 'assigned')
-    .select('id');
-  if (error) {
+  let released;
+  try {
+    released = await dispatchRepository.releaseDelivery('food',orderId);
+  } catch (error) {
     console.error('releaseFoodDelivery error:', error);
     return false;
   }
-  if (!released || released.length === 0) return false; // already picked up / taken over
+  if (!released) return false; // already picked up / taken over
 
-  const { data: order } = await supabase
-    .from('orders')
-    .select('order_code, customer_id, merchant_id, status')
-    .eq('id', orderId)
-    .maybeSingle();
+  const order = await dispatchRepository.loadOrderSummary('food',orderId);
 
   if (order) {
     logAudit({
@@ -454,25 +395,18 @@ async function releaseFoodDelivery(
 // offer sweeper (no watchdog on serverless; the open pool still catches jobs).
 async function sweepAbandonedDeliveries() {
   const staleBefore = Date.now() - config.dispatch.abandonMinutes * 60 * 1000;
-  const { data: rows, error } = await supabase
-    .from('deliveries')
-    .select('order_id, driver_id, orders!inner ( status )')
-    .eq('status', 'assigned')
-    .not('driver_id', 'is', null)
-    .in('orders.status', ['accepted', 'preparing', 'ready']);
-  if (error) {
+  let rows;
+  try {
+    rows = await dispatchRepository.abandonedDeliveries('food',['accepted','preparing','ready']);
+  } catch (error) {
     console.error('sweepAbandonedDeliveries error:', error);
     return;
   }
   for (const row of rows || []) {
-    const { data: loc, error: locError } = await supabase
-      .from('driver_locations')
-      .select('recorded_at')
-      .eq('driver_id', row.driver_id)
-      .order('recorded_at', { ascending: false })
-      .limit(1)
-      .maybeSingle();
-    if (locError) {
+    let loc;
+    try {
+      loc = await dispatchRepository.latestLocation(row.driver_id);
+    } catch (locError) {
       // A blip here must NOT read as "never seen" (lastSeen=0) — that would
       // reclaim a live delivery out from under a driver who is actually fine.
       console.error('sweepAbandonedDeliveries location lookup error:', locError);
@@ -503,23 +437,16 @@ async function releaseShopDelivery(
   // for anything filtering on shop_deliveries.status — including the
   // idx_shop_deliveries_open open-pool index.
   const nextStatus = redispatch ? 'searching' : 'cancelled';
-  const { data: released, error } = await supabase
-    .from('shop_deliveries')
-    .update({ driver_id: null, status: nextStatus })
-    .eq('order_id', shopOrderId)
-    .eq('status', 'assigned')
-    .select('id');
-  if (error) {
+  let released;
+  try {
+    released = await dispatchRepository.releaseDelivery('shop',shopOrderId,nextStatus);
+  } catch (error) {
     console.error('releaseShopDelivery error:', error);
     return false;
   }
-  if (!released || released.length === 0) return false; // already picked up / taken over
+  if (!released) return false; // already picked up / taken over
 
-  const { data: order } = await supabase
-    .from('shop_orders')
-    .select('order_code, customer_id, merchant_id, status')
-    .eq('id', shopOrderId)
-    .maybeSingle();
+  const order = await dispatchRepository.loadOrderSummary('shop',shopOrderId);
 
   if (order) {
     logAudit({
@@ -561,25 +488,18 @@ async function releaseShopDelivery(
 // Shop disconnect watchdog — same shape and same reasoning as the food one.
 async function sweepAbandonedShopDeliveries() {
   const staleBefore = Date.now() - config.dispatch.abandonMinutes * 60 * 1000;
-  const { data: rows, error } = await supabase
-    .from('shop_deliveries')
-    .select('order_id, driver_id, shop_orders!inner ( status )')
-    .eq('status', 'assigned')
-    .not('driver_id', 'is', null)
-    .in('shop_orders.status', ['accepted', 'packing', 'ready']);
-  if (error) {
+  let rows;
+  try {
+    rows = await dispatchRepository.abandonedDeliveries('shop',['accepted','packing','ready']);
+  } catch (error) {
     console.error('sweepAbandonedShopDeliveries error:', error);
     return;
   }
   for (const row of rows || []) {
-    const { data: loc, error: locError } = await supabase
-      .from('driver_locations')
-      .select('recorded_at')
-      .eq('driver_id', row.driver_id)
-      .order('recorded_at', { ascending: false })
-      .limit(1)
-      .maybeSingle();
-    if (locError) {
+    let loc;
+    try {
+      loc = await dispatchRepository.latestLocation(row.driver_id);
+    } catch (locError) {
       // A blip must NOT read as "never seen" — that would reclaim a live
       // delivery from a rider who is actually fine.
       console.error('sweepAbandonedShopDeliveries location lookup error:', locError);
@@ -629,52 +549,24 @@ async function sweepStaleShopOrders() {
   const acceptedCutoff = new Date(now - config.shop.acceptedExpiryMinutes * 60 * 1000).toISOString();
 
   const [pending, accepted] = await Promise.all([
-    supabase
-      .from('shop_orders')
-      .select('id, order_code, customer_id, merchant_id')
-      .eq('status', 'pending')
-      .eq('payment_status', 'awaiting')
-      .lt('created_at', pendingCutoff)
-      .limit(200),
-    supabase
-      .from('shop_orders')
-      .select('id, order_code, customer_id, merchant_id')
-      .eq('status', 'accepted')
-      .eq('payment_status', 'awaiting')
-      .neq('payment_method', 'cash')
-      .lt('created_at', acceptedCutoff)
-      .limit(200),
+    dispatchRepository.staleShopOrders('pending',pendingCutoff),
+    dispatchRepository.staleShopOrders('accepted',acceptedCutoff,{ excludeCash: true }),
   ]);
-  if (pending.error) {
-    console.error('sweepStaleShopOrders (pending) error:', pending.error);
-    return;
-  }
-  if (accepted.error) console.error('sweepStaleShopOrders (accepted) error:', accepted.error);
 
   // Tag the cohort so the audit row reports the window that actually expired
   // rather than always claiming the pending one.
   const rows = [
-    ...(pending.data || []).map((o) => ({ ...o, _afterMinutes: config.shop.orderExpiryMinutes })),
-    ...(accepted.data || []).map((o) => ({ ...o, _afterMinutes: config.shop.acceptedExpiryMinutes })),
+    ...pending.map((o) => ({ ...o, _afterMinutes: config.shop.orderExpiryMinutes })),
+    ...accepted.map((o) => ({ ...o, _afterMinutes: config.shop.acceptedExpiryMinutes })),
   ];
   if (rows.length === 0) return;
 
   const { releaseShopStock } = require('./stock');
   for (const order of rows) {
     // CAS on the status so a store accepting at the same moment wins.
-    const { data: cancelled } = await supabase
-      .from('shop_orders')
-      .update({ status: 'cancelled', reject_reason: 'payment_timeout' })
-      .eq('id', order.id)
-      // Both cohorts, not just 'pending'. The accepted-but-unpaid query above
-      // only ever returns rows with status='accepted', so a CAS pinned to
-      // 'pending' matched nothing and `continue`d -- releaseShopStock was
-      // never reached and the accepted-expiry window released no stock at
-      // all. payment_status='awaiting' is what keeps this safe.
-      .in('status', ['pending', 'accepted'])
-      .eq('payment_status', 'awaiting')
-      .select('order_code');
-    if (!cancelled || cancelled.length === 0) continue;
+    // Both cohorts, not just 'pending': the accepted-but-unpaid expiry path
+    // shares the same compare-and-swap guard.
+    if (!(await dispatchRepository.cancelUnpaidShopOrder(order.id))) continue;
 
     await releaseShopStock(order.id);
     logAudit({
@@ -707,19 +599,14 @@ async function releaseRide(
   { previousDriverId = null, reason = null, cause = 'cancelled', actorId = null } = {}
 ) {
   // Atomic release: only the current driver, only pre-start.
-  const { data: released, error } = await supabase
-    .from('bookings')
-    .update({ assigned_driver_id: null, driver_ride_status: null, booking_status: 'confirmed' })
-    .eq('id', bookingId)
-    .eq('assigned_driver_id', previousDriverId)
-    .in('driver_ride_status', ['accepted', 'on_the_way', 'arrived'])
-    .select('id, booking_code, user_id');
-  if (error) {
+  let booking;
+  try {
+    booking = await dispatchRepository.releaseRide(bookingId,previousDriverId);
+  } catch (error) {
     console.error('releaseRide error:', error);
     return false;
   }
-  if (!released || released.length === 0) return false; // trip started / already released
-  const booking = released[0];
+  if (!booking) return false; // trip started / already released
 
   logAudit({
     actorId: actorId || previousDriverId || null,
@@ -750,24 +637,18 @@ async function releaseRide(
 // pinging GPS yet, and we must not reclaim those.
 async function sweepAbandonedRides() {
   const staleBefore = Date.now() - config.dispatch.abandonMinutes * 60 * 1000;
-  const { data: rows, error } = await supabase
-    .from('bookings')
-    .select('id, assigned_driver_id')
-    .not('assigned_driver_id', 'is', null)
-    .in('driver_ride_status', ['on_the_way', 'arrived']);
-  if (error) {
+  let rows;
+  try {
+    rows = await dispatchRepository.abandonedRides();
+  } catch (error) {
     console.error('sweepAbandonedRides error:', error);
     return;
   }
   for (const b of rows || []) {
-    const { data: loc, error: locError } = await supabase
-      .from('driver_locations')
-      .select('recorded_at')
-      .eq('driver_id', b.assigned_driver_id)
-      .order('recorded_at', { ascending: false })
-      .limit(1)
-      .maybeSingle();
-    if (locError) {
+    let loc;
+    try {
+      loc = await dispatchRepository.latestLocation(b.assigned_driver_id);
+    } catch (locError) {
       // Same reasoning as sweepAbandonedDeliveries — a blip must not look
       // like "never seen" and pull an active ride out from under the driver.
       console.error('sweepAbandonedRides location lookup error:', locError);
@@ -788,13 +669,10 @@ async function sweepAbandonedRides() {
 // Expire overdue pending offers and cascade each job to the next driver.
 async function sweepExpiredOffers() {
   const now = new Date().toISOString();
-  const { data: expired, error } = await supabase
-    .from('dispatch_offers')
-    .update({ status: 'expired', responded_at: now })
-    .eq('status', 'pending')
-    .lt('expires_at', now)
-    .select('id, order_id, booking_id, shop_order_id, driver_id');
-  if (error) {
+  let expired;
+  try {
+    expired = await dispatchRepository.expireOffers(now);
+  } catch (error) {
     console.error('dispatch sweep error:', error);
     return;
   }
@@ -853,27 +731,16 @@ async function sweepUnconfirmedCharges() {
   // Rides settle to 'verified', orders to 'paid' — so "unconfirmed" is a
   // different predicate per table and cannot be one shared query.
   const sources = [
-    { table: 'orders', code: 'order_code', filter: (q) => q.eq('payment_status', 'awaiting') },
-    { table: 'shop_orders', code: 'order_code', filter: (q) => q.eq('payment_status', 'awaiting') },
-    {
-      table: 'bookings',
-      code: 'booking_code',
-      filter: (q) => q.in('payment_status', ['awaiting_proof', 'proof_uploaded', 'under_review']),
-    },
+    { table: 'orders', code: 'order_code', paymentStates: ['awaiting'] },
+    { table: 'shop_orders', code: 'order_code', paymentStates: ['awaiting'] },
+    { table: 'bookings', code: 'booking_code', paymentStates: ['awaiting_proof','proof_uploaded','under_review'] },
   ];
 
   for (const source of sources) {
-    let query = supabase
-      .from(source.table)
-      .select(`${source.code}, gateway_charge_id`)
-      .not('gateway_charge_id', 'is', null)
-      .lt('created_at', newest)
-      .gt('created_at', oldest)
-      .limit(config.chargeSweep.batchSize);
-    query = source.filter(query);
-
-    const { data, error } = await query;
-    if (error) {
+    let data;
+    try {
+      data = await dispatchRepository.unconfirmedCharges(source,newest,oldest,config.chargeSweep.batchSize);
+    } catch (error) {
       console.error('sweepUnconfirmedCharges query failed', { table: source.table, error: error.message });
       continue;
     }

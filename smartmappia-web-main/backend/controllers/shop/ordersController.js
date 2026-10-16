@@ -25,7 +25,7 @@
 // transaction (shop_place_order), not a sequence of writes. Stock, the
 // order, its lines and the cart clear together or not at all.
 // ---------------------------------------------------------------------
-const { supabase } = require('../../lib/supabase');
+const database = require('../../lib/database/pool');
 const { config } = require('../../lib/config');
 const { chargeForOrder, respondToCharge } = require('../../lib/cardCharge');
 const { confirmGatewayPayment } = require('../../lib/gatewayPaid');
@@ -54,6 +54,7 @@ const ORDER_SELECT =
   'delivery_street, delivery_building, ' +
   'contact_phone, payment_status, payment_method, created_at, accepted_at, packed_at, ' +
   'ready_at, delivered_at, reject_reason, cancelled_by, cancelled_at';
+const ORDER_SELECT_O = ORDER_SELECT.split(',').map((column) => `o.${column.trim()}`).join(', ');
 
 // Terminal states — nothing left to estimate, and no Routes call worth
 // spending on a dead page. Mirrors food's getOrder.
@@ -63,13 +64,9 @@ const ETA_IRRELEVANT_STATUSES = ['delivered', 'cancelled', 'rejected'];
 const CONTACT_EDITABLE_STATUSES = ['pending', 'accepted', 'packing', 'ready', 'out_for_delivery'];
 
 async function loadOrder(orderCode) {
-  const { data, error } = await supabase
-    .from('shop_orders')
-    .select(ORDER_SELECT)
-    .eq('order_code', orderCode)
-    .maybeSingle();
-  if (error || !data) return null;
-  return data;
+  const { rows } = await database.query(
+    `SELECT ${ORDER_SELECT} FROM public.shop_orders WHERE order_code=$1 LIMIT 1`, [orderCode]);
+  return rows[0] || null;
 }
 
 // The caller must own the order (admins pass for support).
@@ -100,15 +97,10 @@ async function checkout(req, res) {
       return res.status(400).json({ error: 'Card payment is not available right now' });
     }
 
-    const { data: store, error: sErr } = await supabase
-      .from('merchants')
-      .select('id, name, vertical, is_active, status, accepting_orders, lat, lng, owner_id')
-      .eq('id', b.merchant_id)
-      .maybeSingle();
-    if (sErr) {
-      console.error('shop checkout store load error:', sErr);
-      return res.status(500).json({ error: 'Could not load the store' });
-    }
+    const { rows: stores } = await database.query(
+      `SELECT id,name,vertical,is_active,status,accepting_orders,lat,lng,owner_id
+       FROM public.merchants WHERE id=$1 LIMIT 1`, [b.merchant_id]);
+    const store = stores[0];
     if (!store || store.vertical !== 'shop' || !store.is_active || store.status !== 'active') {
       return res.status(409).json({
         error: 'This store is not accepting orders right now',
@@ -129,36 +121,24 @@ async function checkout(req, res) {
       });
     }
 
-    const { data: cart } = await supabase
-      .from('shop_carts')
-      .select('id')
-      .eq('customer_id', req.userId)
-      .eq('merchant_id', store.id)
-      .maybeSingle();
-    const { data: cartLines } = cart
-      ? await supabase
-          .from('shop_cart_items')
-          .select('product_id, variant_id, quantity')
-          .eq('cart_id', cart.id)
-      : { data: [] };
+    const { rows: carts } = await database.query(
+      'SELECT id FROM public.shop_carts WHERE customer_id=$1 AND merchant_id=$2 LIMIT 1', [req.userId,store.id]);
+    const cart = carts[0] || null;
+    const { rows: cartLines } = cart
+      ? await database.query('SELECT product_id,variant_id,quantity FROM public.shop_cart_items WHERE cart_id=$1', [cart.id])
+      : { rows: [] };
     if (!cartLines || cartLines.length === 0) {
       return res.status(422).json({ error: 'Your cart is empty', failure_reason: 'empty_cart' });
     }
 
     // Re-read the LIVE catalogue rows — prices and markups come from
     // here, not from the cart snapshot and certainly not from the client.
-    const { data: productRows, error: pErr } = await supabase
-      .from('products')
-      .select(
-        'id, merchant_id, name, price, net_price, is_available, track_stock, stock_quantity, ' +
-          'product_variants ( id, label, sku, price, net_price, stock_quantity, is_available )'
-      )
-      .in('id', cartLines.map((l) => l.product_id));
-    if (pErr) {
-      console.error('shop checkout catalogue load error:', pErr);
-      return res.status(500).json({ error: 'Could not load product prices' });
-    }
-    const productById = new Map((productRows || []).map((p) => [p.id, p]));
+    const { rows: productRows } = await database.query(
+      `SELECT p.id,p.merchant_id,p.name,p.price,p.net_price,p.is_available,p.track_stock,p.stock_quantity,
+       COALESCE((SELECT jsonb_agg(to_jsonb(v)) FROM public.product_variants v WHERE v.product_id=p.id),'[]'::jsonb)
+       AS product_variants FROM public.products p WHERE p.id=ANY($1::uuid[])`,
+      [cartLines.map((l) => l.product_id)]);
+    const productById = new Map(productRows.map((p) => [p.id, p]));
 
     const unavailable = [];
     const items = [];
@@ -338,16 +318,10 @@ async function checkout(req, res) {
 // --- History and tracking ---------------------------------------------
 async function listOrders(req, res) {
   try {
-    const { data, error } = await supabase
-      .from('shop_orders')
-      .select(`${ORDER_SELECT}, merchants ( id, name, logo_url )`)
-      .eq('customer_id', req.userId)
-      .order('created_at', { ascending: false })
-      .limit(100);
-    if (error) {
-      console.error('shop listOrders error:', error);
-      return res.status(500).json({ error: 'Could not load your orders' });
-    }
+    const { rows: data } = await database.query(
+      `SELECT ${ORDER_SELECT_O},jsonb_build_object('id',m.id,'name',m.name,'logo_url',m.logo_url) AS merchants
+       FROM public.shop_orders o LEFT JOIN public.merchants m ON m.id=o.merchant_id
+       WHERE o.customer_id=$1 ORDER BY o.created_at DESC LIMIT 100`, [req.userId]);
     return res.json({
       orders: (data || []).map(({ id, customer_id, ...o }) => o),
     });
@@ -362,32 +336,24 @@ async function getOrder(req, res) {
     const order = await loadOrder(req.params.code);
     if (!assertOwner(req, res, order)) return undefined;
 
-    const [{ data: items }, { data: store }, { data: delivery }] = await Promise.all([
-      supabase
-        .from('shop_order_items')
-        .select('id, name_snapshot, variant_label_snapshot, sku_snapshot, unit_price, quantity, line_total')
-        .eq('order_id', order.id),
-      supabase
-        .from('merchants')
-        .select('id, name, logo_url, address, lat, lng')
-        .eq('id', order.merchant_id)
-        .maybeSingle(),
-      supabase
-        .from('shop_deliveries')
-        .select('status, driver_id, picked_up_at, delivered_at')
-        .eq('order_id', order.id)
-        .maybeSingle(),
+    const [{ rows: items }, { rows: stores }, { rows: deliveries }] = await Promise.all([
+      database.query(`SELECT id,name_snapshot,variant_label_snapshot,sku_snapshot,unit_price,quantity,line_total
+        FROM public.shop_order_items WHERE order_id=$1`, [order.id]),
+      database.query('SELECT id,name,logo_url,address,lat,lng FROM public.merchants WHERE id=$1 LIMIT 1',
+        [order.merchant_id]),
+      database.query(`SELECT status,driver_id,picked_up_at,delivered_at FROM public.shop_deliveries
+        WHERE order_id=$1 LIMIT 1`, [order.id]),
     ]);
+    const store = stores[0] || null;
+    const delivery = deliveries[0] || null;
 
     // The rider's contact details are released only once they are actually
     // carrying this order — not while the job is still being offered around.
     let rider = null;
     if (delivery && delivery.driver_id) {
-      const { data: profile } = await supabase
-        .from('profiles')
-        .select('full_name, mobile_number, avatar_url')
-        .eq('id', delivery.driver_id)
-        .maybeSingle();
+      const { rows: profiles } = await database.query(
+        'SELECT full_name,mobile_number,avatar_url FROM public.profiles WHERE id=$1 LIMIT 1', [delivery.driver_id]);
+      const profile = profiles[0];
       if (profile) {
         rider = {
           name: profile.full_name,
@@ -435,11 +401,9 @@ async function getOrder(req, res) {
 
     let driverRating = null;
     if (order.status === 'delivered') {
-      const { data: rating } = await supabase
-        .from('driver_ratings')
-        .select('stars, comment')
-        .eq('shop_order_id', order.id)
-        .maybeSingle();
+      const { rows } = await database.query(
+        'SELECT stars,comment FROM public.driver_ratings WHERE shop_order_id=$1 LIMIT 1', [order.id]);
+      const rating = rows[0];
       if (rating) driverRating = rating;
     }
 
@@ -466,14 +430,8 @@ async function updateOrderContact(req, res) {
     if (!CONTACT_EDITABLE_STATUSES.includes(order.status)) {
       return res.status(409).json({ error: `This order is already ${order.status}` });
     }
-    const { error } = await supabase
-      .from('shop_orders')
-      .update({ contact_phone: req.body.contact_phone })
-      .eq('id', order.id);
-    if (error) {
-      console.error('shop updateOrderContact error:', error);
-      return res.status(500).json({ error: 'Could not update the contact number' });
-    }
+    await database.query('UPDATE public.shop_orders SET contact_phone=$2 WHERE id=$1',
+      [order.id,req.body.contact_phone]);
     return res.json({ orderCode: order.order_code, contactPhone: req.body.contact_phone });
   } catch (err) {
     console.error('shop updateOrderContact error:', err);
@@ -583,20 +541,24 @@ async function markShopOrderPaid(
   { provider, transactionId = null, raw = null, actorId = null, skipPaymentRow = false }
 ) {
   let paymentId = null;
-  if (!skipPaymentRow) {
-    const { data: payment, error: payErr } = await supabase
-      .from('shop_order_payments')
-      .insert({
-        order_id: order.id,
-        provider,
-        amount: order.total,
-        status: 'paid',
-        gateway_transaction_id: transactionId,
-        gateway_raw: raw,
-      })
-      .select('id')
-      .single();
-    if (payErr) {
+  try {
+    paymentId = await database.transaction(async (client) => {
+      if (!skipPaymentRow) {
+        const { rows } = await client.query(
+          `INSERT INTO public.shop_order_payments(order_id,provider,amount,status,gateway_transaction_id,gateway_raw)
+           VALUES($1,$2,$3,'paid',$4,$5) RETURNING id`,
+          [order.id,provider,order.total,transactionId,raw]);
+        paymentId = rows[0].id;
+      }
+      const { rows } = await client.query(
+        `UPDATE public.shop_orders SET payment_status='paid',
+         gateway_transaction_id=COALESCE($2,gateway_transaction_id) WHERE id=$1 RETURNING id`,
+        [order.id,transactionId]);
+      if (!rows[0]) throw new Error('Shop order not found while recording payment');
+      return paymentId;
+    });
+  } catch (payErr) {
+    if (!skipPaymentRow && payErr.code === '23505') {
       // 23505 = unique violation on gateway_transaction_id: the payment row
       // already exists. That does NOT mean the order caught up -- if the
       // process died between these two writes, the row is there and the
@@ -604,35 +566,13 @@ async function markShopOrderPaid(
       // redeliveries take this same early exit, so the customer stayed
       // charged for an order nobody could see, forever. Re-run the order
       // update instead; it is idempotent and CAS-guarded on 'awaiting'.
-      if (payErr.code === '23505') {
-        await supabase
-          .from('shop_orders')
-          .update({
-            payment_status: 'paid',
-            ...(transactionId != null ? { gateway_transaction_id: transactionId } : {}),
-          })
-          .eq('id', order.id)
-          .eq('payment_status', 'awaiting');
-        return { alreadyPaid: true };
-      }
-      throw payErr;
+      await database.query(
+        `UPDATE public.shop_orders SET payment_status='paid',gateway_transaction_id=COALESCE($2,gateway_transaction_id)
+         WHERE id=$1 AND payment_status='awaiting'`, [order.id,transactionId]);
+      return { alreadyPaid: true };
     }
-    paymentId = payment.id;
-  }
-
-  // See the food twin: supabase-js resolves rather than rejects on a
-  // PostgREST error, so leaving this unchecked turned a failed settlement
-  // into a 200 that Tap would never retry.
-  const { error: ordErr } = await supabase
-    .from('shop_orders')
-    .update({
-      payment_status: 'paid',
-      ...(transactionId != null ? { gateway_transaction_id: transactionId } : {}),
-    })
-    .eq('id', order.id);
-  if (ordErr) {
-    console.error('markShopOrderPaid: payment recorded but order update failed', order.order_code, ordErr);
-    throw ordErr;
+    console.error('markShopOrderPaid: payment transaction failed', order.order_code, payErr);
+    throw payErr;
   }
 
   logShopEvent({
@@ -692,14 +632,10 @@ async function recordPayment(req, res) {
       return res.status(400).json({ error: 'Invalid upload path for this order' });
     }
 
-    const { error: insErr } = await supabase.from('shop_order_payments').insert({
-      order_id: order.id,
-      provider: order.payment_method,
-      amount: order.total,
-      status: 'awaiting',
-      proof_path: b.path,
-    });
-    if (insErr) {
+    try {
+      await database.query(`INSERT INTO public.shop_order_payments(order_id,provider,amount,status,proof_path)
+        VALUES($1,$2,$3,'awaiting',$4)`, [order.id,order.payment_method,order.total,b.path]);
+    } catch (insErr) {
       console.error('shop recordPayment insert error:', insErr);
       return res.status(500).json({ error: 'Could not record your payment' });
     }
@@ -773,7 +709,7 @@ async function createCardCharge(req, res) {
     });
 
     if (result.kind === 'redirect' || result.kind === 'paid') {
-      await supabase.from('shop_orders').update({ payment_method: 'tap' }).eq('id', order.id);
+      await database.query("UPDATE public.shop_orders SET payment_method='tap' WHERE id=$1", [order.id]);
     }
 
     return respondToCharge(res, result, order.order_code, async () => {

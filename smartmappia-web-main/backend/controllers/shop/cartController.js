@@ -15,7 +15,7 @@
 // banded availability that can go stale, which is why checkout can still
 // return 409 out_of_stock and the cart screen must handle it.
 // ---------------------------------------------------------------------
-const { supabase } = require('../../lib/supabase');
+const database = require('../../lib/database/pool');
 const { config } = require('../../lib/config');
 const { vatFor } = require('../../lib/vat');
 const { logShopEvent } = require('../../lib/foodEvents');
@@ -32,12 +32,12 @@ const CART_LINE_SELECT =
 
 // Joins the LIVE catalogue, not a snapshot — prices can move between add-to-cart and checkout.
 async function buildCartSummary(cart) {
-  const { data: lines, error } = await supabase
-    .from('shop_cart_items')
-    .select(CART_LINE_SELECT)
-    .eq('cart_id', cart.id)
-    .order('created_at');
-  if (error) throw error;
+  const { rows: lines } = await database.query(
+    `SELECT ci.id,ci.quantity,ci.unit_price,ci.product_id,ci.variant_id,
+     to_jsonb(p) AS products,to_jsonb(pv) AS product_variants
+     FROM public.shop_cart_items ci LEFT JOIN public.products p ON p.id=ci.product_id
+     LEFT JOIN public.product_variants pv ON pv.id=ci.variant_id
+     WHERE ci.cart_id=$1 ORDER BY ci.created_at`, [cart.id]);
 
   const items = (lines || []).map((line) => {
     const product = line.products;
@@ -116,14 +116,10 @@ async function buildCartSummary(cart) {
 }
 
 async function loadOwnCart(userId, merchantId) {
-  const { data, error } = await supabase
-    .from('shop_carts')
-    .select('id, merchant_id')
-    .eq('customer_id', userId)
-    .eq('merchant_id', merchantId)
-    .maybeSingle();
-  if (error) throw error;
-  return data;
+  const { rows } = await database.query(
+    'SELECT id,merchant_id FROM public.shop_carts WHERE customer_id=$1 AND merchant_id=$2 LIMIT 1',
+    [userId,merchantId]);
+  return rows[0] || null;
 }
 
 async function getCart(req, res) {
@@ -159,18 +155,11 @@ async function addCartItem(req, res) {
     const variantId = req.body.variant_id || null;
 
     // Server reads the product + store state itself.
-    const { data: product, error: prodErr } = await supabase
-      .from('products')
-      .select(
-        'id, merchant_id, name, price, net_price, is_available, track_stock, stock_quantity, ' +
-          'merchants ( vertical, is_active, status, accepting_orders )'
-      )
-      .eq('id', product_id)
-      .maybeSingle();
-    if (prodErr) {
-      console.error('shop addCartItem load error:', prodErr);
-      return res.status(500).json({ error: 'Could not load the product' });
-    }
+    const { rows: productRows } = await database.query(
+      `SELECT p.id,p.merchant_id,p.name,p.price,p.net_price,p.is_available,p.track_stock,p.stock_quantity,
+       to_jsonb(m) AS merchants FROM public.products p
+       LEFT JOIN public.merchants m ON m.id=p.merchant_id WHERE p.id=$1 LIMIT 1`, [product_id]);
+    const product = productRows[0];
     if (!product) return res.status(404).json({ error: 'Product not found' });
     if (!product.is_available) {
       return res.status(409).json({ error: 'This product is currently unavailable' });
@@ -190,16 +179,14 @@ async function addCartItem(req, res) {
     // product without them rejects any variant the client sends. Belongs to
     // this product only — a variant id from another product is a 400, not a
     // silent cross-product add.
-    const { data: variants } = await supabase
-      .from('product_variants')
-      .select('id, label, price, net_price, stock_quantity, is_available')
-      .eq('product_id', product.id)
-      .eq('is_available', true);
+    const { rows: variants } = await database.query(
+      `SELECT id,label,price,net_price,stock_quantity,is_available FROM public.product_variants
+       WHERE product_id=$1 AND is_available=true`, [product.id]);
 
     let variant = null;
-    if ((variants || []).length > 0) {
+    if (variants.length > 0) {
       if (!variantId) return res.status(400).json({ error: 'Please pick an option for this product' });
-      variant = (variants || []).find((v) => v.id === variantId) || null;
+      variant = variants.find((v) => v.id === variantId) || null;
       if (!variant) return res.status(400).json({ error: 'That option is no longer available' });
     } else if (variantId) {
       return res.status(400).json({ error: 'This product does not have options' });
@@ -223,33 +210,20 @@ async function addCartItem(req, res) {
 
     let cart = await loadOwnCart(req.userId, product.merchant_id);
     if (!cart) {
-      const { data: created, error: cartErr } = await supabase
-        .from('shop_carts')
-        .upsert(
-          { customer_id: req.userId, merchant_id: product.merchant_id },
-          { onConflict: 'customer_id,merchant_id' }
-        )
-        .select('id, merchant_id')
-        .single();
-      if (cartErr) {
-        console.error('shop addCartItem cart create error:', cartErr);
-        return res.status(500).json({ error: 'Could not create your cart' });
-      }
-      cart = created;
+      const { rows } = await database.query(
+        `INSERT INTO public.shop_carts(customer_id,merchant_id) VALUES($1,$2)
+         ON CONFLICT(customer_id,merchant_id) DO UPDATE SET merchant_id=EXCLUDED.merchant_id
+         RETURNING id,merchant_id`, [req.userId,product.merchant_id]);
+      cart = rows[0];
     }
 
     // Same product + same variant again bumps the quantity (capped at
     // MAX_QTY). A different variant is a separate line — the unique index
     // covers cart + product + variant.
-    let existingQuery = supabase
-      .from('shop_cart_items')
-      .select('id, quantity')
-      .eq('cart_id', cart.id)
-      .eq('product_id', product.id);
-    existingQuery = variant
-      ? existingQuery.eq('variant_id', variant.id)
-      : existingQuery.is('variant_id', null);
-    const { data: existing } = await existingQuery.maybeSingle();
+    const { rows: existingRows } = await database.query(
+      `SELECT id,quantity FROM public.shop_cart_items WHERE cart_id=$1 AND product_id=$2
+       AND variant_id IS NOT DISTINCT FROM $3 LIMIT 1`, [cart.id,product.id,variant ? variant.id : null]);
+    const existing = existingRows[0];
 
     // Cap at MAX_QTY only — deliberately NOT at `available`. Clamping to the
     // stock level would echo the exact count straight back in the response
@@ -259,26 +233,13 @@ async function addCartItem(req, res) {
     const cap = (n) => Math.max(1, Math.min(n, MAX_QTY));
 
     if (existing) {
-      const { error: updErr } = await supabase
-        .from('shop_cart_items')
-        .update({ quantity: cap(existing.quantity + quantity), unit_price: unitPrice })
-        .eq('id', existing.id);
-      if (updErr) {
-        console.error('shop addCartItem update error:', updErr);
-        return res.status(500).json({ error: 'Could not update your cart' });
-      }
+      await database.query('UPDATE public.shop_cart_items SET quantity=$2,unit_price=$3 WHERE id=$1',
+        [existing.id,cap(existing.quantity + quantity),unitPrice]);
     } else {
-      const { error: insErr } = await supabase.from('shop_cart_items').insert({
-        cart_id: cart.id,
-        product_id: product.id,
-        variant_id: variant ? variant.id : null,
-        quantity: cap(quantity),
-        unit_price: unitPrice, // display snapshot; checkout re-reads live prices
-      });
-      if (insErr) {
-        console.error('shop addCartItem insert error:', insErr);
-        return res.status(500).json({ error: 'Could not add the product to your cart' });
-      }
+      await database.query(
+        `INSERT INTO public.shop_cart_items(cart_id,product_id,variant_id,quantity,unit_price)
+         VALUES($1,$2,$3,$4,$5)`,
+        [cart.id,product.id,variant ? variant.id : null,cap(quantity),unitPrice]);
     }
 
     logShopEvent({
@@ -302,14 +263,11 @@ async function addCartItem(req, res) {
 
 // null if the line isn't the caller's — never let one customer touch another's cart.
 async function loadOwnCartLine(userId, lineId) {
-  const { data, error } = await supabase
-    .from('shop_cart_items')
-    .select('id, cart_id, shop_carts ( id, customer_id, merchant_id )')
-    .eq('id', lineId)
-    .maybeSingle();
-  if (error) throw error;
-  if (!data || !data.shop_carts || data.shop_carts.customer_id !== userId) return null;
-  return data;
+  const { rows } = await database.query(
+    `SELECT ci.id,ci.cart_id,to_jsonb(c) AS shop_carts FROM public.shop_cart_items ci
+     JOIN public.shop_carts c ON c.id=ci.cart_id WHERE ci.id=$1 AND c.customer_id=$2 LIMIT 1`,
+    [lineId,userId]);
+  return rows[0] || null;
 }
 
 async function updateCartItem(req, res) {
@@ -319,16 +277,10 @@ async function updateCartItem(req, res) {
     if (!line) return res.status(404).json({ error: 'Cart item not found' });
 
     if (quantity === 0) {
-      await supabase.from('shop_cart_items').delete().eq('id', line.id);
+      await database.query('DELETE FROM public.shop_cart_items WHERE id=$1', [line.id]);
     } else {
-      const { error } = await supabase
-        .from('shop_cart_items')
-        .update({ quantity: Math.min(quantity, MAX_QTY) })
-        .eq('id', line.id);
-      if (error) {
-        console.error('shop updateCartItem error:', error);
-        return res.status(500).json({ error: 'Could not update the quantity' });
-      }
+      await database.query('UPDATE public.shop_cart_items SET quantity=$2 WHERE id=$1',
+        [line.id,Math.min(quantity,MAX_QTY)]);
     }
     return res.json(
       await buildCartSummary({ id: line.cart_id, merchant_id: line.shop_carts.merchant_id })
@@ -344,7 +296,7 @@ async function removeCartItem(req, res) {
     const line = await loadOwnCartLine(req.userId, req.params.id);
     if (!line) return res.status(404).json({ error: 'Cart item not found' });
 
-    await supabase.from('shop_cart_items').delete().eq('id', line.id);
+    await database.query('DELETE FROM public.shop_cart_items WHERE id=$1', [line.id]);
     return res.json(
       await buildCartSummary({ id: line.cart_id, merchant_id: line.shop_carts.merchant_id })
     );

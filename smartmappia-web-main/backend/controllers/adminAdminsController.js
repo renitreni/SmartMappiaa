@@ -13,20 +13,18 @@
 //   listLoginEvents   : GET    /api/admin/login-events
 //   loginEventSummary : GET    /api/admin/login-events/summary
 //
-// Account creation mirrors setStoreOwner in shop/adminShopController.js:
-// create the Supabase auth user with a strong random password, then write
-// the profile row. Passwords are generated server-side and returned ONCE
+// Account creation uses the app-owned PostgreSQL credential store. Passwords
+// are generated server-side and returned ONCE
 // in the create/reset response — they are never stored by us and cannot
 // be read back afterwards.
 //
-// DEACTIVATION IS TWO WRITES, AND BOTH MATTER. Banning the auth user is
-// what refuses a new signInWithPassword, because login happens
-// client-side against Supabase and never reaches this backend. Setting
-// disabled_at is what middleware/auth.js reads to reject a JWT that was
-// already issued. One without the other leaves a hole.
+// Deactivation updates app_users and profiles and revokes existing sessions.
 // ---------------------------------------------------------------------
 const crypto = require('crypto');
-const { supabase } = require('../lib/supabase');
+const database = require('../lib/database/pool');
+const authRepository = require('../repositories/authRepository');
+const profileRepository = require('../repositories/profileRepository');
+const { hashPassword } = require('../lib/passwords');
 const { config } = require('../lib/config');
 const { logAudit } = require('../lib/audit');
 const {
@@ -39,10 +37,6 @@ const {
 const ADMIN_SELECT =
   'id, email, full_name, mobile_number, whatsapp_number, role, is_super_admin, ' +
   'disabled_at, disabled_by, created_at';
-
-// Supabase expresses a permanent ban as a very long duration; there is no
-// "forever" literal. 876000h is 100 years.
-const BAN_FOREVER = '876000h';
 
 // Same generator as scripts/seed-admins.js: ~20 chars, 120 bits, and
 // typeable over the phone without ambiguity about padding characters.
@@ -62,22 +56,17 @@ function isEnvAdmin(email) {
 }
 
 async function loadAdmin(id) {
-  const { data } = await supabase.from('profiles').select(ADMIN_SELECT).eq('id', id).maybeSingle();
-  return data || null;
+  const profile = await profileRepository.getProfileById(id);
+  if (!profile || profile.role !== 'admin') return null;
+  return Object.fromEntries(ADMIN_SELECT.split(', ').map((key) => [key, profile[key]]));
 }
 
 // --- Read -------------------------------------------------------------
 async function listAdmins(req, res) {
   try {
-    const { data, error } = await supabase
-      .from('profiles')
-      .select(ADMIN_SELECT)
-      .eq('role', 'admin')
-      .order('created_at', { ascending: true });
-    if (error) {
-      console.error('listAdmins error:', error);
-      return res.status(500).json({ error: 'Could not load admins' });
-    }
+    const { rows: data } = await database.query(
+      `SELECT ${ADMIN_SELECT} FROM public.profiles WHERE role='admin' ORDER BY created_at ASC`,
+    );
 
     // envManaged tells the UI why deactivate is unavailable on a row,
     // rather than leaving a disabled button with no explanation.
@@ -100,43 +89,26 @@ async function createAdmin(req, res) {
     let userId;
     let reusedExistingAccount = false;
 
-    const { data: created, error: createErr } = await supabase.auth.admin.createUser({
-      email,
-      password,
-      email_confirm: true, // no confirmation email — an admin is provisioned, not self-registered
-    });
-
-    if (createErr) {
+    let existing = await authRepository.getUserByEmail(email);
+    if (existing) {
       // The address may already belong to a passenger or driver. Promoting
       // an existing account is legitimate and is how a staff member who
       // already uses the app becomes an admin, so reuse it rather than
       // refusing. Their password is reset either way, because whoever is
       // being handed the portal needs credentials they can be told.
-      const { data: list } = await supabase.auth.admin.listUsers({ page: 1, perPage: 200 });
-      const match = (list?.users || []).find((u) => (u.email || '').toLowerCase() === email);
-      if (!match) {
-        console.error('createAdmin createUser error:', createErr);
-        return res.status(400).json({ error: 'Could not create this account. Check the email address.' });
-      }
-      userId = match.id;
+      userId = existing.id;
       reusedExistingAccount = true;
-      const { error: pwErr } = await supabase.auth.admin.updateUserById(userId, {
-        password,
-        email_confirm: true,
-        ban_duration: 'none', // a previously deactivated account is being re-issued
-      });
-      if (pwErr) {
-        console.error('createAdmin updateUserById error:', pwErr);
-        return res.status(500).json({ error: 'Could not set the password for this account' });
-      }
+      await authRepository.updatePassword(userId, await hashPassword(password));
+      await authRepository.setDisabled(userId, false);
     } else {
-      userId = created.user.id;
+      existing = await authRepository.createUser({ email, passwordHash: await hashPassword(password) });
+      userId = existing.id;
     }
 
     // driver_approved: true matches what the seed scripts write — admins
     // bypass the approval gate anyway (requireApprovedDriver), and leaving
     // it false makes the row read as a pending driver in admin lists.
-    const { error: profileErr } = await supabase.from('profiles').upsert(
+    await profileRepository.upsertProfile(
       {
         id: userId,
         role: 'admin',
@@ -148,13 +120,8 @@ async function createAdmin(req, res) {
         is_super_admin: !!b.is_super_admin,
         disabled_at: null,
         disabled_by: null,
-      },
-      { onConflict: 'id' }
+      }
     );
-    if (profileErr) {
-      console.error('createAdmin profile upsert error:', profileErr);
-      return res.status(500).json({ error: 'The account was created but its profile could not be saved' });
-    }
 
     await logAudit({
       actorId: req.superAdminId,
@@ -206,11 +173,7 @@ async function updateAdmin(req, res) {
 
     if (!Object.keys(patch).length) return res.json({ admin: target });
 
-    const { error } = await supabase.from('profiles').update(patch).eq('id', target.id);
-    if (error) {
-      console.error('updateAdmin error:', error);
-      return res.status(500).json({ error: 'Could not save the changes' });
-    }
+    await profileRepository.updateProfile(target.id, patch);
 
     await logAudit({
       actorId: req.superAdminId,
@@ -230,13 +193,11 @@ async function updateAdmin(req, res) {
 // the deactivate guards: the platform must never end up with none, because
 // nothing outside this endpoint can grant the flag back except SQL.
 async function countOtherSuperAdmins(excludeId) {
-  const { data } = await supabase
-    .from('profiles')
-    .select('id')
-    .eq('is_super_admin', true)
-    .is('disabled_at', null)
-    .neq('id', excludeId);
-  return (data || []).length;
+  const { rows } = await database.query(
+    `SELECT count(*)::int AS count FROM public.profiles
+     WHERE is_super_admin=true AND disabled_at IS NULL AND id<>$1`, [excludeId],
+  );
+  return rows[0].count;
 }
 
 // --- Password reset ---------------------------------------------------
@@ -246,11 +207,11 @@ async function resetAdminPassword(req, res) {
     if (!target) return res.status(404).json({ error: 'Admin not found' });
 
     const password = strongPassword();
-    const { error } = await supabase.auth.admin.updateUserById(target.id, { password });
-    if (error) {
-      console.error('resetAdminPassword error:', error);
+    const updated = await authRepository.updatePassword(target.id, await hashPassword(password));
+    if (!updated) {
       return res.status(500).json({ error: 'Could not reset the password' });
     }
+    await authRepository.setDisabled(target.id, false);
 
     // The new password is deliberately NOT in meta: audit_logs is readable
     // by every admin, and a credential does not belong in a log row.
@@ -291,22 +252,11 @@ async function deactivateAdmin(req, res) {
     // Ban first: it is the half that stops a NEW sign-in. If the profile
     // write below fails, the account is already locked out rather than
     // still open — the safe direction to fail in.
-    const { error: banErr } = await supabase.auth.admin.updateUserById(target.id, {
-      ban_duration: BAN_FOREVER,
-    });
-    if (banErr) {
-      console.error('deactivateAdmin ban error:', banErr);
+    const disabled = await authRepository.setDisabled(target.id, true);
+    if (!disabled) {
       return res.status(500).json({ error: 'Could not deactivate the account' });
     }
-
-    const { error } = await supabase
-      .from('profiles')
-      .update({ disabled_at: new Date().toISOString(), disabled_by: req.superAdminId })
-      .eq('id', target.id);
-    if (error) {
-      console.error('deactivateAdmin error:', error);
-      return res.status(500).json({ error: 'The account was locked out but its profile could not be updated' });
-    }
+    await profileRepository.updateProfile(target.id, { disabled_at: new Date().toISOString(), disabled_by: req.superAdminId });
 
     await logAudit({
       actorId: req.superAdminId,
@@ -327,22 +277,8 @@ async function reactivateAdmin(req, res) {
     const target = await loadAdmin(req.params.id);
     if (!target) return res.status(404).json({ error: 'Admin not found' });
 
-    const { error: banErr } = await supabase.auth.admin.updateUserById(target.id, {
-      ban_duration: 'none',
-    });
-    if (banErr) {
-      console.error('reactivateAdmin unban error:', banErr);
-      return res.status(500).json({ error: 'Could not reactivate the account' });
-    }
-
-    const { error } = await supabase
-      .from('profiles')
-      .update({ disabled_at: null, disabled_by: null })
-      .eq('id', target.id);
-    if (error) {
-      console.error('reactivateAdmin error:', error);
-      return res.status(500).json({ error: 'Could not reactivate the account' });
-    }
+    await authRepository.setDisabled(target.id, false);
+    await profileRepository.updateProfile(target.id, { disabled_at: null, disabled_by: null });
 
     await logAudit({
       actorId: req.superAdminId,
@@ -437,21 +373,18 @@ async function listLoginEvents(req, res) {
     const limit = Math.min(Number(req.query.limit) || 50, 200);
     const offset = Math.max(Number(req.query.offset) || 0, 0);
 
-    let q = supabase
-      .from('admin_login_events')
-      .select('id, occurred_at, profile_id, email, role, ip, user_agent', { count: 'exact' })
-      .order('occurred_at', { ascending: false })
-      .range(offset, offset + limit - 1);
-
-    if (req.query.profile_id) q = q.eq('profile_id', req.query.profile_id);
-    if (req.query.since) q = q.gte('occurred_at', req.query.since);
-
-    const { data, error, count } = await q;
-    if (error) {
-      console.error('listLoginEvents error:', error);
-      return res.status(500).json({ error: 'Could not load login activity' });
-    }
-    return res.json({ events: data || [], total: count ?? 0, limit, offset });
+    const values = [];
+    const filters = [];
+    if (req.query.profile_id) { values.push(req.query.profile_id); filters.push(`profile_id=$${values.length}`); }
+    if (req.query.since) { values.push(req.query.since); filters.push(`occurred_at >= $${values.length}`); }
+    const where = filters.length ? `WHERE ${filters.join(' AND ')}` : '';
+    const { rows: counts } = await database.query(`SELECT count(*)::int AS total FROM public.admin_login_events ${where}`, values);
+    values.push(limit, offset);
+    const { rows: events } = await database.query(
+      `SELECT id,occurred_at,profile_id,email,role,ip,user_agent FROM public.admin_login_events ${where}
+       ORDER BY occurred_at DESC LIMIT $${values.length - 1} OFFSET $${values.length}`, values,
+    );
+    return res.json({ events, total: counts[0].total, limit, offset });
   } catch (err) {
     console.error('listLoginEvents error:', err);
     return res.status(500).json({ error: 'Unexpected server error' });
@@ -467,17 +400,10 @@ async function loginEventSummary(req, res) {
     const windowDays = Math.min(Number(req.query.days) || 30, 180);
     const since = new Date(Date.now() - windowDays * 24 * 60 * 60 * 1000).toISOString();
 
-    const { data, error } = await supabase
-      .from('admin_login_events')
-      .select('profile_id, email, occurred_at')
-      .gte('occurred_at', since)
-      .order('occurred_at', { ascending: false });
-    if (error) {
-      console.error('loginEventSummary error:', error);
-      return res.status(500).json({ error: 'Could not load login activity' });
-    }
-
-    const rows = data || [];
+    const { rows } = await database.query(
+      `SELECT profile_id,email,occurred_at FROM public.admin_login_events
+       WHERE occurred_at >= $1 ORDER BY occurred_at DESC`, [since],
+    );
     const dayAgo = Date.now() - 24 * 60 * 60 * 1000;
     const byAdmin = new Map();
     for (const row of rows) {

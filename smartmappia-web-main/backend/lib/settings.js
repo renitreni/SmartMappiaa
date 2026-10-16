@@ -16,7 +16,7 @@
 // been applied yet — every getter falls back to the env-driven value in
 // lib/config.js. An un-applied 0043 must change no behaviour.
 // ---------------------------------------------------------------------
-const { supabase } = require('./supabase');
+const appSettingsRepository = require('../repositories/appSettingsRepository');
 const { config } = require('./config');
 
 const CACHE_TTL_MS = 60 * 1000;
@@ -31,11 +31,7 @@ async function readSetting(key) {
 
   let value; // undefined = no usable row, distinct from a stored json null
   try {
-    const { data, error } = await supabase
-      .from('app_settings')
-      .select('value')
-      .eq('key', key)
-      .maybeSingle();
+    const { data, error } = await appSettingsRepository.getSetting(key);
     // A missing table is an error here, not an empty result. Either way
     // the caller gets undefined and falls back.
     if (error) {
@@ -75,17 +71,9 @@ async function getMaxDistanceKm() {
 
 // Write it back. `value` is a positive number, or null for no limit.
 async function setMaxDistanceKm(value, actorId = null) {
-  const { error } = await supabase
-    .from('app_settings')
-    .upsert(
-      {
-        key: 'max_distance_km',
-        value: value == null ? null : Number(value),
-        updated_at: new Date().toISOString(),
-        updated_by: actorId,
-      },
-      { onConflict: 'key' }
-    );
+  const { error } = await appSettingsRepository.setSetting(
+    'max_distance_km', value == null ? null : Number(value), actorId,
+  );
   if (error) throw error;
   cache.delete('max_distance_km');
 }
@@ -105,17 +93,7 @@ async function getStcPayEnabled() {
 }
 
 async function setStcPayEnabled(value, actorId = null) {
-  const { error } = await supabase
-    .from('app_settings')
-    .upsert(
-      {
-        key: 'stcpay_enabled',
-        value: !!value,
-        updated_at: new Date().toISOString(),
-        updated_by: actorId,
-      },
-      { onConflict: 'key' }
-    );
+  const { error } = await appSettingsRepository.setSetting('stcpay_enabled', !!value, actorId);
   if (error) throw error;
   cache.delete('stcpay_enabled');
 }

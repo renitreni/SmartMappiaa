@@ -12,8 +12,9 @@
 // ---------------------------------------------------------------------
 const crypto = require('crypto');
 
-const { supabase } = require('../lib/supabase');
 const tap = require('../lib/tap');
+const webhookRepository = require('../repositories/webhookRepository');
+const gatewayPaymentRepository = require('../repositories/gatewayPaymentRepository');
 const { chargeForOrder, respondToCharge } = require('../lib/cardCharge');
 const { confirmGatewayPayment, findByChargeId } = require('../lib/gatewayPaid');
 // Deciding what a charge means, and settling the order against it, is shared
@@ -41,32 +42,14 @@ function redactWebhookPayload(body) {
 }
 
 async function recordWebhookEvent({ body, signatureVerified }) {
-  const { data } = await supabase
-    .from('webhook_events')
-    .insert({
-      provider: 'tap',
-      event_type: (body && body.status) || null,
-      gateway_payment_id: (body && body.id) || null,
-      signature_verified: signatureVerified,
-      payload: redactWebhookPayload(body),
-      // Duplicate detection and reconciliation forensics only — NOT an
-      // authentication control (that is the hashstring, above).
-      payload_sha256: crypto
-        .createHash('sha256')
-        .update(JSON.stringify(body || {}))
-        .digest('hex'),
-    })
-    .select('id')
-    .single();
-  return data ? data.id : null;
+  return webhookRepository.create({
+    body: redactWebhookPayload(body), signatureVerified,
+    payloadHash: crypto.createHash('sha256').update(JSON.stringify(body || {})).digest('hex'),
+  });
 }
 
 async function finishWebhookEvent(eventId, patch) {
-  if (!eventId) return;
-  await supabase
-    .from('webhook_events')
-    .update({ ...patch, processed_at: new Date().toISOString() })
-    .eq('id', eventId);
+  return webhookRepository.finish(eventId, patch);
 }
 
 async function tapWebhook(req, res) {
@@ -159,17 +142,7 @@ async function tapWebhook(req, res) {
 // VITE_TAP_ENABLED flag on the button.
 async function createBookingCardCharge(req, res) {
   try {
-    const { data: booking } = await supabase
-      .from('bookings')
-      .select(
-        // customer_id:user_id — bookings name the owner user_id (guest rides
-        // leave it null); orders/shop_orders use customer_id. Aliasing here
-        // means the ownership check below reads the same for all three.
-        'id, booking_code, customer_id:user_id, fare_amount, vat_amount, total_amount, currency, ' +
-          'payment_method, payment_status'
-      )
-      .eq('booking_code', req.params.code)
-      .maybeSingle();
+    const booking = await gatewayPaymentRepository.cardBookingByCode(req.params.code);
 
     if (!booking) return res.status(404).json({ error: 'Booking not found' });
 

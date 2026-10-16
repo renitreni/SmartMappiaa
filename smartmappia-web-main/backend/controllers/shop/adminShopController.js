@@ -6,15 +6,17 @@
 //
 // THIS IS THE ONLY PLACE net_price IS EVER WRITTEN. It is what the store
 // keeps; price minus net_price is our markup. The store owner's portal has
-// no such field and its route schemas reject it, migration 0029 hides the
-// column from the public anon key, and 0030 revoked the direct-write grant.
-// Admin is the single writer by design.
+// no such field and its route schemas reject it, so admin is the single
+// writer by design.
 //
 // Every merchants query filters vertical = 'shop': the table is shared with
 // Food Delivery, and without the filter the Shop tab would list, suspend or
 // credit restaurants.
 // ---------------------------------------------------------------------
-const { supabase } = require('../../lib/supabase');
+const shopRepository = require('../../repositories/adminShopRepository');
+const authRepository = require('../../repositories/authRepository');
+const profileRepository = require('../../repositories/profileRepository');
+const { hashPassword } = require('../../lib/passwords');
 const { config } = require('../../lib/config');
 const { round2 } = require('../../lib/foodMoney');
 const { logAudit } = require('../../lib/audit');
@@ -39,53 +41,11 @@ const {
 const { passwordError } = require('../../lib/validate');
 const { resolveOwnerProfile } = require('../../lib/merchantOwner');
 
-const STORE_SELECT =
-  'id, name, vertical, cuisine_type, description, logo_url, address, street, building_number, lat, lng, is_active, status, ' +
-  'accepting_orders, credit_limit, credit_used, is_featured, badge, owner_id, created_at';
-
-// Admin sees net_price. Nobody else does.
-const ADMIN_PRODUCT_SELECT =
-  'id, merchant_id, category_id, name, description, brand, unit, weight_grams, barcode, ' +
-  'price, net_price, image_url, stock_quantity, low_stock_threshold, track_stock, ' +
-  'is_available, created_at';
-
-const ADMIN_VARIANT_SELECT =
-  'id, product_id, sku, label, price, net_price, stock_quantity, sort_order, is_available';
-
-async function loadStore(id) {
-  const { data } = await supabase
-    .from('merchants')
-    .select('*')
-    .eq('id', id)
-    .eq('vertical', 'shop')
-    .maybeSingle();
-  return data;
-}
-
 // --- Overview ---------------------------------------------------------
 async function getOverview(req, res) {
   try {
-    const [{ data: orders }, { data: stores }, { count: awaitingPayments }, { count: refundsOwed }] =
-      await Promise.all([
-        supabase
-          .from('shop_orders')
-          .select('id, status, total, platform_margin_total, payment_status, created_at')
-          .order('created_at', { ascending: false })
-          .limit(2000),
-        supabase.from('merchants').select('status, credit_used, credit_limit').eq('vertical', 'shop'),
-        supabase
-          .from('shop_orders')
-          .select('id', { count: 'exact', head: true })
-          .eq('payment_status', 'awaiting'),
-        // Cancelled or rejected but still paid — money we owe back. Counted
-        // here rather than derived from the 2000-row window above, which is
-        // capped and would silently undercount once history outgrows it.
-        supabase
-          .from('shop_orders')
-          .select('id', { count: 'exact', head: true })
-          .in('status', ['cancelled', 'rejected'])
-          .eq('payment_status', 'paid'),
-      ]);
+    const { orders, stores, awaitingPayments, refundsOwed, outOfStock } =
+      await shopRepository.overview();
 
     const rows = orders || [];
     const startOfToday = new Date();
@@ -95,16 +55,6 @@ async function getOverview(req, res) {
     const revenue = rows
       .filter((o) => o.status === 'delivered')
       .reduce((s, o) => s + Number(o.platform_margin_total || 0), 0);
-
-    // head: true returns NO rows — only a count. This read `data.length` off
-    // that null, so the tile said 0 out-of-stock products however many there
-    // were, which is the one number on this panel that is meant to prompt
-    // action.
-    const { count: outOfStock } = await supabase
-      .from('products')
-      .select('id', { count: 'exact', head: true })
-      .eq('track_stock', true)
-      .lte('stock_quantity', 0);
 
     return res.json({
       ordersToday: rows.filter((o) => new Date(o.created_at) >= startOfToday).length,
@@ -127,24 +77,13 @@ async function getOverview(req, res) {
 // --- Stores -----------------------------------------------------------
 async function listStores(req, res) {
   try {
-    const { data, error } = await supabase
-      .from('merchants')
-      .select(STORE_SELECT)
-      .eq('vertical', 'shop')
-      .order('created_at', { ascending: false });
-    if (error) {
-      console.error('admin listStores error:', error);
-      return res.status(500).json({ error: 'Could not load stores' });
-    }
+    const data = await shopRepository.listStores();
 
     // Owner emails, so the admin can see which stores still need an account.
-    const ownerIds = (data || []).map((m) => m.owner_id).filter(Boolean);
+    const ownerIds = [...new Set((data || []).map((m) => m.owner_id).filter(Boolean))];
     const emails = new Map();
     if (ownerIds.length) {
-      const { data: owners } = await supabase
-        .from('profiles')
-        .select('id, email')
-        .in('id', ownerIds);
+      const owners = await shopRepository.emailsByIds(ownerIds);
       for (const o of owners || []) emails.set(o.id, o.email);
     }
 
@@ -175,17 +114,7 @@ async function createStore(req, res) {
         failure_reason: 'store_location_required',
       });
     }
-    const { data, error } = await supabase
-      .from('merchants')
-      // vertical is set HERE, not taken from the body: the route schema does
-      // not declare it, so this endpoint can only ever mint a store.
-      .insert({ ...req.body, vertical: 'shop' })
-      .select(STORE_SELECT)
-      .single();
-    if (error) {
-      console.error('admin createStore error:', error);
-      return res.status(500).json({ error: 'Could not create the store' });
-    }
+    const data = await shopRepository.insertStore(req.body);
     logAudit({
       actorId: req.adminId,
       action: 'admin_shop_store_created',
@@ -196,13 +125,13 @@ async function createStore(req, res) {
     return res.status(201).json({ store: data });
   } catch (err) {
     console.error('admin createStore error:', err);
-    return res.status(500).json({ error: 'Unexpected server error' });
+    return res.status(500).json({ error: 'Could not create the store' });
   }
 }
 
 async function updateStore(req, res) {
   try {
-    const current = await loadStore(req.params.id);
+    const current = await shopRepository.loadStore(req.params.id);
     if (!current) return res.status(404).json({ error: 'Store not found' });
 
     // A store cannot be LISTED without a pin — same rule as updateMerchant.
@@ -219,17 +148,7 @@ async function updateStore(req, res) {
       });
     }
 
-    const { data, error } = await supabase
-      .from('merchants')
-      .update(req.body)
-      .eq('id', req.params.id)
-      .eq('vertical', 'shop')
-      .select(STORE_SELECT)
-      .maybeSingle();
-    if (error) {
-      console.error('admin updateStore error:', error);
-      return res.status(500).json({ error: 'Could not update the store' });
-    }
+    const data = await shopRepository.updateStore(req.params.id, req.body);
     if (!data) return res.status(404).json({ error: 'Store not found' });
     logAudit({
       actorId: req.adminId,
@@ -241,22 +160,15 @@ async function updateStore(req, res) {
     return res.json({ store: data });
   } catch (err) {
     console.error('admin updateStore error:', err);
-    return res.status(500).json({ error: 'Unexpected server error' });
+    return res.status(500).json({ error: 'Could not update the store' });
   }
 }
 
 async function deleteStore(req, res) {
   try {
-    const store = await loadStore(req.params.id);
+    const store = await shopRepository.loadStore(req.params.id);
     if (!store) return res.status(404).json({ error: 'Store not found' });
-    const { error } = await supabase.from('merchants').delete().eq('id', req.params.id);
-    if (error) {
-      // shop_orders.merchant_id is ON DELETE RESTRICT — a store with order
-      // history must be unlisted, not deleted, so the history stays truthful.
-      return res.status(409).json({
-        error: 'This store has order history and cannot be deleted. Unlist it instead.',
-      });
-    }
+    await shopRepository.deleteStore(req.params.id);
     logAudit({
       actorId: req.adminId,
       action: 'admin_shop_store_deleted',
@@ -266,6 +178,14 @@ async function deleteStore(req, res) {
     });
     return res.json({ deleted: true });
   } catch (err) {
+    // 23503 = shop_orders.merchant_id ON DELETE RESTRICT — a store with
+    // order history must be unlisted, not deleted, so the history stays
+    // truthful.
+    if (err && err.code === '23503') {
+      return res.status(409).json({
+        error: 'This store has order history and cannot be deleted. Unlist it instead.',
+      });
+    }
     console.error('admin deleteStore error:', err);
     return res.status(500).json({ error: 'Unexpected server error' });
   }
@@ -273,9 +193,9 @@ async function deleteStore(req, res) {
 
 async function suspendStore(req, res) {
   try {
-    const store = await loadStore(req.params.id);
+    const store = await shopRepository.loadStore(req.params.id);
     if (!store) return res.status(404).json({ error: 'Store not found' });
-    await supabase.from('merchants').update({ status: 'suspended' }).eq('id', store.id);
+    await shopRepository.setStoreStatus(store.id, 'suspended');
     logAudit({
       actorId: req.adminId,
       action: 'admin_shop_store_suspended',
@@ -292,9 +212,9 @@ async function suspendStore(req, res) {
 
 async function reactivateStore(req, res) {
   try {
-    const store = await loadStore(req.params.id);
+    const store = await shopRepository.loadStore(req.params.id);
     if (!store) return res.status(404).json({ error: 'Store not found' });
-    await supabase.from('merchants').update({ status: 'active' }).eq('id', store.id);
+    await shopRepository.setStoreStatus(store.id, 'active');
     logAudit({
       actorId: req.adminId,
       action: 'admin_shop_store_reactivated',
@@ -311,31 +231,31 @@ async function reactivateStore(req, res) {
 // Reconcile the credit line after the store settles what it owes.
 async function replenishCredit(req, res) {
   try {
-    const store = await loadStore(req.params.id);
+    const store = await shopRepository.loadStore(req.params.id);
     if (!store) return res.status(404).json({ error: 'Store not found' });
 
     const amount = round2(Number(req.body.amount));
     const before = round2(Number(store.credit_used));
     const after = round2(Math.max(0, before - amount));
 
-    // Compare-and-swap so two admins reconciling at once cannot both apply.
-    const { data: rows } = await supabase
-      .from('merchants')
-      .update({ credit_used: after, status: after < Number(store.credit_limit) ? 'active' : store.status })
-      .eq('id', store.id)
-      .eq('credit_used', store.credit_used)
-      .select('id');
-    if (!rows || rows.length === 0) {
+    const applied = await shopRepository.replenishStoreCredit({
+      id: store.id,
+      after,
+      status: after < Number(store.credit_limit) ? 'active' : store.status,
+      expectedCreditUsed: store.credit_used,
+    });
+    if (!applied) {
       return res.status(409).json({ error: 'The credit balance changed — please retry' });
     }
 
-    await supabase.from('merchant_credit_ledger').insert({
-      merchant_id: store.id,
+    await shopRepository.insertCreditLedger({
+      merchantId: store.id,
       type: 'replenish',
       amount,
-      balance_after: after,
+      balanceAfter: after,
       note: req.body.note || 'Admin reconciliation',
-      created_by: req.adminId,
+      createdBy: req.adminId,
+      shopOrderId: null,
     });
     logAudit({
       actorId: req.adminId,
@@ -353,7 +273,7 @@ async function replenishCredit(req, res) {
 
 async function createStoreImageUploadUrl(req, res) {
   try {
-    const store = await loadStore(req.params.id);
+    const store = await shopRepository.loadStore(req.params.id);
     if (!store) return res.status(404).json({ error: 'Store not found' });
     const kind = req.body.kind === 'logo' ? 'logo' : 'item';
     const path = kind === 'logo'
@@ -385,7 +305,7 @@ async function setStoreOwner(req, res) {
     const pwError = passwordError(password);
     if (pwError) return res.status(400).json({ error: pwError });
 
-    const store = await loadStore(req.params.id);
+    const store = await shopRepository.loadStore(req.params.id);
     if (!store) return res.status(404).json({ error: 'Store not found' });
     if (store.owner_id) {
       return res.status(409).json({
@@ -400,48 +320,31 @@ async function setStoreOwner(req, res) {
 
     let ownerId = null;
     let reusedExistingAccount = false;
-    const { data: created, error: createErr } = await supabase.auth.admin.createUser({
-      email,
-      password,
-      email_confirm: true,
-      user_metadata: { full_name: req.body.full_name || null, mobile_number: req.body.phone || null },
-    });
-    if (createErr) {
-      const msg = (createErr.message || '').toLowerCase();
-      const alreadyExists = msg.includes('already') || createErr.status === 422;
-      if (!alreadyExists) {
-        console.error('setStoreOwner createUser error:', createErr);
-        return res.status(500).json({ error: 'Could not create the owner account' });
-      }
-      if (!existingProfile) {
-        return res.status(409).json({
-          error: 'An account with this email exists but could not be linked. Please check the address.',
-        });
-      }
+    if (existingProfile) {
+      const existingUser = await authRepository.getUserById(existingProfile.id);
+      if (!existingUser) return res.status(409).json({ error: 'Account is not available for linking.' });
       ownerId = existingProfile.id;
       reusedExistingAccount = true;
-      const { error: pwErr } = await supabase.auth.admin.updateUserById(ownerId, {
-        password,
-        email_confirm: true,
-      });
-      if (pwErr) {
-        console.error('setStoreOwner updateUserById error:', pwErr);
-        return res.status(500).json({ error: 'Could not set the owner password' });
-      }
+      await authRepository.updatePassword(ownerId, await hashPassword(password));
+      await authRepository.setDisabled(ownerId, false);
     } else {
-      ownerId = created.user.id;
+      if (await authRepository.getUserByEmail(email)) {
+        return res.status(409).json({ error: 'An account with this email exists but could not be linked. Please check the address.' });
+      }
+      const created = await authRepository.createUser({ email, passwordHash: await hashPassword(password) });
+      ownerId = created.id;
     }
 
     // The merchant role is granted ONLY here and in its food twin — it is not
     // self-selectable at signup (handbook §13.3.4).
-    await supabase.from('profiles').upsert({
+    await profileRepository.upsertProfile({
       id: ownerId,
       role: 'merchant',
       email,
       full_name: req.body.full_name || null,
       mobile_number: req.body.phone || null,
     });
-    await supabase.from('merchants').update({ owner_id: ownerId }).eq('id', store.id);
+    await shopRepository.linkStoreOwner(store.id, ownerId);
 
     // Audit meta carries WHO was linked, never the password.
     logAudit({
@@ -475,7 +378,7 @@ async function setStoreOwnerPassword(req, res) {
     const pwError = passwordError(password);
     if (pwError) return res.status(400).json({ error: pwError });
 
-    const store = await loadStore(req.params.id);
+    const store = await shopRepository.loadStore(req.params.id);
     if (!store) return res.status(404).json({ error: 'Store not found' });
     if (!store.owner_id) {
       return res.status(409).json({
@@ -483,12 +386,8 @@ async function setStoreOwnerPassword(req, res) {
       });
     }
 
-    const { error: pwErr } = await supabase.auth.admin.updateUserById(store.owner_id, {
-      password,
-      email_confirm: true,
-    });
-    if (pwErr) {
-      console.error('setStoreOwnerPassword error:', pwErr);
+    const updated = await authRepository.updatePassword(store.owner_id, await hashPassword(password));
+    if (!updated) {
       return res.status(500).json({ error: 'Could not update the owner password' });
     }
 
@@ -510,20 +409,9 @@ async function setStoreOwnerPassword(req, res) {
 // --- Catalogue (the ONLY net_price writer) ----------------------------
 async function getStoreCatalogue(req, res) {
   try {
-    const store = await loadStore(req.params.id);
+    const store = await shopRepository.loadStore(req.params.id);
     if (!store) return res.status(404).json({ error: 'Store not found' });
-    const [{ data: categories }, { data: products }] = await Promise.all([
-      supabase
-        .from('product_categories')
-        .select('id, name, sort_order, is_active')
-        .eq('merchant_id', store.id)
-        .order('sort_order'),
-      supabase
-        .from('products')
-        .select(`${ADMIN_PRODUCT_SELECT}, product_variants ( ${ADMIN_VARIANT_SELECT} )`)
-        .eq('merchant_id', store.id)
-        .order('name'),
-    ]);
+    const { categories, products } = await shopRepository.catalogue(store.id);
     return res.json({ store, categories: categories || [], products: products || [] });
   } catch (err) {
     console.error('admin getStoreCatalogue error:', err);
@@ -533,69 +421,43 @@ async function getStoreCatalogue(req, res) {
 
 async function addCategory(req, res) {
   try {
-    const store = await loadStore(req.params.id);
+    const store = await shopRepository.loadStore(req.params.id);
     if (!store) return res.status(404).json({ error: 'Store not found' });
-    const { data, error } = await supabase
-      .from('product_categories')
-      .insert({ ...req.body, merchant_id: store.id })
-      .select('id, name, sort_order, is_active')
-      .single();
-    if (error) return res.status(500).json({ error: 'Could not add the category' });
+    const data = await shopRepository.insertCategory(store.id, req.body);
     return res.status(201).json({ category: data });
   } catch (err) {
     console.error('admin addCategory error:', err);
-    return res.status(500).json({ error: 'Unexpected server error' });
+    return res.status(500).json({ error: 'Could not add the category' });
   }
 }
 
 async function updateCategory(req, res) {
   try {
-    const { data, error } = await supabase
-      .from('product_categories')
-      .update(req.body)
-      .eq('id', req.params.id)
-      .select('id, name, sort_order, is_active')
-      .maybeSingle();
-    if (error) return res.status(500).json({ error: 'Could not update the category' });
+    const data = await shopRepository.updateCategory(req.params.id, req.body);
     if (!data) return res.status(404).json({ error: 'Category not found' });
     return res.json({ category: data });
   } catch (err) {
     console.error('admin updateCategory error:', err);
-    return res.status(500).json({ error: 'Unexpected server error' });
+    return res.status(500).json({ error: 'Could not update the category' });
   }
 }
 
 async function deleteCategory(req, res) {
   try {
-    const { error } = await supabase.from('product_categories').delete().eq('id', req.params.id);
-    if (error) return res.status(500).json({ error: 'Could not delete the category' });
+    await shopRepository.deleteCategory(req.params.id);
     return res.json({ deleted: true });
   } catch (err) {
     console.error('admin deleteCategory error:', err);
-    return res.status(500).json({ error: 'Unexpected server error' });
+    return res.status(500).json({ error: 'Could not delete the category' });
   }
 }
 
 // net_price arrives here and NOWHERE else in the codebase.
 async function addProduct(req, res) {
   try {
-    const store = await loadStore(req.params.id);
+    const store = await shopRepository.loadStore(req.params.id);
     if (!store) return res.status(404).json({ error: 'Store not found' });
-    const { data, error } = await supabase
-      .from('products')
-      .insert({ ...req.body, merchant_id: store.id })
-      .select(ADMIN_PRODUCT_SELECT)
-      .single();
-    if (error) {
-      // 23514 = products_net_price_range: net_price must be > 0 and <= price.
-      if (error.code === '23514') {
-        return res.status(422).json({
-          error: 'The net price must be greater than zero and no more than the list price.',
-        });
-      }
-      console.error('admin addProduct error:', error);
-      return res.status(500).json({ error: 'Could not add the product' });
-    }
+    const data = await shopRepository.insertProduct(store.id, req.body);
     logAudit({
       actorId: req.adminId,
       action: 'admin_shop_product_added',
@@ -605,27 +467,20 @@ async function addProduct(req, res) {
     });
     return res.status(201).json({ product: data });
   } catch (err) {
+    // 23514 = products_net_price_range: net_price must be > 0 and <= price.
+    if (err && err.code === '23514') {
+      return res.status(422).json({
+        error: 'The net price must be greater than zero and no more than the list price.',
+      });
+    }
     console.error('admin addProduct error:', err);
-    return res.status(500).json({ error: 'Unexpected server error' });
+    return res.status(500).json({ error: 'Could not add the product' });
   }
 }
 
 async function updateProduct(req, res) {
   try {
-    const { data, error } = await supabase
-      .from('products')
-      .update(req.body)
-      .eq('id', req.params.id)
-      .select(ADMIN_PRODUCT_SELECT)
-      .maybeSingle();
-    if (error) {
-      if (error.code === '23514') {
-        return res.status(422).json({
-          error: 'The net price must be greater than zero and no more than the list price.',
-        });
-      }
-      return res.status(500).json({ error: 'Could not update the product' });
-    }
+    const data = await shopRepository.updateProduct(req.params.id, req.body);
     if (!data) return res.status(404).json({ error: 'Product not found' });
     logAudit({
       actorId: req.adminId,
@@ -636,21 +491,26 @@ async function updateProduct(req, res) {
     });
     return res.json({ product: data });
   } catch (err) {
+    if (err && err.code === '23514') {
+      return res.status(422).json({
+        error: 'The net price must be greater than zero and no more than the list price.',
+      });
+    }
     console.error('admin updateProduct error:', err);
-    return res.status(500).json({ error: 'Unexpected server error' });
+    return res.status(500).json({ error: 'Could not update the product' });
   }
 }
 
 async function deleteProduct(req, res) {
   try {
-    const { error } = await supabase.from('products').delete().eq('id', req.params.id);
-    if (error) {
+    await shopRepository.deleteProduct(req.params.id);
+    return res.json({ deleted: true });
+  } catch (err) {
+    if (err && err.code === '23503') {
       return res.status(409).json({
         error: 'This product could not be deleted. Mark it unavailable instead.',
       });
     }
-    return res.json({ deleted: true });
-  } catch (err) {
     console.error('admin deleteProduct error:', err);
     return res.status(500).json({ error: 'Unexpected server error' });
   }
@@ -658,41 +518,31 @@ async function deleteProduct(req, res) {
 
 async function upsertVariant(req, res) {
   try {
-    const body = { ...req.body, product_id: req.params.id };
-    const q = req.params.variantId
-      ? supabase.from('product_variants').update(req.body).eq('id', req.params.variantId).eq('product_id', req.params.id)
-      : supabase.from('product_variants').insert(body);
-    const { data, error } = await q.select(ADMIN_VARIANT_SELECT).maybeSingle();
-    if (error) {
-      if (error.code === '23505') {
-        return res.status(409).json({ error: 'That SKU is already used by another option' });
-      }
-      if (error.code === '23514') {
-        return res.status(422).json({
-          error: 'An option with a net price must also set its own price, and the net price cannot exceed it.',
-        });
-      }
-      console.error('admin upsertVariant error:', error);
-      return res.status(500).json({ error: 'Could not save the option' });
-    }
+    const data = req.params.variantId
+      ? await shopRepository.updateVariant(req.params.variantId, req.params.id, req.body)
+      : await shopRepository.insertVariant(req.params.id, req.body);
     if (!data) return res.status(404).json({ error: 'Option not found' });
     return res.json({ variant: data });
   } catch (err) {
+    if (err && err.code === '23505') {
+      return res.status(409).json({ error: 'That SKU is already used by another option' });
+    }
+    if (err && err.code === '23514') {
+      return res.status(422).json({
+        error: 'An option with a net price must also set its own price, and the net price cannot exceed it.',
+      });
+    }
     console.error('admin upsertVariant error:', err);
-    return res.status(500).json({ error: 'Unexpected server error' });
+    return res.status(500).json({ error: 'Could not save the option' });
   }
 }
 
 async function deleteVariant(req, res) {
   try {
-    const { error } = await supabase
-      .from('product_variants')
-      .delete()
-      .eq('id', req.params.variantId)
-      .eq('product_id', req.params.id);
-    if (error) return res.status(409).json({ error: 'Could not delete the option' });
+    await shopRepository.deleteVariant(req.params.variantId, req.params.id);
     return res.json({ deleted: true });
   } catch (err) {
+    if (err && err.code === '23503') return res.status(409).json({ error: 'Could not delete the option' });
     console.error('admin deleteVariant error:', err);
     return res.status(500).json({ error: 'Unexpected server error' });
   }
@@ -711,35 +561,16 @@ async function getInventory(req, res) {
 }
 
 // --- Orders -----------------------------------------------------------
-const ADMIN_ORDER_SELECT =
-  'id, order_code, status, subtotal, delivery_fee, platform_margin_total, vat_amount, vat_rate, ' +
-  'total, distance_km, delivery_address, delivery_street, delivery_building, contact_phone, payment_status, payment_method, ' +
-  'gateway_transaction_id, reject_reason, stock_reserved_at, stock_released_at, created_at, ' +
-  'accepted_at, packed_at, ready_at, delivered_at, ' +
-  'merchants ( id, name ), ' +
-  'shop_order_items ( id, name_snapshot, variant_label_snapshot, sku_snapshot, unit_price, quantity, line_total, margin_total ), ' +
-  'shop_deliveries ( status, driver_id, pickup_photo_path, delivery_photo_path ), ' +
-  'profiles!shop_orders_customer_id_fkey ( full_name, mobile_number )';
-
 async function listOrders(req, res) {
   try {
-    let q = supabase
-      .from('shop_orders')
-      .select(ADMIN_ORDER_SELECT)
-      .order('created_at', { ascending: false })
-      .limit(200);
-    if (req.query.status) q = q.eq('status', req.query.status);
-    if (req.query.merchant_id) q = q.eq('merchant_id', req.query.merchant_id);
-
-    const { data, error } = await q;
-    if (error) {
-      console.error('admin shop listOrders error:', error);
-      return res.status(500).json({ error: 'Could not load orders' });
-    }
+    const data = await shopRepository.listOrders({
+      status: req.query.status || null,
+      merchantId: req.query.merchant_id || null,
+    });
     return res.json({ orders: data || [] });
   } catch (err) {
     console.error('admin shop listOrders error:', err);
-    return res.status(500).json({ error: 'Unexpected server error' });
+    return res.status(500).json({ error: 'Could not load orders' });
   }
 }
 
@@ -747,30 +578,13 @@ async function listOrders(req, res) {
 //
 // "Owed" is derived, not stored: cancelled or rejected AND still marked paid.
 // That is the exact condition refundPayment enforces, so a second flag column
-// would only be somewhere for the two to disagree. Migration 0040 indexes
-// this predicate directly.
+// would only be somewhere for the two to disagree.
 //
 // Cash never appears here: payment_status only reaches 'paid' when the rider
 // collects at the door, which a cancelled order never reaches.
-const REFUND_QUEUE_SELECT =
-  'order_code, status, payment_status, payment_method, total, reject_reason, ' +
-  'cancelled_by, cancelled_at, created_at, merchants ( name )';
-
 async function listRefunds(req, res) {
   try {
-    const { data, error } = await supabase
-      .from('shop_orders')
-      .select(REFUND_QUEUE_SELECT)
-      .in('status', ['cancelled', 'rejected'])
-      .eq('payment_status', 'paid')
-      // Newest first on screen; the oldest debt is the one that pages to the
-      // bottom, which is why cancelled_at is surfaced at all.
-      .order('cancelled_at', { ascending: false, nullsFirst: false })
-      .limit(200);
-    if (error) {
-      console.error('admin shop listRefunds error:', error);
-      return res.status(500).json({ error: 'Could not load the refund queue' });
-    }
+    const data = await shopRepository.listRefunds();
     return res.json({
       refunds: (data || []).map((o) => ({
         orderCode: o.order_code,
@@ -785,7 +599,7 @@ async function listRefunds(req, res) {
     });
   } catch (err) {
     console.error('admin shop listRefunds error:', err);
-    return res.status(500).json({ error: 'Unexpected server error' });
+    return res.status(500).json({ error: 'Could not load the refund queue' });
   }
 }
 
@@ -832,41 +646,25 @@ async function cancelOrder(req, res) {
   return res.status(httpStatus).json(body);
 }
 
-async function loadOrderRow(code) {
-  const { data } = await supabase
-    .from('shop_orders')
-    .select('id, order_code, customer_id, merchant_id, status, total, payment_status, payment_method')
-    .eq('order_code', code)
-    .maybeSingle();
-  return data;
-}
-
 async function verifyPayment(req, res) {
   try {
-    const order = await loadOrderRow(req.params.code);
+    const order = await shopRepository.loadOrderRow(req.params.code);
     if (!order) return res.status(404).json({ error: 'Order not found' });
     if (order.payment_status === 'paid') {
       return res.status(409).json({ error: 'This payment is already verified' });
     }
 
     // Promote the awaiting proof row rather than inserting a second one.
-    const { data: pending } = await supabase
-      .from('shop_order_payments')
-      .select('id')
-      .eq('order_id', order.id)
-      .eq('status', 'awaiting')
-      .order('created_at', { ascending: false })
-      .limit(1)
-      .maybeSingle();
-    if (pending) {
-      await supabase.from('shop_order_payments').update({ status: 'paid' }).eq('id', pending.id);
+    const pendingId = await shopRepository.latestAwaitingPaymentId(order.id);
+    if (pendingId) {
+      await shopRepository.markPaymentPaid(pendingId);
     }
 
     const result = await markShopOrderPaid(order, {
       provider: order.payment_method,
       transactionId: req.body.reference || null,
       actorId: req.adminId,
-      skipPaymentRow: !!pending,
+      skipPaymentRow: !!pendingId,
     });
     if (result.alreadyPaid) return res.status(409).json({ error: 'This payment is already recorded' });
 
@@ -879,15 +677,11 @@ async function verifyPayment(req, res) {
 
 async function rejectPayment(req, res) {
   try {
-    const order = await loadOrderRow(req.params.code);
+    const order = await shopRepository.loadOrderRow(req.params.code);
     if (!order) return res.status(404).json({ error: 'Order not found' });
 
-    await supabase.from('shop_orders').update({ payment_status: 'failed' }).eq('id', order.id);
-    await supabase
-      .from('shop_order_payments')
-      .update({ status: 'failed' })
-      .eq('order_id', order.id)
-      .eq('status', 'awaiting');
+    await shopRepository.setOrderPaymentStatus(order.id, 'failed');
+    await shopRepository.failAwaitingPayments(order.id);
 
     logAudit({
       actorId: req.adminId,
@@ -907,25 +701,21 @@ async function rejectPayment(req, res) {
     return res.json({ orderCode: order.order_code, paymentStatus: 'failed' });
   } catch (err) {
     console.error('admin shop rejectPayment error:', err);
-    return res.status(500).json({ error: 'Unexpected server error' });
+    return res.status(500).json({ error: 'Could not reject the payment' });
   }
 }
 
 // Refunding releases the stock too — the goods are coming back to the store.
 async function refundPayment(req, res) {
   try {
-    const order = await loadOrderRow(req.params.code);
+    const order = await shopRepository.loadOrderRow(req.params.code);
     if (!order) return res.status(404).json({ error: 'Order not found' });
     if (order.payment_status !== 'paid') {
       return res.status(409).json({ error: 'Only a paid order can be refunded' });
     }
 
-    await supabase.from('shop_orders').update({ payment_status: 'refunded' }).eq('id', order.id);
-    await supabase
-      .from('shop_order_payments')
-      .update({ status: 'refunded' })
-      .eq('order_id', order.id)
-      .eq('status', 'paid');
+    await shopRepository.setOrderPaymentStatus(order.id, 'refunded');
+    await shopRepository.refundPaidPayments(order.id);
 
     const release = await releaseShopStock(order.id);
 
@@ -945,21 +735,17 @@ async function refundPayment(req, res) {
     return res.json({ orderCode: order.order_code, paymentStatus: 'refunded', stockReleased: release.released });
   } catch (err) {
     console.error('admin shop refundPayment error:', err);
-    return res.status(500).json({ error: 'Unexpected server error' });
+    return res.status(500).json({ error: 'Could not refund the payment' });
   }
 }
 
 // Manual rider assignment, for when the cascade cannot place a job.
 async function assignDriver(req, res) {
   try {
-    const order = await loadOrderRow(req.params.code);
+    const order = await shopRepository.loadOrderRow(req.params.code);
     if (!order) return res.status(404).json({ error: 'Order not found' });
 
-    const { data: driver } = await supabase
-      .from('profiles')
-      .select('id, role, driver_approved, full_name')
-      .eq('id', req.body.driver_id)
-      .maybeSingle();
+    const driver = await shopRepository.driverById(req.body.driver_id);
     if (!driver || driver.role !== 'driver') {
       return res.status(400).json({ error: 'That account is not a driver' });
     }
@@ -967,13 +753,7 @@ async function assignDriver(req, res) {
       return res.status(400).json({ error: 'That driver is not approved yet' });
     }
 
-    const { error } = await supabase
-      .from('shop_deliveries')
-      .upsert({ order_id: order.id, driver_id: driver.id, status: 'assigned' }, { onConflict: 'order_id' });
-    if (error) {
-      console.error('admin shop assignDriver error:', error);
-      return res.status(500).json({ error: 'Could not assign the rider' });
-    }
+    await shopRepository.upsertDelivery({ orderId: order.id, driverId: driver.id, status: 'assigned' });
 
     logAudit({
       actorId: req.adminId,
@@ -989,20 +769,16 @@ async function assignDriver(req, res) {
     return res.json({ assigned: true, driverId: driver.id });
   } catch (err) {
     console.error('admin shop assignDriver error:', err);
-    return res.status(500).json({ error: 'Unexpected server error' });
+    return res.status(500).json({ error: 'Could not assign the rider' });
   }
 }
 
 // Short-lived signed URLs for the rider's proof photos (private bucket).
 async function getOrderPhotos(req, res) {
   try {
-    const order = await loadOrderRow(req.params.code);
+    const order = await shopRepository.loadOrderRow(req.params.code);
     if (!order) return res.status(404).json({ error: 'Order not found' });
-    const { data: delivery } = await supabase
-      .from('shop_deliveries')
-      .select('pickup_photo_path, delivery_photo_path')
-      .eq('order_id', order.id)
-      .maybeSingle();
+    const delivery = await shopRepository.deliveryPhotos(order.id);
     if (!delivery) return res.json({ pickupUrl: null, deliveryUrl: null });
 
     const [pickupUrl, deliveryUrl] = await Promise.all([
@@ -1036,22 +812,9 @@ async function getSettlement(req, res) {
 
     const rows = [];
     for (let offset = 0; offset < MAX_ROWS; offset += PAGE) {
-      const { data, error } = await supabase
-        .from('shop_orders')
-        .select(
-          'order_code, created_at, subtotal, delivery_fee, driver_fee, platform_margin_total, vat_amount, ' +
-            'total, payment_method, payment_status, merchants ( name )'
-        )
-        .gte('created_at', from.toISOString())
-        .lte('created_at', to.toISOString())
-        .order('created_at', { ascending: false })
-        .range(offset, offset + PAGE - 1);
-      if (error) {
-        console.error('admin shop getSettlement error:', error);
-        return res.status(500).json({ error: 'Could not build the settlement report' });
-      }
-      rows.push(...(data || []));
-      if (!data || data.length < PAGE) break;
+      const page = await shopRepository.settlementPage({ from, to, limit: PAGE, offset });
+      rows.push(...page);
+      if (!page.length || page.length < PAGE) break;
     }
 
     const orders = rows.map((o) => {
@@ -1065,7 +828,7 @@ async function getSettlement(req, res) {
         storePayout: round2(subtotal - markup),
         platformMarkup: markup,
         deliveryCharge: round2(Number(o.delivery_fee)),
-        // Mirrors the food report (0041): the delivery fee is split, and the
+        // Mirrors the food report: the delivery fee is split, and the
         // rider's share is read off the row rather than recomputed.
         driverFee: round2(Number(o.driver_fee || 0)),
         platformDeliveryShare: round2(Number(o.delivery_fee) - Number(o.driver_fee || 0)),
@@ -1116,7 +879,7 @@ async function getSettlement(req, res) {
     return res.json({ orders, totals, count: orders.length });
   } catch (err) {
     console.error('admin shop getSettlement error:', err);
-    return res.status(500).json({ error: 'Unexpected server error' });
+    return res.status(500).json({ error: 'Could not build the settlement report' });
   }
 }
 

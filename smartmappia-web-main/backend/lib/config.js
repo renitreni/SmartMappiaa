@@ -17,9 +17,26 @@ function toNumber(value, fallback) {
 }
 
 const config = {
-  sessions: {
-    // Set an absolute path outside the checkout on the production VPS.
-    sqlitePath: process.env.SESSION_SQLITE_PATH || require('node:path').join(__dirname, '../data/auth.sqlite'),
+  database: {
+    url: process.env.DATABASE_URL || '',
+    poolMax: toNumber(process.env.DATABASE_POOL_MAX, 20),
+    idleTimeoutMs: toNumber(process.env.DATABASE_IDLE_TIMEOUT_MS, 30000),
+    connectionTimeoutMs: toNumber(process.env.DATABASE_CONNECTION_TIMEOUT_MS, 5000),
+  },
+  email: {
+    smtpHost: process.env.SMTP_HOST || '',
+    smtpPort: toNumber(process.env.SMTP_PORT, 587),
+    smtpSecure: toBool(process.env.SMTP_SECURE, false),
+    smtpUser: process.env.SMTP_USER || '',
+    smtpPassword: process.env.SMTP_PASSWORD || '',
+    from: process.env.MAIL_FROM || '',
+  },
+  objectStorage: {
+    endpoint: process.env.OBJECT_STORAGE_ENDPOINT || '',
+    region: process.env.OBJECT_STORAGE_REGION || 'us-east-1',
+    accessKey: process.env.OBJECT_STORAGE_ACCESS_KEY || '',
+    secretKey: process.env.OBJECT_STORAGE_SECRET_KEY || '',
+    forcePathStyle: toBool(process.env.OBJECT_STORAGE_FORCE_PATH_STYLE, true),
   },
   // The platform's operating timezone. Merchant opening hours (0038) are
   // stored as wall-clock times and evaluated against this, so a store that

@@ -6,7 +6,7 @@
 // logic (credit gating, platform margin, the fulfillment ladder) with the
 // admin fallback via backend/lib/foodOrderActions.js — never duplicated.
 // ---------------------------------------------------------------------
-const { supabase } = require('../lib/supabase');
+const merchantOrdersRepository = require('../repositories/merchantOrdersRepository');
 const { requireOwnedMerchant } = require('./merchantController');
 const {
   loadOrderByCode,
@@ -25,30 +25,11 @@ async function listOrders(req, res) {
     if (!merchant) return;
 
     const status = (req.query.status || '').toString();
-    let query = supabase
-      .from('orders')
-      .select(
-        'id, order_code, status, payment_status, payment_method, subtotal, delivery_fee, total, ' +
-          'delivery_address, delivery_street, delivery_building, created_at, delivered_at, ' +
-          'profiles!orders_customer_id_fkey ( full_name, mobile_number ), ' +
-          'deliveries ( driver_id, status, pickup_photo_path, delivery_photo_path, profiles ( full_name, whatsapp_number, mobile_number ) ), ' +
-          'order_items ( name_snapshot, quantity, line_total )'
-      )
-      .eq('merchant_id', merchant.id)
-      .order('created_at', { ascending: false })
-      .limit(100);
-    if (status) query = query.eq('status', status);
-
-    const { data, error } = await query;
-    if (error) {
-      console.error('merchant listOrders error:', error);
-      return res.status(500).json({ error: 'Could not load orders' });
-    }
+    const data = await merchantOrdersRepository.listForMerchant({ merchantId: merchant.id, status, limit: 100 });
 
     return res.json({
-      orders: (data || []).map((o) => {
-        const delivery = Array.isArray(o.deliveries) ? o.deliveries[0] : o.deliveries;
-        const rider = delivery && delivery.profiles ? delivery.profiles : null;
+      orders: data.map((o) => {
+        const delivery = o.delivery_status ? o : null;
         return {
           // The order's own code doubles as the pickup-verification code —
           // compare what the driver states against this before handing over
@@ -63,12 +44,12 @@ async function listOrders(req, res) {
           deliveryAddress: o.delivery_address,
           deliveryStreet: o.delivery_street,
           deliveryBuilding: o.delivery_building,
-          customerName: o.profiles ? o.profiles.full_name : null,
-          customerMobile: o.profiles ? o.profiles.mobile_number : null,
-          items: o.order_items || [],
-          riderName: rider ? rider.full_name : null,
-          riderWhatsapp: rider ? rider.whatsapp_number : null,
-          riderMobile: rider ? rider.mobile_number : null,
+          customerName: o.customer_name,
+          customerMobile: o.customer_mobile,
+          items: o.items || [],
+          riderName: delivery ? o.rider_name : null,
+          riderWhatsapp: delivery ? o.rider_whatsapp : null,
+          riderMobile: delivery ? o.rider_mobile : null,
           riderAssigned: !!delivery,
           hasPickupPhoto: !!(delivery && delivery.pickup_photo_path),
           hasDeliveryPhoto: !!(delivery && delivery.delivery_photo_path),

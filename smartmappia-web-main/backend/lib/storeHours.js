@@ -149,16 +149,16 @@ function groupHoursByMerchant(rows) {
 // The open state for ONE merchant, hours read on demand. Used by the order
 // guards, where a greyed-out card in the UI is not a control.
 //
-// supabase is required lazily so this module stays importable with no
+// The database adapter is required lazily so this module stays importable with no
 // environment at all — scripts/check-store-hours.js exercises the logic
 // above without a database.
 async function merchantOpenState(merchantId, acceptingOrders) {
-  const { supabase } = require('./supabase');
-  const { data, error } = await supabase
-    .from('merchant_hours')
-    .select('weekday, opens_at, closes_at')
-    .eq('merchant_id', merchantId);
-  if (error) {
+  const database = require('./database/pool');
+  let data;
+  try {
+    ({ rows: data } = await database.query(
+      'SELECT weekday,opens_at,closes_at FROM public.merchant_hours WHERE merchant_id=$1', [merchantId]));
+  } catch (error) {
     // Fail OPEN. Hours are a convenience; a lookup blip must not stop a
     // merchant trading. is_active/status still gate availability.
     console.error('merchantOpenState hours load error:', error.message || error);

@@ -5,7 +5,7 @@
 //   npm run seed:aling-marias
 // ---------------------------------------------------------------------
 require('dotenv').config();
-const { supabase } = require('../lib/supabase');
+const database = require('../lib/database/pool');
 
 const MERCHANT = {
   name: "Aling Maria's Specialties",
@@ -21,28 +21,26 @@ const MERCHANT = {
 };
 
 async function run() {
-  const { data: existing, error: findErr } = await supabase
-    .from('merchants')
-    .select('id, name')
-    .ilike('name', "%aling maria%")
-    .limit(1)
-    .maybeSingle();
-  if (findErr) throw findErr;
+  const { rows: existing } = await database.query(
+    `SELECT id, name FROM public.merchants WHERE name ILIKE $1 LIMIT 1`, ['%aling maria%'],
+  );
 
-  if (existing?.id) {
-    const { error } = await supabase.from('merchants').update(MERCHANT).eq('id', existing.id);
-    if (error) throw error;
-    console.log(`✅ Updated Aling Maria's Specialties (${existing.id}) — no menu items (coming soon).`);
+  if (existing[0]?.id) {
+    const sets = Object.keys(MERCHANT).map((key, i) => `${key}=$${i + 2}`).join(',');
+    await database.query(
+      `UPDATE public.merchants SET ${sets} WHERE id=$1`, [existing[0].id, ...Object.values(MERCHANT)],
+    );
+    console.log(`✅ Updated Aling Maria's Specialties (${existing[0].id}) — no menu items (coming soon).`);
     return;
   }
 
-  const { data: created, error } = await supabase
-    .from('merchants')
-    .insert(MERCHANT)
-    .select('id, name')
-    .single();
-  if (error) throw error;
-  console.log(`✅ Created Aling Maria's Specialties (${created.id}) — listed with empty menu.`);
+  const names = Object.keys(MERCHANT);
+  const { rows: created } = await database.query(
+    `INSERT INTO public.merchants (${names.join(',')})
+     VALUES (${names.map((_, i) => `$${i + 1}`).join(',')}) RETURNING id, name`,
+    names.map((key) => MERCHANT[key]),
+  );
+  console.log(`✅ Created Aling Maria's Specialties (${created[0].id}) — listed with empty menu.`);
 }
 
 run().catch((err) => {

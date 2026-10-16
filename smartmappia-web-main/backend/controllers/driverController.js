@@ -11,7 +11,8 @@
 // first-come-first-served: the claim only succeeds while the booking is
 // still unassigned. Completing a ride writes the ledger (spec §12).
 // ---------------------------------------------------------------------
-const { supabase } = require('../lib/supabase');
+const database = require('../lib/database/pool');
+const driverRepository = require('../repositories/driverRepository');
 const { config } = require('../lib/config');
 const { addTrackingEvent } = require('../lib/tracking');
 const { createLedgerEntryForBooking } = require('../lib/ledger');
@@ -41,8 +42,6 @@ const STATUS_FLOW = {
 };
 
 // Ride states where the driver is actively heading to / carrying the rider.
-const ACTIVE_RIDE_STATUSES = ['accepted', 'on_the_way', 'arrived', 'started'];
-
 // --- GET /api/driver/available ---------------------------------------
 // Verified + confirmed + still unassigned bookings, nearest first.
 async function listAvailableRides(req, res) {
@@ -57,30 +56,13 @@ async function listAvailableRides(req, res) {
     const lng = req.query.lng != null ? Number(req.query.lng) : null;
     const here = lat != null && lng != null ? { lat, lng } : null;
 
-    const { data, error } = await supabase
-      .from('bookings')
-      .select(
-        'booking_code, trip_type, airport_terminal, pickup_address, pickup_street, pickup_building, pickup_lat, pickup_lng, ' +
-          'dropoff_address, dropoff_street, dropoff_building, dropoff_lat, dropoff_lng, pickup_datetime, fare_amount, currency, ' +
-          'payment_method, created_at'
-      )
-      // Cash bookings are confirmed up front (no online payment to verify),
-      // so a verified payment OR a cash method makes a ride dispatchable.
-      .or('payment_status.eq.verified,payment_method.eq.cash')
-      .eq('booking_status', 'confirmed')
-      .is('assigned_driver_id', null)
-      .order('created_at', { ascending: true });
-    if (error) { console.error('driver query error:', error); return res.status(500).json({ error: 'Unexpected server error' }); }
+    const data = await driverRepository.availableRides();
 
     // A driver over their cash-owed cap can't accept cash rides, so don't
     // show them ones they'd only be blocked from taking (STC rides still show).
     let feed = data || [];
     if (req.role !== 'admin') {
-      const { data: drv } = await supabase
-        .from('profiles')
-        .select('cash_owed, cash_owed_limit')
-        .eq('id', req.driverId)
-        .single();
+      const drv = await driverRepository.cashProfile(req.driverId);
       if (drv && isBlockedFromCash(drv)) {
         feed = feed.filter((r) => r.payment_method !== 'cash');
       }
@@ -118,12 +100,8 @@ async function acceptRide(req, res) {
       return res.status(403).json({ error: 'Enable Pick & Drop in your services to accept rides' });
     }
 
-    const { data: booking, error } = await supabase
-      .from('bookings')
-      .select('id, booking_code, payment_status, payment_method, booking_status, assigned_driver_id, user_id')
-      .eq('booking_code', req.params.bookingCode)
-      .single();
-    if (error || !booking) return res.status(404).json({ error: 'Ride not found' });
+    const booking = await driverRepository.bookingByCode(req.params.bookingCode);
+    if (!booking) return res.status(404).json({ error: 'Ride not found' });
     // Cash rides are ready on creation; STC Pay rides only once verified.
     if (booking.payment_status !== 'verified' && booking.payment_method !== 'cash') {
       return res.status(409).json({ error: 'Ride is not ready to be accepted yet' });
@@ -132,11 +110,7 @@ async function acceptRide(req, res) {
     // on more cash (they'd be holding even more of our money). STC rides are
     // unaffected — no cash changes hands.
     if (booking.payment_method === 'cash') {
-      const { data: drv } = await supabase
-        .from('profiles')
-        .select('cash_owed, cash_owed_limit')
-        .eq('id', req.driverId)
-        .single();
+      const drv = await driverRepository.cashProfile(req.driverId);
       if (drv && isBlockedFromCash(drv)) {
         return res.status(403).json({
           error: 'Settle your outstanding cash with SmartMappia before taking new cash rides',
@@ -151,27 +125,13 @@ async function acceptRide(req, res) {
 
     // Atomic claim: only succeeds while assigned_driver_id is STILL null, so
     // two drivers tapping "accept" at once can never both win.
-    const { data: claimed, error: claimErr } = await supabase
-      .from('bookings')
-      .update({
-        assigned_driver_id: req.driverId,
-        driver_ride_status: 'accepted',
-        booking_status: 'driver_assigned',
-      })
-      .eq('id', booking.id)
-      .is('assigned_driver_id', null)
-      .select('booking_code, booking_status, driver_ride_status')
-      .single();
-    if (claimErr || !claimed) {
+    const claimed = await driverRepository.claimRide(booking.id, req.driverId);
+    if (!claimed) {
       return res.status(409).json({ error: 'Ride already taken' });
     }
 
     // Driver contact for the passenger's tracking screen.
-    const { data: driver } = await supabase
-      .from('profiles')
-      .select('full_name, whatsapp_number')
-      .eq('id', req.driverId)
-      .single();
+    const driver = await driverRepository.profileContact(req.driverId);
 
     await addTrackingEvent(booking.id, {
       eventType: 'driver_accepted',
@@ -279,18 +239,15 @@ async function updateDriverLocation(req, res) {
 
     // --- 1. Persist (throttled) ---
     if (!prev.wroteAt || now - prev.wroteAt >= WRITE_EVERY_MS) {
-      const { error } = await supabase.from('driver_locations').insert({
-        driver_id: req.driverId,
-        lat: here.lat,
-        lng: here.lng,
-        accuracy_meters: accuracy != null ? Number(accuracy) : null,
+      await database.query(`INSERT INTO public.driver_locations
+        (driver_id,lat,lng,accuracy_meters,heading,speed_kmh) VALUES ($1,$2,$3,$4,$5,$6)`, [
+        req.driverId, here.lat, here.lng, accuracy != null ? Number(accuracy) : null,
         // Device compass/speedometer (migration 0033). Null is normal —
         // stationary or unsupported — and readers fall back to a derived
         // bearing rather than treating it as an error.
-        heading: heading != null ? Number(heading) : null,
-        speed_kmh: speedKmh != null ? Number(speedKmh) : null,
-      });
-      if (error) { console.error('driver query error:', error); return res.status(500).json({ error: 'Unexpected server error' }); }
+        heading != null ? Number(heading) : null,
+        speedKmh != null ? Number(speedKmh) : null,
+      ]);
       lastPing.set(req.driverId, { ...prev, wroteAt: now });
     }
 
@@ -315,12 +272,7 @@ async function updateDriverLocation(req, res) {
     };
 
     // Push live position to any active ride this driver is on.
-    const { data: activeRides, error: activeRidesError } = await supabase
-      .from('bookings')
-      .select('booking_code, pickup_lat, pickup_lng')
-      .eq('assigned_driver_id', req.driverId)
-      .in('driver_ride_status', ACTIVE_RIDE_STATUSES);
-    if (activeRidesError) console.error('updateDriverLocation activeRides query error:', activeRidesError);
+    const activeRides = await driverRepository.activeRides(req.driverId);
 
     (activeRides || []).forEach((r) => {
       const distanceKm = haversineKm(here, { lat: r.pickup_lat, lng: r.pickup_lng });
@@ -332,15 +284,9 @@ async function updateDriverLocation(req, res) {
 
     // Same for any food delivery this driver is carrying — the customer's
     // tracking map moves the rider pin on every ping (Grab-style).
-    const { data: activeDeliveries, error: activeDeliveriesError } = await supabase
-      .from('deliveries')
-      .select('order_id, orders!inner ( order_code, status, delivery_lat, delivery_lng )')
-      .eq('driver_id', req.driverId)
-      .in('orders.status', ['accepted', 'preparing', 'ready', 'out_for_delivery']);
-    if (activeDeliveriesError) console.error('updateDriverLocation activeDeliveries query error:', activeDeliveriesError);
+    const activeDeliveries = await driverRepository.activeDeliveries('food', req.driverId, ['accepted','preparing','ready','out_for_delivery']);
 
-    (activeDeliveries || []).forEach((d) => {
-      const o = d.orders;
+    (activeDeliveries || []).forEach((o) => {
       const distanceKm = haversineKm(here, { lat: o.delivery_lat, lng: o.delivery_lng });
       pushFoodOrderStatus(o.order_code, {
         status: o.status,
@@ -352,15 +298,9 @@ async function updateDriverLocation(req, res) {
     // ...and any shop delivery. This branch did not exist: a rider could be
     // carrying an ecommerce order and the customer's map had no pin to move,
     // which is why shop tracking looked permanently frozen.
-    const { data: shopDeliveries, error: shopDeliveriesError } = await supabase
-      .from('shop_deliveries')
-      .select('order_id, shop_orders!inner ( order_code, status, delivery_lat, delivery_lng )')
-      .eq('driver_id', req.driverId)
-      .in('shop_orders.status', ['accepted', 'packing', 'ready', 'out_for_delivery']);
-    if (shopDeliveriesError) console.error('updateDriverLocation shopDeliveries query error:', shopDeliveriesError);
+    const shopDeliveries = await driverRepository.activeDeliveries('shop', req.driverId, ['accepted','packing','ready','out_for_delivery']);
 
-    (shopDeliveries || []).forEach((d) => {
-      const o = d.shop_orders;
+    (shopDeliveries || []).forEach((o) => {
       const distanceKm = haversineKm(here, { lat: o.delivery_lat, lng: o.delivery_lng });
       pushShopOrderStatus(o.order_code, {
         status: o.status,
@@ -379,24 +319,7 @@ async function updateDriverLocation(req, res) {
 // --- GET /api/driver/rides -------------------------------------------
 async function listMyRides(req, res) {
   try {
-    let query = supabase
-      .from('bookings')
-      .select(
-        'booking_code, trip_type, airport_terminal, pickup_address, pickup_street, pickup_building, pickup_lat, pickup_lng, ' +
-          'dropoff_address, dropoff_street, dropoff_building, dropoff_lat, dropoff_lng, pickup_datetime, passenger_name, ' +
-          'passenger_mobile, passenger_whatsapp, fare_amount, currency, booking_status, driver_ride_status, created_at'
-      )
-      .eq('assigned_driver_id', req.driverId)
-      .order('pickup_datetime', { ascending: true });
-
-    if (req.query.driver_ride_status) {
-      query = query.eq('driver_ride_status', req.query.driver_ride_status);
-    }
-
-    const { data, error } = await query;
-    if (error) { console.error('driver query error:', error); return res.status(500).json({ error: 'Unexpected server error' }); }
-
-    return res.json({ rides: data });
+    return res.json({ rides: await driverRepository.listRides(req.driverId, req.query.driver_ride_status) });
   } catch (err) {
     console.error('listMyRides error:', err);
     return res.status(500).json({ error: 'Unexpected server error' });
@@ -413,15 +336,8 @@ async function updateRideStatus(req, res) {
       });
     }
 
-    const { data: booking, error } = await supabase
-      .from('bookings')
-      .select('id, booking_code, fare_amount, vat_amount, vat_rate, total_amount, currency, ' +
-        'distance_surcharge, payment_method, payment_status, ' +
-        'assigned_driver_id, driver_ride_status, booking_status, user_id, ' +
-        'pickup_lat, pickup_lng, trip_type')
-      .eq('booking_code', req.params.bookingCode)
-      .single();
-    if (error || !booking) return res.status(404).json({ error: 'Ride not found' });
+    const booking = await driverRepository.bookingByCode(req.params.bookingCode);
+    if (!booking) return res.status(404).json({ error: 'Ride not found' });
     if (booking.assigned_driver_id !== req.driverId) {
       return res.status(403).json({ error: 'This ride is not assigned to you' });
     }
@@ -447,13 +363,10 @@ async function updateRideStatus(req, res) {
     }
 
     const flow = STATUS_FLOW[status];
-    const { data: updated, error: updErr } = await supabase
-      .from('bookings')
-      .update({ driver_ride_status: status, booking_status: flow.bookingStatus })
-      .eq('id', booking.id)
-      .select('booking_code, driver_ride_status, booking_status')
-      .single();
-    if (updErr) { console.error('driver update error:', updErr); return res.status(500).json({ error: 'Unexpected server error' }); }
+    const updated = await driverRepository.updateRideStatus({
+      booking, driverId: req.driverId, status, bookingStatus: flow.bookingStatus,
+    });
+    if (!updated) return res.status(409).json({ error: 'Ride status changed — please refresh' });
 
     await addTrackingEvent(booking.id, {
       eventType: `driver_${status}`,
@@ -483,23 +396,14 @@ async function updateRideStatus(req, res) {
       // the driver is holding it, so we ALSO record the commission they now
       // owe SmartMappia (driver cash settlement, migration 0022).
       if (booking.payment_method === 'cash' && booking.payment_status !== 'verified') {
-        const { error: payStatusErr } = await supabase
-          .from('bookings')
-          .update({ payment_status: 'verified' })
-          .eq('id', booking.id);
-        if (payStatusErr) console.error('cash payment_status update error:', payStatusErr);
-        const { error: payRowErr } = await supabase.from('payments').insert({
-          booking_id: booking.id,
-          provider: 'cash',
+        try {
+          await database.query("UPDATE public.bookings SET payment_status='verified' WHERE id=$1", [booking.id]);
+          await database.query(`INSERT INTO public.payments
+            (booking_id,provider,amount,currency,status,verified_by_system,verified_at,notes)
+            VALUES ($1,'cash',$2,$3,'verified',true,now(),'Cash collected by driver at completion')`, [booking.id,
           // The passenger hands over fare + VAT.
-          amount: payableAmount(booking),
-          currency: booking.currency,
-          status: 'verified',
-          verified_by_system: true,
-          verified_at: new Date().toISOString(),
-          notes: 'Cash collected by driver at completion',
-        });
-        if (payRowErr) console.error('cash payment record error:', payRowErr);
+          payableAmount(booking), booking.currency]);
+        } catch (payErr) { console.error('cash payment record error:', payErr); }
 
         // Charge the platform commission to the driver's cash-owed balance,
         // PLUS the VAT they collected — that is SmartMappia's liability to
@@ -569,21 +473,12 @@ async function updateRideStatus(req, res) {
 // whether they're blocked from new cash rides, and their recent movements.
 async function getMyCash(req, res) {
   try {
-    const { data: drv, error } = await supabase
-      .from('profiles')
-      .select('cash_owed, cash_owed_limit')
-      .eq('id', req.driverId)
-      .single();
-    if (error || !drv) return res.status(404).json({ error: 'Driver not found' });
+    const [drv, ledger] = await Promise.all([
+      driverRepository.cashProfile(req.driverId), driverRepository.cashLedger(req.driverId),
+    ]);
+    if (!drv) return res.status(404).json({ error: 'Driver not found' });
 
-    const { data: ledger } = await supabase
-      .from('driver_cash_ledger')
-      .select('type, amount, balance_after, note, created_at')
-      .eq('driver_id', req.driverId)
-      .order('created_at', { ascending: false })
-      .limit(20);
-
-    return res.json({ ...driverCashView(drv), ledger: ledger || [] });
+    return res.json({ ...driverCashView(drv), ledger });
   } catch (err) {
     console.error('getMyCash error:', err);
     return res.status(500).json({ error: 'Unexpected server error' });
@@ -601,25 +496,8 @@ async function updateServiceTypes(req, res) {
       return res.status(400).json({ error: 'Select at least one service type' });
     }
 
-    const { data, error } = await supabase
-      .from('profiles')
-      .update({ service_types: cleaned })
-      .eq('id', req.driverId)
-      .select('service_types')
-      .single();
-    if (error || !data) {
-      console.error('updateServiceTypes error:', error);
-      const missingColumn = (error && error.message ? error.message : '').includes('service_types');
-      return res.status(500).json(
-        opsError(
-          req,
-          'Could not save your services.',
-          missingColumn
-            ? 'Run backend/migrations/0020_driver_service_types.sql in the Supabase SQL Editor.'
-            : null
-        )
-      );
-    }
+    const data = await driverRepository.setServiceTypes(req.driverId, cleaned);
+    if (!data) return res.status(404).json({ error: 'Driver not found' });
 
     return res.json({ serviceTypes: data.service_types });
   } catch (err) {

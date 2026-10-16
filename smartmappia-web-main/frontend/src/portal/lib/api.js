@@ -79,7 +79,7 @@ export const api = {
   authSignup: (body) => request('/api/auth/signup', { method: 'POST', body }),
   changePassword: (password) => request('/api/auth/password', { method: 'POST', body: { password } }),
   requestPasswordReset: (email) => request('/api/auth/password/reset/request', { method: 'POST', body: { email }, silent: true }),
-  exchangePasswordReset: (state, code) => request('/api/auth/password/reset/exchange', { method: 'POST', body: { state, code }, silent: true }),
+  exchangePasswordReset: (token) => request('/api/auth/password/reset/exchange', { method: 'POST', body: { token }, silent: true }),
   completePasswordReset: (ticket, password) => request('/api/auth/password/reset/complete', { method: 'POST', body: { ticket, password } }),
   // Fire-and-forget: called once after a real credential sign-in so the
   // super admin can see who signed in and when. Silent because a failure

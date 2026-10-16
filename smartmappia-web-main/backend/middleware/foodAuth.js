@@ -10,21 +10,18 @@
 // (routes/merchant.js, routes/merchantShop.js) — it's not needed here
 // because admin-side food routes are locked down separately.
 // ---------------------------------------------------------------------
-const { supabase } = require('../lib/supabase');
+const { findSession } = require('../lib/appSessions');
 const { setContextUser } = require('../lib/requestContext');
 
 async function optionalAuth(req, _res, next) {
   try {
-    const header = req.get('authorization') || '';
-    const match = header.match(/^Bearer\s+(.+)$/i);
-    if (!match) return next();
-    const { data, error } = await supabase.auth.getUser(match[1]);
-    if (!error && data && data.user) {
-      req.authUser = { id: data.user.id, email: data.user.email };
-      req.userId = data.user.id;
+    const session = await findSession(req);
+    if (session?.user) {
+      req.authUser = { id: session.user.id, email: session.user.email };
+      req.userId = session.user.id;
       // No profile lookup here, so the role stays unknown; id and email
       // are still enough to trace an error to a person.
-      setContextUser({ id: data.user.id, email: data.user.email, role: null });
+      setContextUser({ id: session.user.id, email: session.user.email, role: null });
     }
     return next();
   } catch (err) {

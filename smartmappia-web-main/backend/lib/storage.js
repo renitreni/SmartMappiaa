@@ -1,13 +1,12 @@
 // ---------------------------------------------------------------------
-// Supabase Storage helpers for payment proofs.
+// App-owned object-storage helpers for payment proofs.
 //
-// Files NEVER pass through this server. The browser uploads straight to
-// Supabase Storage using a short-lived signed upload URL, then tells us
-// the path. Admins later read proofs through short-lived signed download
-// URLs. The bucket itself is PRIVATE (see README setup step).
+// The browser uploads through the API using a short-lived scoped grant. The
+// API stores objects in the configured S3-compatible service and serves
+// private files only after validating a separate download grant.
 // ---------------------------------------------------------------------
 const crypto = require('crypto');
-const { supabase } = require('./supabase');
+const objectStorage = require('./objectStorage');
 const { config } = require('./config');
 const { uploadGrant, downloadUrl } = require('./fileGrants');
 
@@ -40,7 +39,6 @@ function buildProofPath(bookingCode, originalName) {
   return `${safeCode}/${Date.now()}-${rand}${ext}`;
 }
 
-// The client PUTs the file directly to Supabase Storage with this.
 async function createProofUploadUrl(path) {
   return uploadAuthorization(config.proofs.bucket, path, config.proofs);
 }
@@ -112,7 +110,7 @@ function merchantImagePublicUrl(path) {
 // --- User avatars (profile pictures, PUBLIC `avatars` bucket) ---------------
 //
 // Same signed-upload pattern as merchant images. The bucket is created
-// lazily on first use so no manual Supabase setup step is needed.
+// Bucket creation is automatic and object access stays behind the API.
 
 // Create the bucket if it is missing, and either way make sure its size and
 // MIME limits match what config says.
@@ -124,28 +122,12 @@ function merchantImagePublicUrl(path) {
 // we have, because files never pass through this server. The browser PUTs
 // straight to Storage with a signed URL, so an Express body limit would
 // catch precisely nothing.
-async function ensureBucket(name, { isPublic, maxBytes, allowedMimeTypes }) {
-  const options = {
-    public: isPublic,
-    fileSizeLimit: maxBytes,
-    allowedMimeTypes,
-  };
-
-  const { error: createError } = await supabase.storage.createBucket(name, options);
-  const alreadyExists = createError && /already exists/i.test(createError.message || '');
-  if (createError && !alreadyExists) throw createError;
-  if (!alreadyExists) return { bucket: name, action: 'created', maxBytes };
-
-  const { error: updateError } = await supabase.storage.updateBucket(name, options);
-  if (updateError) throw updateError;
-  return { bucket: name, action: 'updated', maxBytes };
-}
+const ensureBucket = objectStorage.ensureBucket;
 
 let avatarBucketReady = false;
 async function ensureAvatarBucket() {
   if (avatarBucketReady) return;
   await ensureBucket(config.avatars.bucket, {
-    isPublic: true,
     maxBytes: config.avatars.maxBytes,
     allowedMimeTypes: config.avatars.allowedMimeTypes,
   });
@@ -176,17 +158,9 @@ function avatarPublicUrl(path) {
 // name), so account deletion has to clear the whole folder.
 async function deleteAvatarFolder(userId) {
   const safeId = String(userId).replace(/[^A-Za-z0-9-]/g, '');
-  const { data: files, error: listError } = await supabase.storage
-    .from(config.avatars.bucket)
-    .list(safeId);
-  if (listError) throw listError;
-  if (!files || files.length === 0) return 0;
-
-  const paths = files.map((f) => `${safeId}/${f.name}`);
-  const { error: removeError } = await supabase.storage
-    .from(config.avatars.bucket)
-    .remove(paths);
-  if (removeError) throw removeError;
+  const files = await objectStorage.listObjects(config.avatars.bucket, safeId);
+  const paths = files.map((file) => file.Key).filter(Boolean);
+  await objectStorage.deleteObjects(config.avatars.bucket, paths);
   return paths.length;
 }
 

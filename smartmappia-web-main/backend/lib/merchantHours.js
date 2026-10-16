@@ -8,7 +8,7 @@
 // class of bug (orphaned windows from a day the user cleared) for the cost
 // of a slightly larger request.
 // ---------------------------------------------------------------------
-const { supabase } = require('./supabase');
+const database = require('./database/pool');
 
 const HHMM = /^([01]\d|2[0-3]):([0-5]\d)$/;
 
@@ -48,42 +48,31 @@ function validateWindows(windows) {
 }
 
 async function listHours(merchantId) {
-  const { data, error } = await supabase
-    .from('merchant_hours')
-    .select('weekday, opens_at, closes_at')
-    .eq('merchant_id', merchantId)
-    .order('weekday')
-    .order('opens_at');
-  if (error) throw error;
-  return data || [];
+  const { rows } = await database.query(
+    'SELECT weekday,opens_at,closes_at FROM public.merchant_hours WHERE merchant_id=$1 ORDER BY weekday,opens_at',
+    [merchantId],
+  );
+  return rows;
 }
 
 async function replaceHours(merchantId, windows) {
   const check = validateWindows(windows);
   if (!check.ok) return check;
 
-  const { error: delErr } = await supabase
-    .from('merchant_hours')
-    .delete()
-    .eq('merchant_id', merchantId);
-  if (delErr) throw delErr;
-
-  // An empty schedule is legitimate and means "always open" (see 0038).
-  if (check.rows.length > 0) {
-    const { error: insErr } = await supabase
-      .from('merchant_hours')
-      .insert(check.rows.map((r) => ({ ...r, merchant_id: merchantId })));
-    if (insErr) throw insErr;
-  }
+  await database.transaction(async (client) => {
+    await client.query('DELETE FROM public.merchant_hours WHERE merchant_id=$1', [merchantId]);
+    for (const row of check.rows) {
+      await client.query(
+        'INSERT INTO public.merchant_hours(merchant_id,weekday,opens_at,closes_at) VALUES($1,$2,$3,$4)',
+        [merchantId,row.weekday,row.opens_at,row.closes_at],
+      );
+    }
+  });
   return { ok: true, rows: check.rows };
 }
 
 async function setAcceptingOrders(merchantId, accepting) {
-  const { error } = await supabase
-    .from('merchants')
-    .update({ accepting_orders: !!accepting })
-    .eq('id', merchantId);
-  if (error) throw error;
+  await database.query('UPDATE public.merchants SET accepting_orders=$2 WHERE id=$1', [merchantId,!!accepting]);
 }
 
 module.exports = { validateWindows, listHours, replaceHours, setAcceptingOrders };

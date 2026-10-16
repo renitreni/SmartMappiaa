@@ -3,13 +3,15 @@
   "version": "0.1.0",
   "private": true,
   "type": "commonjs",
-  "description": "Smart Mappia — Airport Pick & Drop backend (Express + Supabase, plain JavaScript)",
+  "description": "Smart Mappia API (Express, PostgreSQL)",
   "main": "server.js",
   "scripts": {
-    "backup:sessions": "node scripts/backup-auth-store.js",
     "start": "node server.js",
     "dev": "node --watch server.js",
+    "db:migrate": "node scripts/migrate.js",
+    "db:seed:reference": "node scripts/seed-reference-data.js",
     "test": "node --test",
+    "test:coverage": "node --experimental-test-coverage --test",
     "seed:admin": "node scripts/seed-admin.js",
     "seed:admins": "node scripts/seed-admins.js",
     "seed:super-admin": "node scripts/seed-super-admin.js",
@@ -19,8 +21,6 @@
     "seed:accounts": "node scripts/seed-admin.js && node scripts/seed-user.js && node scripts/seed-driver.js",
     "seed:drink-sizes": "node scripts/seed-drink-sizes.js",
     "seed:aling-marias": "node scripts/seed-aling-marias.js",
-    "check:migrations": "node scripts/check-migrations.js",
-    "check:shop": "node scripts/check-shop.js",
     "check:tap": "node scripts/check-tap.js",
     "check:hours": "node scripts/check-store-hours.js",
     "setup:buckets": "node scripts/setup-buckets.js",
@@ -28,8 +28,6 @@
     "migrate:media-urls:apply": "node scripts/migrate-public-media-urls.js --apply",
     "reset:orders": "node scripts/reset-orders.js",
     "delete:account": "node scripts/delete-account.js",
-    "seed:shop": "node scripts/seed-shop.js",
-    "seed:pull": "node migrations/pull-seed.js",
     "seed:demo": "node scripts/demo/seed-demo.js",
     "seed:pay": "node scripts/demo/seed-pay.js",
     "seed:request": "node scripts/demo/seed-request.js",
@@ -40,16 +38,15 @@
     "node": ">=20"
   },
   "dependencies": {
-    "@supabase/auth-js": "^2.108.1",
-    "@supabase/supabase-js": "^2.45.0",
-    "better-sqlite3": "^12.11.1",
+    "@aws-sdk/client-s3": "^3.1152.0",
     "cors": "^2.8.5",
     "dotenv": "^16.4.5",
     "express": "^4.21.0",
     "express-rate-limit": "^8.5.2",
     "helmet": "^8.2.0",
     "multer": "^2.4.0",
-    "web-push": "^3.6.7",
-    "ws": "^8.21.0"
+    "nodemailer": "^10.1.1",
+    "pg": "^8.23.1",
+    "web-push": "^3.6.7"
   }
 }

@@ -11,7 +11,7 @@
 // Idempotent — items that already have size_options are left alone.
 // ---------------------------------------------------------------------
 require('dotenv').config();
-const { supabase } = require('../lib/supabase');
+const database = require('../lib/database/pool');
 const { normalizeSizeOptions } = require('../lib/foodSizes');
 
 const DRINK_CATEGORY_RE = /drink|tea|coffee|milk|shake|smoothie|uhaw|juice|beverage/i;
@@ -33,17 +33,16 @@ function buildSizes(listPrice) {
 }
 
 async function run() {
-  const { data: categories, error: catErr } = await supabase
-    .from('menu_categories')
-    .select('id, name, merchant_id');
-  if (catErr) throw catErr;
+  const { rows: categories } = await database.query(
+    `SELECT id, name, merchant_id FROM public.menu_categories`,
+  );
 
   const categoryById = new Map((categories || []).map((c) => [c.id, c]));
 
-  const { data: items, error: itemErr } = await supabase
-    .from('menu_items')
-    .select('id, name, price, item_type, category_id, size_options, merchant_id, is_available');
-  if (itemErr) throw itemErr;
+  const { rows: items } = await database.query(
+    `SELECT id, name, price, item_type, category_id, size_options, merchant_id, is_available
+       FROM public.menu_items`,
+  );
 
   let updated = 0;
   let skipped = 0;
@@ -63,13 +62,15 @@ async function run() {
       continue;
     }
 
-    const { error } = await supabase
-      .from('menu_items')
-      .update({ size_options: sized.value })
-      .eq('id', item.id);
-
-    if (error) {
-      console.error(`  fail ${item.name}: ${error.message}`);
+    try {
+      // size_options is jsonb — node-pg array literals are not valid JSON,
+      // so encode explicitly.
+      await database.query(
+        `UPDATE public.menu_items SET size_options=$2 WHERE id=$1`,
+        [item.id, JSON.stringify(sized.value)],
+      );
+    } catch (err) {
+      console.error(`  fail ${item.name}: ${err.message}`);
       failed += 1;
       continue;
     }
