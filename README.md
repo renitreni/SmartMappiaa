@@ -366,11 +366,8 @@ npm install
 ```bash
 cd smartmappia-web-main/backend
 
-# Seed admin accounts (listed in ADMIN_EMAILS)
-npm run seed:admins
-
-# Or seed all demo roles at once
-npm run seed:accounts
+# Seed the bootstrap admin account (requires ADMIN_SEED_EMAIL / ADMIN_SEED_PASSWORD)
+npm run seed:admin
 
 # Check migration security grants (needs SUPABASE_ANON_KEY set)
 npm run check:migrations
@@ -466,12 +463,9 @@ Nginx reverse-proxies `https://api.smartmappia.com` to `localhost:4000`. HTTPS i
 |---|---|---|
 | `start` | `node server.js` | Start production server |
 | `dev` | `node --watch server.js` | Start dev server with auto-restart |
-| `seed:admin` | `node scripts/seed-admin.js` | Seed a single admin |
-| `seed:admins` | `node scripts/seed-admins.js` | Seed all admin accounts |
+| `seed:admin` | `node scripts/seed-admin.js` | Seed a single admin (env-driven credentials) |
 | `set:password` | `node scripts/set-password.js` | Reset a user password |
-| `seed:user` | `node scripts/seed-user.js` | Seed a test passenger |
-| `seed:driver` | `node scripts/seed-driver.js` | Seed a test driver |
-| `seed:accounts` | Combined seed-admin + seed-user + seed-driver | Seed all roles |
+| `seed:accounts` | `node scripts/seed-admin.js` | Seed bootstrap admin |
 | `seed:drink-sizes` | `node scripts/seed-drink-sizes.js` | Seed drink size catalog |
 | `seed:aling-marias` | `node scripts/seed-aling-marias.js` | Seed Aling Maria's restaurant |
 | `check:migrations` | `node scripts/check-migrations.js` | Verify every migration is applied and its grants still hold |

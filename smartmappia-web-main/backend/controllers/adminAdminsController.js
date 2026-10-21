@@ -41,8 +41,8 @@ const ADMIN_SELECT =
   'id, email, full_name, mobile_number, whatsapp_number, role, is_super_admin, ' +
   'disabled_at, disabled_by, created_at';
 
-// Same generator as scripts/seed-admins.js: ~20 chars, 120 bits, and
-// typeable over the phone without ambiguity about padding characters.
+// ~20 chars, 120 bits, typeable over the phone without ambiguity about
+// padding characters.
 function strongPassword() {
   return crypto.randomBytes(15).toString('base64url');
 }

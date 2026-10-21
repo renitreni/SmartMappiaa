@@ -1,7 +1,7 @@
 // DEMO-ONLY — a paid, confirmed ride with NO driver yet, so it shows up in
 // the driver's "nearby requests" feed for a live accept during the demo.
 //   npm run seed:request  ->  driver goes online at /driver and taps Accept
-const { insertRow, insertRows, frontendBase, demoBooking } = require('./_demo-lib');
+const { insertRow, insertRows, DEMO_DRIVER, frontendBase, demoBooking } = require('./_demo-lib');
 
 async function run() {
   const now = Date.now();
@@ -27,7 +27,7 @@ async function run() {
   const base = frontendBase();
   console.log('\n✅ Open ride request ready (waiting for a driver)');
   console.log(`   Rider watches : ${base}/track/${booking.booking_code}`);
-  console.log(`   Driver accepts: ${base}/driver  (sign in as driver1@smartmappia.com / ***REMOVED***, Go online)\n`);
+  console.log(`   Driver accepts: ${base}/driver  (sign in as ${DEMO_DRIVER.email} / ${DEMO_DRIVER.password}, Go online)\n`);
 }
 
 run().catch((e) => { console.error('seed-request failed:', e.message || e); process.exit(1); });

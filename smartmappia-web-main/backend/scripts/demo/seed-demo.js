@@ -1,7 +1,7 @@
 // DEMO-ONLY — a ride already in progress, for the live-tracking screen.
 //   npm run seed:demo  ->  open the printed /track/<code> URL
 const {
-  insertRow, insertRows, DROPOFF, DRIVER_AT, frontendBase, ensureDemoDriver, demoBooking,
+  insertRow, insertRows, DROPOFF, DRIVER_AT, DEMO_DRIVER, frontendBase, ensureDemoDriver, demoBooking,
 } = require('./_demo-lib');
 
 async function run() {
@@ -37,7 +37,7 @@ async function run() {
 
   console.log('\n✅ Demo ride in progress');
   console.log(`   Tracking URL : ${frontendBase()}/track/${booking.booking_code}`);
-  console.log('   Demo driver  : driver1@smartmappia.com / ***REMOVED*** (approved)\n');
+  console.log(`   Demo driver  : ${DEMO_DRIVER.email} / ${DEMO_DRIVER.password} (approved)\n`);
 }
 
 run().catch((e) => { console.error('seed-demo failed:', e.message || e); process.exit(1); });

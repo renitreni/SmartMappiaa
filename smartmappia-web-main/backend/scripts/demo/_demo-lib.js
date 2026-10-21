@@ -18,10 +18,11 @@ const { hashPassword } = require('../../lib/passwords');
 // Marker stamped on every demo booking (notes column). Cleanup keys off this.
 const DEMO_TAG = '__DEMO__';
 
-// The demo driver account (also removed by seed:clean).
+// The demo driver account (also removed by seed:clean). Password comes from
+// DEMO_DRIVER_PASSWORD, or is generated per run when the variable is unset.
 const DEMO_DRIVER = {
   email: 'driver1@smartmappia.com',
-  password: '***REMOVED***',
+  password: process.env.DEMO_DRIVER_PASSWORD || require('node:crypto').randomBytes(9).toString('base64url'),
   full_name: 'Ahmed (Demo Driver)',
   whatsapp_number: '+966512345678',
 };

@@ -296,10 +296,10 @@ it; RLS defends the path where a client uses the anon key directly.
 
 4. **Run** — `npm install && npm run dev` -> `http://localhost:4000`
 
-5. **Accounts** — `npm run seed:accounts` (admin + test passenger + test driver).
+5. **Accounts** — `npm run seed:accounts` (bootstrap admin from `ADMIN_SEED_EMAIL` / `ADMIN_SEED_PASSWORD`).
 
-   > Never run `npm run seed:admins` against production once the named admins exist — it resets them
-   > to fresh random passwords.
+   > Never re-run a seed against production once real accounts exist — it resets passwords and
+   > invalidates credentials already handed to real people.
 
 6. **Verify** — `npm run check:migrations` and `curl http://localhost:4000/api/health`.
 
@@ -434,8 +434,8 @@ backend/
 │                     GITIGNORED — not in the public repository
 ├── test/             money.test.js, money-defaults.test.js, helpers/pureEnv.js
 │                     run with `node --test` from backend/
-└── scripts/          seed-admin, seed-admins, seed-user, seed-driver,
-                      set-password, check-migrations, check-shop, demo/
+└── scripts/          seed-admin, seed-super-admin, set-password,
+                      check-migrations, check-shop, demo/
 ```
 
 ---
