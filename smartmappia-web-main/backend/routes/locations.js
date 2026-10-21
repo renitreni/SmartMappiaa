@@ -5,29 +5,32 @@ const {
   locationReverseLimiter,
   locationNearbyLimiter,
 } = require('../middleware/rateLimiters');
-const { placeFromReverseGeocode } = require('../lib/geo');
+const { placeFromMapboxReverse } = require('../lib/geo');
 
 // ---------------------------------------------------------------------
-// Location endpoints backed by Google Maps Platform (replaces the old
-// Nominatim/Overpass proxies):
-//   GET  /search?q=&lat=&lng=&token=   -> Places Autocomplete (New)  (predictions, NO coords)
-//   GET  /details?id=&token=           -> Place Details (New)        (coords for a prediction)
-//   GET  /reverse?lat=&lng=            -> Geocoding API (reverse)     (coords -> address)
-//   GET  /nearby?lat=&lng=&radius=     -> Places Nearby Search (New) (POIs around a pin)
+// Location endpoints backed by Mapbox (replaces the old Google Maps
+// Platform proxy):
+//   GET  /search?q=&lat=&lng=&token=   -> Search Box suggest     (predictions, NO coords)
+//   GET  /details?id=&token=           -> Search Box retrieve    (coords for a prediction)
+//   GET  /reverse?lat=&lng=            -> Geocoding v5 reverse   (coords -> address)
+//   GET  /nearby?lat=&lng=&radius=     -> Search Box category    (POIs around a pin)
 //
-// The GOOGLE_MAPS_SERVER_KEY stays server-side; the browser calls these
-// same-origin under /api. Autocomplete + Details share a client-supplied
+// The MAPBOX_ACCESS_TOKEN stays server-side; the browser calls these
+// same-origin under /api. Suggest + retrieve share a client-supplied
 // `token` (session token) so the keystrokes bill as one cheap session.
+//
+// Coordinates are always "lng,lat" in Mapbox URLs — the public API this
+// exposes keeps the frontend's {lat,lng} shape everywhere.
 // ---------------------------------------------------------------------
 const RIYADH = { lat: 24.7136, lng: 46.6753 };
-const PLACES_BASE = 'https://places.googleapis.com/v1';
-const GEOCODE_URL = 'https://maps.googleapis.com/maps/api/geocode/json';
-
-// Overpass amenity/shop/tourism tags -> Places (New) types for /nearby.
-const NEARBY_TYPES = [
-  'restaurant', 'cafe', 'meal_takeaway', 'gas_station', 'pharmacy',
-  'hospital', 'doctor', 'bank', 'atm', 'parking', 'supermarket',
-  'convenience_store', 'shopping_mall', 'lodging', 'tourist_attraction',
+const MAPBOX_BASE = 'https://api.mapbox.com';
+// Category slugs for /nearby (Search Box category search taxonomy). A
+// category that the account cannot serve fails its own request only —
+// the others still come back.
+const NEARBY_CATEGORIES = [
+  'restaurant', 'cafe', 'gas_station', 'pharmacy', 'hospital',
+  'bank', 'atm', 'parking', 'supermarket', 'convenience_store',
+  'mall', 'lodging',
 ];
 
 function num(value, fallback = null) {
@@ -40,13 +43,23 @@ function clamp(n, min, max) {
 }
 
 function apiKey() {
-  return process.env.GOOGLE_MAPS_SERVER_KEY || '';
+  return process.env.MAPBOX_ACCESS_TOKEN || '';
+}
+
+async function mapboxGet(path, params) {
+  const qs = new URLSearchParams({ ...params, access_token: apiKey() });
+  const res = await fetch(`${MAPBOX_BASE}${path}?${qs}`);
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`Mapbox ${res.status}: ${text.slice(0, 200)}`);
+  }
+  return res.json();
 }
 
 // --- Tiny in-memory TTL cache ------------------------------------------------
 // The location picker is chatty (reverse/nearby fire on map moves, search on
 // typing). Caching identical lookups for a minute cuts BOTH our own rate-limit
-// pressure and the number of billable Google calls.
+// pressure and the number of billable Mapbox calls.
 const CACHE_TTL_MS = 60 * 1000;
 const CACHE_MAX = 500;
 const cache = new Map(); // key -> { at, value }
@@ -74,52 +87,22 @@ function cacheSet(key, value) {
 // Round a coord for cache keys (~11m at 4dp, ~110m at 3dp).
 const round = (n, dp) => Number(n).toFixed(dp);
 
-// --- Google request helpers --------------------------------------------------
-async function placesPost(path, body, fieldMask) {
-  const res = await fetch(`${PLACES_BASE}/${path}`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'X-Goog-Api-Key': apiKey(),
-      ...(fieldMask ? { 'X-Goog-FieldMask': fieldMask } : {}),
-    },
-    body: JSON.stringify(body),
-  });
-  if (!res.ok) {
-    const text = await res.text();
-    throw new Error(`Places API ${res.status}: ${text.slice(0, 200)}`);
-  }
-  return res.json();
-}
-
-async function placeDetails(placeId, sessionToken) {
-  const params = new URLSearchParams({ languageCode: 'en' });
-  if (sessionToken) params.set('sessionToken', sessionToken);
-  const res = await fetch(`${PLACES_BASE}/places/${encodeURIComponent(placeId)}?${params}`, {
-    headers: {
-      'X-Goog-Api-Key': apiKey(),
-      'X-Goog-FieldMask': 'id,location,displayName,formattedAddress,types',
-    },
-  });
-  if (!res.ok) {
-    const text = await res.text();
-    throw new Error(`Place Details ${res.status}: ${text.slice(0, 200)}`);
-  }
-  return res.json();
-}
-
-function placeView(place) {
+// --- Shape helpers -------------------------------------------------------------
+// A Search Box feature (suggest/retrieve/category all share this core).
+function featureView(feature, fallbackType) {
+  const coords = (feature && feature.geometry && feature.geometry.coordinates) || [];
+  const props = (feature && feature.properties) || {};
   return {
-    id: place.id || '',
-    name: place.displayName?.text || place.formattedAddress?.split(',')[0] || 'Selected location',
-    address: place.formattedAddress || '',
-    lat: num(place.location?.latitude),
-    lng: num(place.location?.longitude),
-    type: (place.types && place.types[0]) || 'place',
+    id: String(props.mapbox_id || ''),
+    name: props.name || '',
+    address: props.full_address || props.place_formatted || '',
+    lat: num(coords[1]),
+    lng: num(coords[0]),
+    type: props.feature_type || fallbackType || 'place',
   };
 }
 
-// --- /search : Places Autocomplete (New) — predictions only (no coords) ------
+// --- /search : Search Box suggest — predictions only (no coords) -------------
 router.get('/search', locationSearchLimiter, async (req, res) => {
   try {
     const q = String(req.query.q || '').trim();
@@ -130,35 +113,29 @@ router.get('/search', locationSearchLimiter, async (req, res) => {
     const lng = num(req.query.lng, RIYADH.lng);
     const token = String(req.query.token || '');
 
-    // Session-token predictions are billed as part of the session, so they must
-    // not be cached across sessions; cache only the coordinate-biased query text.
+    // Session-token suggestions are billed as part of the session, so they
+    // must not be cached across sessions; cache only the coordinate-biased
+    // query text.
     const cacheKey = `s:${q.toLowerCase()}:${round(lat, 2)}:${round(lng, 2)}`;
     if (!token) {
       const cached = cacheGet(cacheKey);
       if (cached) return res.json({ results: cached });
     }
 
-    const body = {
-      input: q,
-      languageCode: 'en',
-      includedRegionCodes: ['sa'],
-      locationBias: {
-        circle: { center: { latitude: lat, longitude: lng }, radius: 50000.0 },
-      },
-    };
-    if (token) body.sessionToken = token;
-
-    const data = await placesPost('places:autocomplete', body);
+    const data = await mapboxGet('/search/searchbox/v1/suggest', {
+      q,
+      language: 'en',
+      proximity: `${lng},${lat}`,
+      ...(token ? { session_token: token } : {}),
+    });
     const results = (data.suggestions || [])
-      .map((s) => s.placePrediction)
-      .filter(Boolean)
-      .map((p) => ({
-        id: p.placeId,
-        name: p.structuredFormat?.mainText?.text || p.text?.text || 'Location',
-        address: p.structuredFormat?.secondaryText?.text || '',
+      .map((s) => ({
+        id: s.mapbox_id || '',
+        name: s.name || 'Location',
+        address: s.full_address || s.place_formatted || s.address || '',
         lat: null, // coords come from /details on selection
         lng: null,
-        type: 'place',
+        type: s.feature_type || 'place',
       }))
       .filter((r) => r.id);
 
@@ -170,7 +147,7 @@ router.get('/search', locationSearchLimiter, async (req, res) => {
   }
 });
 
-// --- /details : Place Details (New) — resolve coords for a prediction --------
+// --- /details : Search Box retrieve — resolve coords for a prediction ----------
 router.get('/details', locationSearchLimiter, async (req, res) => {
   try {
     const id = String(req.query.id || '').trim();
@@ -182,8 +159,13 @@ router.get('/details', locationSearchLimiter, async (req, res) => {
     const cached = cacheGet(cacheKey);
     if (cached) return res.json({ place: cached });
 
-    const data = await placeDetails(id, token);
-    const place = placeView(data);
+    const data = await mapboxGet(
+      `/search/searchbox/v1/retrieve/${encodeURIComponent(id)}`,
+      token ? { session_token: token } : {}
+    );
+    const feature = (data.features || [])[0];
+    if (!feature) return res.status(404).json({ error: 'Could not read this location' });
+    const place = featureView(feature);
     cacheSet(cacheKey, place);
     return res.json({ place });
   } catch (err) {
@@ -192,7 +174,7 @@ router.get('/details', locationSearchLimiter, async (req, res) => {
   }
 });
 
-// --- /reverse : Geocoding API (reverse) — coords -> address ------------------
+// --- /reverse : Geocoding v5 reverse — coords -> address ---------------------
 router.get('/reverse', locationReverseLimiter, async (req, res) => {
   try {
     const lat = num(req.query.lat);
@@ -204,22 +186,10 @@ router.get('/reverse', locationReverseLimiter, async (req, res) => {
     const cached = cacheGet(cacheKey);
     if (cached) return res.json({ place: cached });
 
-    const params = new URLSearchParams({
-      latlng: `${lat},${lng}`,
-      key: apiKey(),
+    const data = await mapboxGet(`/geocoding/v5/mapbox.places/${lng},${lat}.json`, {
       language: 'en',
-      region: 'sa',
     });
-    const gres = await fetch(`${GEOCODE_URL}?${params}`);
-    if (!gres.ok) throw new Error(`Geocoding ${gres.status}`);
-    const data = await gres.json();
-    // Geocoding reports a disabled API or a bad key as HTTP 200 with a status
-    // and zero results. Read as "no address here", that hid a broken key
-    // behind a 404 nobody logged.
-    if (data.status !== 'OK' && data.status !== 'ZERO_RESULTS') {
-      throw new Error(`Geocoding ${data.status}: ${data.error_message || 'no message'}`);
-    }
-    const place = placeFromReverseGeocode(data.results, lat, lng);
+    const place = placeFromMapboxReverse(data.features, lat, lng);
     if (!place) return res.status(404).json({ error: 'No address found for this location' });
     cacheSet(cacheKey, place);
     return res.json({ place });
@@ -229,7 +199,7 @@ router.get('/reverse', locationReverseLimiter, async (req, res) => {
   }
 });
 
-// --- /nearby : Places Nearby Search (New) — POIs around a pin ----------------
+// --- /nearby : Search Box category search — POIs around a pin ----------------
 router.get('/nearby', locationNearbyLimiter, async (req, res) => {
   try {
     const lat = num(req.query.lat);
@@ -237,31 +207,37 @@ router.get('/nearby', locationNearbyLimiter, async (req, res) => {
     if (lat == null || lng == null) return res.status(400).json({ error: 'lat and lng are required' });
     if (!apiKey()) return res.status(502).json({ error: 'Nearby places are not configured' });
 
-    const radius = clamp(num(req.query.radius, 1200), 100, 3000);
+    // radius is accepted for API compatibility; Search Box category search
+    // ranks by proximity instead of hard-clipping to a circle.
+    clamp(num(req.query.radius, 1200), 100, 3000);
 
-    const cacheKey = `n:${round(lat, 3)}:${round(lng, 3)}:${radius}`;
+    const cacheKey = `n:${round(lat, 3)}:${round(lng, 3)}`;
     const cached = cacheGet(cacheKey);
     if (cached) return res.json({ places: cached });
 
-    const body = {
-      includedTypes: NEARBY_TYPES,
-      maxResultCount: 20,
-      languageCode: 'en',
-      regionCode: 'SA',
-      locationRestriction: {
-        circle: { center: { latitude: lat, longitude: lng }, radius },
-      },
-    };
-    // Minimal field mask keeps Nearby Search on the cheaper billing tier.
-    const data = await placesPost(
-      'places:searchNearby',
-      body,
-      'places.id,places.displayName,places.location,places.formattedAddress,places.types'
+    const settled = await Promise.allSettled(
+      NEARBY_CATEGORIES.map((category) =>
+        mapboxGet(`/search/searchbox/v1/category/${category}`, {
+          proximity: `${lng},${lat}`,
+          language: 'en',
+          limit: 10,
+        }).then((data) => ({ category, features: data.features || [] }))
+      )
     );
 
-    const places = (data.places || [])
-      .map(placeView)
-      .filter((p) => p.lat != null && p.lng != null);
+    const seen = new Set();
+    const places = [];
+    for (const outcome of settled) {
+      if (outcome.status !== 'fulfilled') continue; // one dead category must not kill the rest
+      for (const feature of outcome.value.features) {
+        const place = featureView(feature, outcome.value.category);
+        if (place.lat == null || place.lng == null || !place.id || seen.has(place.id)) continue;
+        seen.add(place.id);
+        places.push(place);
+        if (places.length >= 20) break;
+      }
+      if (places.length >= 20) break;
+    }
 
     cacheSet(cacheKey, places);
     return res.json({ places });

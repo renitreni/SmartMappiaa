@@ -184,7 +184,7 @@ async function run() {
   if (!road) {
     console.warn(
       'Routes API unavailable — falling back to a straight line. The marker still ' +
-        'animates; it just will not follow roads. (Check GOOGLE_MAPS_SERVER_KEY.)'
+        'animates; it just will not follow roads. (Check MAPBOX_ACCESS_TOKEN.)'
     );
   }
 

@@ -3,66 +3,66 @@ require('./helpers/pureEnv');
 const test = require('node:test');
 const assert = require('node:assert/strict');
 
-const { placeFromReverseGeocode } = require('../lib/geo');
+const { placeFromMapboxReverse } = require('../lib/geo');
 
-const plusCode = {
-  place_id: 'pc',
-  formatted_address: '8HQ2+X4 Riyadh Saudi Arabia',
-  types: ['plus_code'],
-  address_components: [{ long_name: '8HQ2+X4', types: ['plus_code'] }],
+const poi = {
+  id: 'poi.1',
+  place_type: ['poi'],
+  text: 'Olaya Mall',
+  place_name: 'Olaya Mall, Riyadh, Saudi Arabia',
+  center: [46.68, 24.71],
+  properties: { mapbox_id: 'pc' },
 };
 const street = {
-  place_id: 'st',
-  formatted_address: '12 King Fahd Rd, Al Olaya, Riyadh 12211, Saudi Arabia',
-  types: ['street_address'],
-  geometry: { location: { lat: 24.7, lng: 46.68 } },
-  address_components: [
-    { long_name: '12', types: ['street_number'] },
-    { long_name: 'King Fahd Rd', types: ['route'] },
-    { long_name: 'Riyadh', types: ['locality', 'political'] },
-  ],
+  id: 'address.1',
+  place_type: ['address'],
+  text: 'King Fahd Rd',
+  address: '12',
+  place_name: '12 King Fahd Rd, Al Olaya, Riyadh 12211, Saudi Arabia',
+  center: [46.68, 24.7],
+  properties: { mapbox_id: 'st' },
+  context: [{ id: 'street.1', text: 'King Fahd Rd' }],
 };
-const route = {
-  place_id: 'rt',
-  formatted_address: 'King Fahd Rd, Riyadh Saudi Arabia',
-  types: ['route'],
-  address_components: [{ long_name: 'King Fahd Rd', types: ['route'] }],
+const roadOnly = {
+  id: 'road.1',
+  place_type: ['road'],
+  text: 'King Fahd Rd',
+  place_name: 'King Fahd Rd, Riyadh Saudi Arabia',
+  properties: { mapbox_id: 'rt' },
+  context: [{ id: 'street.1', text: 'King Fahd Rd' }],
 };
 
-test('a street address beats a plus code listed first', () => {
-  const place = placeFromReverseGeocode([plusCode, route, street], 24.7, 46.68);
+test('a street address beats a POI listed first', () => {
+  const place = placeFromMapboxReverse([poi, roadOnly, street], 24.7, 46.68);
   assert.equal(place.id, 'st');
-  assert.equal(place.address, street.formatted_address);
+  assert.equal(place.address, street.place_name);
 });
 
-test('street and building number come from the chosen result', () => {
-  const place = placeFromReverseGeocode([street], 24.7, 46.68);
+test('street and building number come from the chosen feature', () => {
+  const place = placeFromMapboxReverse([street], 24.7, 46.68);
   assert.equal(place.street, 'King Fahd Rd');
   assert.equal(place.buildingNumber, '12');
 });
 
-test('without a street address, the first non-plus-code result is used', () => {
-  const place = placeFromReverseGeocode([plusCode, route], 1, 2);
+test('without an address feature, the first feature is used', () => {
+  const place = placeFromMapboxReverse([roadOnly, poi], 1, 2);
   assert.equal(place.id, 'rt');
+  // Street falls back to the street context entry.
   assert.equal(place.street, 'King Fahd Rd');
   // Common in KSA: the customer has to type it.
   assert.equal(place.buildingNumber, '');
-  // No geometry on the result: the point asked about is kept.
+  // No usable center on the result: the point asked about is kept.
   assert.deepEqual([place.lat, place.lng], [1, 2]);
 });
 
-test('a plus code alone is still better than nothing', () => {
-  assert.equal(placeFromReverseGeocode([plusCode], 1, 2).id, 'pc');
-});
-
-test('no results is null, so the route can answer 404', () => {
-  assert.equal(placeFromReverseGeocode([], 1, 2), null);
-  assert.equal(placeFromReverseGeocode(undefined, 1, 2), null);
+test('no features is null, so the route can answer 404', () => {
+  assert.equal(placeFromMapboxReverse([], 1, 2), null);
+  assert.equal(placeFromMapboxReverse(undefined, 1, 2), null);
 });
 
 // The route itself, minus the rate limiter: the last handler on /reverse.
 function reverseHandler() {
-  process.env.GOOGLE_MAPS_SERVER_KEY = 'test-key';
+  process.env.MAPBOX_ACCESS_TOKEN = 'test-key';
   const router = require('../routes/locations');
   const layer = router.stack.find((l) => l.route && l.route.path === '/reverse');
   const stack = layer.route.stack;
@@ -78,12 +78,13 @@ function fakeRes() {
   };
 }
 
-test('a denied key is a logged 502, not a silent "no address"', async (t) => {
+test('an upstream error is a logged 502, not a silent "no address"', async (t) => {
   const logged = [];
   t.mock.method(console, 'error', (...args) => logged.push(args.join(' ')));
   t.mock.method(globalThis, 'fetch', async () => ({
-    ok: true,
-    json: async () => ({ status: 'REQUEST_DENIED', error_message: 'This API is not activated', results: [] }),
+    ok: false,
+    status: 401,
+    text: async () => '{"message":"Not Authorized - Invalid Token"}',
   }));
 
   const res = fakeRes();
@@ -91,13 +92,13 @@ test('a denied key is a logged 502, not a silent "no address"', async (t) => {
 
   assert.equal(res.statusCode, 502);
   assert.equal(logged.length, 1);
-  assert.match(logged[0], /REQUEST_DENIED: This API is not activated/);
+  assert.match(logged[0], /Not Authorized/);
 });
 
-test('ZERO_RESULTS is still a 404', async (t) => {
+test('empty features are still a 404', async (t) => {
   t.mock.method(globalThis, 'fetch', async () => ({
     ok: true,
-    json: async () => ({ status: 'ZERO_RESULTS', results: [] }),
+    json: async () => ({ type: 'FeatureCollection', features: [] }),
   }));
 
   const res = fakeRes();

@@ -4,13 +4,13 @@ const { routeLimiter } = require('../middleware/rateLimiters');
 const { computeRoute } = require('../lib/googleRoutes');
 
 // ---------------------------------------------------------------------
-// Driving-route proxy backed by the Google Routes API (Compute Routes).
-// Replaces the old self-hosted OSRM proxy. The GOOGLE_MAPS_SERVER_KEY stays
+// Driving-route proxy backed by the Mapbox Directions API.
+// Replaces the old self-hosted OSRM proxy. The MAPBOX_ACCESS_TOKEN stays
 // server-side; the browser calls this same-origin under /api. Returns the
 // encoded polyline + distance/duration; the frontend (lib/osrm.js) decodes
 // the polyline and falls back to a straight line if this is unavailable.
 //
-// The Google call itself lives in lib/googleRoutes.js so lib/eta.js can
+// The Mapbox call itself lives in lib/googleRoutes.js so lib/eta.js can
 // reuse it without a loopback HTTP request. This file is only the HTTP
 // shape: parse, delegate, map the failure onto a status code.
 //
