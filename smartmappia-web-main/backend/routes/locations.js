@@ -46,6 +46,16 @@ function apiKey() {
   return process.env.MAPBOX_ACCESS_TOKEN || '';
 }
 
+// Search Box REQUIRES a session_token on both suggest and retrieve. The
+// frontend sends one (so keystrokes bill as one session); when a caller
+// omits it we mint a throwaway one rather than fail the call.
+const { randomUUID } = require('crypto');
+function sessionToken(provided) {
+  const t = String(provided || '').trim();
+  if (t) return t;
+  return typeof randomUUID === 'function' ? randomUUID() : `sm-${Date.now()}-${Math.random()}`;
+}
+
 async function mapboxGet(path, params) {
   const qs = new URLSearchParams({ ...params, access_token: apiKey() });
   const res = await fetch(`${MAPBOX_BASE}${path}?${qs}`);
@@ -111,13 +121,14 @@ router.get('/search', locationSearchLimiter, async (req, res) => {
 
     const lat = num(req.query.lat, RIYADH.lat);
     const lng = num(req.query.lng, RIYADH.lng);
-    const token = String(req.query.token || '');
+    const clientToken = String(req.query.token || '');
+    const token = sessionToken(clientToken);
 
     // Session-token suggestions are billed as part of the session, so they
     // must not be cached across sessions; cache only the coordinate-biased
     // query text.
     const cacheKey = `s:${q.toLowerCase()}:${round(lat, 2)}:${round(lng, 2)}`;
-    if (!token) {
+    if (!clientToken) {
       const cached = cacheGet(cacheKey);
       if (cached) return res.json({ results: cached });
     }
@@ -126,7 +137,7 @@ router.get('/search', locationSearchLimiter, async (req, res) => {
       q,
       language: 'en',
       proximity: `${lng},${lat}`,
-      ...(token ? { session_token: token } : {}),
+      session_token: token,
     });
     const results = (data.suggestions || [])
       .map((s) => ({
@@ -139,7 +150,7 @@ router.get('/search', locationSearchLimiter, async (req, res) => {
       }))
       .filter((r) => r.id);
 
-    if (!token) cacheSet(cacheKey, results);
+    if (!clientToken) cacheSet(cacheKey, results);
     return res.json({ results });
   } catch (err) {
     console.error('location search error:', err.message || err);
@@ -154,14 +165,14 @@ router.get('/details', locationSearchLimiter, async (req, res) => {
     if (!id) return res.status(400).json({ error: 'id is required' });
     if (!apiKey()) return res.status(502).json({ error: 'Location lookup is not configured' });
 
-    const token = String(req.query.token || '');
+    const token = sessionToken(req.query.token);
     const cacheKey = `d:${id}`;
     const cached = cacheGet(cacheKey);
     if (cached) return res.json({ place: cached });
 
     const data = await mapboxGet(
       `/search/searchbox/v1/retrieve/${encodeURIComponent(id)}`,
-      token ? { session_token: token } : {}
+      { session_token: token }
     );
     const feature = (data.features || [])[0];
     if (!feature) return res.status(404).json({ error: 'Could not read this location' });
