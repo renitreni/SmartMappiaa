@@ -94,7 +94,7 @@ async function driverForAssignment(id) {
   return result.rows[0] || null;
 }
 async function assignDriver(bookingId,driverId) {
-  const result=await database.query(`UPDATE public.bookings SET assigned_driver_id=$1,driver_ride_status='assigned',
+  const result=await database.query(`UPDATE public.bookings SET assigned_driver_id=$1,driver_ride_status='accepted',
       booking_status='driver_assigned' WHERE id=$2 RETURNING booking_code,booking_status,driver_ride_status`,[driverId,bookingId]);
   return result.rows[0] || null;
 }
