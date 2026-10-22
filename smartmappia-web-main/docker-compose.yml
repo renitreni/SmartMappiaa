@@ -116,6 +116,12 @@ services:
       minio:
         condition: service_healthy
     expose: ["4000"]
+    # Host publish lives in the BASE file (not only docker-compose.prod.yml)
+    # so a plain `docker compose up -d` can never silently drop the mapping
+    # again — see DEPLOYMENT-PLAN.md §10 incident 2026-10-22. Compose v2
+    # dedupes the identical entry when the prod overlay is also used.
+    ports:
+      - "127.0.0.1:4001:4000"
     networks: [app]
 
   frontend:

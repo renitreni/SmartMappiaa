@@ -74,7 +74,7 @@ api.smartmappia.com      → nginx → 127.0.0.1:4001 (docker api)           [wa
 compose network          → postgres, redis, minio, realtime, api          [private, no host ports]
 ```
 
-New checkout at `/opt/SmartMappiaa/smartmappia-docker` (old checkout left untouched for instant rollback). API published as `127.0.0.1:4001:4000` via a `docker-compose.prod.yml` override (base file has only `expose`). The compose `frontend` service is **not used** in production — the host nginx keeps serving static `dist`, which also matches `VITE_API_BASE=https://api.smartmappia.com`.
+New checkout at `/opt/SmartMappiaa/smartmappia-docker` (old checkout left untouched for instant rollback). API published as `127.0.0.1:4001:4000` via a `docker-compose.prod.yml` override. **Update 2026-10-22 (incident below):** the same mapping is now also in the base `docker-compose.yml`, so a plain `docker compose up -d` (without the overlay) cannot drop the host port again; Compose v2 dedupes the identical entry when both files are used. The compose `frontend` service is **not used** in production — the host nginx keeps serving static `dist`, which also matches `VITE_API_BASE=https://api.smartmappia.com`.
 
 ## 6. Env plan
 
@@ -134,6 +134,21 @@ New checkout at `/opt/SmartMappiaa/smartmappia-docker` (old checkout left untouc
 - Nightly DB + object backups in place; rollback artifacts archived.
 
 ## 10. Implementation log
+
+### Incident 2026-10-22 — login down: "Network error: could not reach the server"
+
+**Symptom:** `smartmappia.com/login` showed *"Network error: could not reach the server"* for all users; `POST https://api.smartmappia.com/api/auth/login` returned **502** in ~0.2 s.
+
+**Root cause:** the host nginx proxies `api.smartmappia.com` → `127.0.0.1:4001`, but the API container's host port mapping (`127.0.0.1:4001:4000`) only existed in the `docker-compose.prod.yml` overlay. At ~00:15 UTC the API container was recreated with a **plain `docker compose up -d`** (no `-f docker-compose.prod.yml`), so the new container had no published port. Nothing listened on `127.0.0.1:4001` → nginx 502 → the frontend renders it as a generic network error. (Separate issue found while verifying: `ruth@smartmappia.com`'s password was rejected with 401 — hash updated directly in `app_users` to the owner's supplied value.)
+
+**Fix (applied 2026-10-22 ~02:20 UTC):**
+1. Server-side `docker-compose.yml` (backup `docker-compose.yml.bak-20261022`): added `ports: ["127.0.0.1:4001:4000"]` to the `api` service, then `docker compose up -d api` to recreate. Verified externally: login → HTTP 200 with token.
+2. Same change committed to the repo, so the next deploy can't silently revert it. **The port mapping now lives in the base file AND the overlay — this is deliberate** (Compose v2 renders a single deduped binding when both files are used), so both `docker compose up -d` and the documented `docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d` produce a working API.
+
+**Prevention checklist — run after ANY `docker compose` operation on srv1777854:**
+- `ss -tlnp | grep 4001` — must show a listener bound to `127.0.0.1:4001`.
+- `curl -sS -o /dev/null -w '%{http_code}' -X POST https://api.smartmappia.com/api/auth/login -H 'Content-Type: application/json' -d '{"email":"x@x.x","password":"x"}'` — expect `401` (reachable, auth-rejected). **502 or timeout = port mapping lost; a "network error" report from users almost always means this.**
+- Watch for the tell-tale: `docker ps` shows the API container "Up N hours" with **no published ports** while the site is down.
 
 ### Phases 2–4 summary
 
