@@ -28,6 +28,7 @@ test('insertStore pins the shop vertical and whitelists body fields', async (t) 
   assert.equal(row.id, 's-1');
   const [sql, values] = query.mock.calls[0].arguments;
   assert.match(sql, /INSERT INTO public\.merchants \(vertical,name,lat,lng\)/);
+  assert.match(sql, /VALUES \('shop',\$1,\$2,\$3\)/);
   assert.deepEqual(values, ['Corner Shop', 24.7, 46.7]);
 });
 

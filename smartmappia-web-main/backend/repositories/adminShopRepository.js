@@ -73,7 +73,7 @@ async function insertStore(body) {
   const names = Object.keys(fields);
   const result = await database.query(
     `INSERT INTO public.merchants (vertical,${names.join(',')})
-     VALUES ('shop',${names.map((_, i) => `$${i + 2}`).join(',')}) RETURNING ${STORE_SELECT}`,
+     VALUES ('shop',${names.map((_, i) => `$${i + 1}`).join(',')}) RETURNING ${STORE_SELECT}`,
     names.map((key) => fields[key]),
   );
   return result.rows[0];
