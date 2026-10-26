@@ -99,6 +99,8 @@ New checkout at `/opt/SmartMappiaa/smartmappia-docker` (old checkout left untouc
 2. Write compose `.env`, `backend/.env`, `docker-compose.prod.yml` (port 4001 override).
 3. `docker compose -f docker-compose.yml -f docker-compose.prod.yml build` then `up -d postgres redis minio realtime`; `migrate` + `seed-reference` run to completion; run `setup-buckets.js` via a one-shot `docker compose run --rm api node scripts/setup-buckets.js`.
 
+**⚠️ Critical: Any backend code change requires `docker compose build api` + restart.** The API runs in a container with baked-in code — pulling git changes alone does not update the running container. Verify with `curl https://api.smartmappia.com/api/health` → 200, then test a known endpoint.
+
 **Phase 2 — Migrate data (old site still live)**
 4. Export Supabase (per D1); run the ETL into the staged DB; copy storage objects into MinIO; run `migrate-public-media-urls.js --apply`.
 5. Re-run row-count verification.
@@ -155,6 +157,28 @@ New checkout at `/opt/SmartMappiaa/smartmappia-docker` (old checkout left untouc
 ### Phase 2 — SKIPPED per owner decision (2026-10-16)
 
 No Supabase data/storage migration. Production starts fresh on the standalone stack; the old Supabase project (`wwaofiklnlkvdimfajgq`) remains the only copy of pre-cutover accounts/orders/files. The ETL tooling stays in the repo should a retroactive import ever be wanted.
+
+### Incident 2026-10-26 — API "Not found" after code deploy
+
+**Symptom:** Admin portal "Accounts" tab returned `{"error": "Not found"}` for `/api/admin/users`. Frontend loaded but API calls failed.
+
+**Root cause:** Backend code changes were pulled and frontend was rebuilt, but **Docker image was not rebuilt**. The running API container contained old code without the new `/api/admin/users` route. Nginx proxied to the container which returned 404.
+
+**Fix (applied 2026-10-26):**
+```bash
+cd /opt/SmartMappiaa/smartmappiaa-docker/smartmappia-web-main
+docker compose build api      # Rebuild backend image with new code
+docker compose up -d api      # Restart API container
+```
+
+**Prevention checklist — run after ANY code deploy affecting backend:**
+- `docker compose build api` (or `docker compose build` for all)
+- `docker compose up -d api`
+- Verify new endpoints: `curl https://api.smartmappia.com/api/admin/users` → should return `401 Authentication required` (not `404 Not found`)
+
+**Key lesson:** **Any backend code change requires `docker compose build api` + restart.** Frontend rebuild alone is insufficient — the API runs in a container with baked-in code.
+
+---
 
 ### Phase 4 — cutover complete (2026-10-16) ✅
 
