@@ -25,6 +25,24 @@ export default defineConfig(({ command }) => ({
   // Don't ship source maps in the production bundle (avoid leaking source).
   build: {
     sourcemap: false,
+    minify: 'terser', // Use terser instead of rolldown to avoid TDZ bug
+    terserOptions: {
+      compress: {
+        // Avoid TDZ issues with certain patterns
+        passes: 2,
+      },
+      mangle: {
+        // Prevent mangle from causing TDZ issues
+        safari10: true,
+      },
+    },
+    // Also configure rolldown to avoid issues
+    rolldownOptions: {
+      output: {
+        // Disable compact output which can cause TDZ issues
+        compact: false,
+      },
+    },
   },
   server: {
     host: true,

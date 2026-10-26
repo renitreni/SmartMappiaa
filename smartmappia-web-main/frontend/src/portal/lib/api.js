@@ -460,7 +460,17 @@ export const api = {
   // The only block that sends or receives net_price. Everything else in this
   // file deals in list prices only.
   adminShopOverview: () => request('/api/admin/shop/overview'),
-  adminShopStores: () => request('/api/admin/shop/stores'),
+  adminShopStores: (params = {}) => {
+    const query = new URLSearchParams();
+    if (params.page) query.set('page', params.page);
+    if (params.limit) query.set('limit', params.limit);
+    if (params.sortBy) query.set('sortBy', params.sortBy);
+    if (params.sortOrder) query.set('sortOrder', params.sortOrder);
+    if (params.search) query.set('search', params.search);
+    if (params.filters) query.set('filters', JSON.stringify(params.filters));
+    const qs = query.toString();
+    return request(`/api/admin/shop/stores${qs ? `?${qs}` : ''}`);
+  },
   adminShopCreateStore: (body) => request('/api/admin/shop/stores', { method: 'POST', body }),
   adminShopUpdateStore: (id, body) => request(`/api/admin/shop/stores/${id}`, { method: 'PATCH', body }),
   adminShopDeleteStore: (id) => request(`/api/admin/shop/stores/${id}`, { method: 'DELETE' }),
@@ -492,7 +502,17 @@ export const api = {
   adminShopSetOwner: (id, body) => request(`/api/admin/shop/stores/${id}/owner`, { method: 'POST', body }),
   adminShopSetOwnerPassword: (id, body) =>
     request(`/api/admin/shop/stores/${id}/owner/password`, { method: 'POST', body }),
-  adminShopCatalogue: (id) => request(`/api/admin/shop/stores/${id}/catalogue`),
+  adminShopCatalogue: (id, params = {}) => {
+    const query = new URLSearchParams();
+    if (params.page) query.set('page', params.page);
+    if (params.limit) query.set('limit', params.limit);
+    if (params.sortBy) query.set('sortBy', params.sortBy);
+    if (params.sortOrder) query.set('sortOrder', params.sortOrder);
+    if (params.search) query.set('search', params.search);
+    if (params.filters) query.set('filters', JSON.stringify(params.filters));
+    const qs = query.toString();
+    return request(`/api/admin/shop/stores/${id}/catalogue${qs ? `?${qs}` : ''}`);
+  },
   adminShopAddCategory: (id, body) =>
     request(`/api/admin/shop/stores/${id}/categories`, { method: 'POST', body }),
   adminShopUpdateCategory: (catId, body) =>
@@ -510,9 +530,32 @@ export const api = {
     request(`/api/admin/shop/products/${productId}/variants/${variantId}`, { method: 'PATCH', body }),
   adminShopDeleteVariant: (productId, variantId) =>
     request(`/api/admin/shop/products/${productId}/variants/${variantId}`, { method: 'DELETE' }),
-  adminShopInventory: (merchantId) =>
-    request(`/api/admin/shop/inventory?merchant_id=${encodeURIComponent(merchantId)}`),
-  adminShopOrders: (query = '') => request(`/api/admin/shop/orders${query}`),
+  adminShopInventory: (params = {}) => {
+    const query = new URLSearchParams();
+    if (params.page) query.set('page', params.page);
+    if (params.limit) query.set('limit', params.limit);
+    if (params.sortBy) query.set('sortBy', params.sortBy);
+    if (params.sortOrder) query.set('sortOrder', params.sortOrder);
+    if (params.search) query.set('search', params.search);
+    if (params.merchant_id) query.set('merchant_id', params.merchant_id);
+    if (params.low_stock_only) query.set('low_stock_only', params.low_stock_only);
+    if (params.filters) query.set('filters', JSON.stringify(params.filters));
+    const qs = query.toString();
+    return request(`/api/admin/shop/inventory${qs ? `?${qs}` : ''}`);
+  },
+  adminShopOrders: (params = {}) => {
+    const query = new URLSearchParams();
+    if (params.page) query.set('page', params.page);
+    if (params.limit) query.set('limit', params.limit);
+    if (params.sortBy) query.set('sortBy', params.sortBy);
+    if (params.sortOrder) query.set('sortOrder', params.sortOrder);
+    if (params.search) query.set('search', params.search);
+    if (params.status) query.set('status', params.status);
+    if (params.payment_status) query.set('payment_status', params.payment_status);
+    if (params.filters) query.set('filters', JSON.stringify(params.filters));
+    const qs = query.toString();
+    return request(`/api/admin/shop/orders${qs ? `?${qs}` : ''}`);
+  },
   adminShopAcceptOrder: (code) =>
     request(`/api/admin/shop/orders/${code}/accept`, { method: 'POST', silent: true }),
   adminShopRejectOrder: (code, reason) =>
@@ -525,7 +568,17 @@ export const api = {
     request(`/api/admin/shop/orders/${code}/reject-payment`, { method: 'POST', body: { reason } }),
   adminShopRefund: (code) => request(`/api/admin/shop/orders/${code}/refund`, { method: 'POST' }),
   // The refund queue: cancelled/rejected orders still marked paid.
-  adminShopRefunds: () => request('/api/admin/shop/refunds'),
+  adminShopRefunds: (params = {}) => {
+    const query = new URLSearchParams();
+    if (params.page) query.set('page', params.page);
+    if (params.limit) query.set('limit', params.limit);
+    if (params.sortBy) query.set('sortBy', params.sortBy);
+    if (params.sortOrder) query.set('sortOrder', params.sortOrder);
+    if (params.search) query.set('search', params.search);
+    if (params.filters) query.set('filters', JSON.stringify(params.filters));
+    const qs = query.toString();
+    return request(`/api/admin/shop/refunds${qs ? `?${qs}` : ''}`);
+  },
   adminShopCancelOrder: (code, reason) =>
     request(`/api/admin/shop/orders/${code}/cancel`, { method: 'POST', body: { reason } }),
   adminShopAssignDriver: (code, driver_id) =>
@@ -587,7 +640,17 @@ export const api = {
   adminFoodRejectPayment: (code, reason) => request(`/api/admin/food/orders/${code}/reject-payment`, { method: 'POST', body: { reason } }),
   adminFoodCancelOrder: (code, reason) => request(`/api/admin/food/orders/${code}/cancel`, { method: 'POST', body: { reason } }),
   adminFoodRefund: (code) => request(`/api/admin/food/orders/${code}/refund`, { method: 'POST' }),
-  adminFoodRefunds: () => request('/api/admin/food/refunds'),
+  adminFoodRefunds: (params = {}) => {
+    const query = new URLSearchParams();
+    if (params.page) query.set('page', params.page);
+    if (params.limit) query.set('limit', params.limit);
+    if (params.sortBy) query.set('sortBy', params.sortBy);
+    if (params.sortOrder) query.set('sortOrder', params.sortOrder);
+    if (params.search) query.set('search', params.search);
+    if (params.filters) query.set('filters', JSON.stringify(params.filters));
+    const qs = query.toString();
+    return request(`/api/admin/food/refunds${qs ? `?${qs}` : ''}`);
+  },
   adminFoodOrderPhotos: (code) => request(`/api/admin/food/orders/${code}/photos`),
   adminFoodAssignDriver: (code, driver_id) => request(`/api/admin/food/orders/${code}/assign-driver`, { method: 'POST', body: { driver_id } }),
   // Merchant image upload (logo/menu photo) -> PUBLIC bucket signed URL.

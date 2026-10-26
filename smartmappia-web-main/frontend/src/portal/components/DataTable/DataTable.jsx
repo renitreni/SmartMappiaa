@@ -246,7 +246,7 @@ export function DataTable({
 
   if (loading && data.length === 0) {
     return (
-      <div className={cn('overflow-hidden rounded-xl border', containerClassName)}>
+      <div className={cn('overflow-hidden rounded-xl', containerClassName)}>
         <DataTableSkeleton columns={visibleColumnDefs} rows={5} hasSelection={selectable} />
       </div>
     );
@@ -254,14 +254,14 @@ export function DataTable({
 
   if (error) {
     return (
-      <div className={cn('overflow-hidden rounded-xl border', containerClassName)}>
+      <div className={cn('overflow-hidden rounded-xl', containerClassName)}>
         <DataTableErrorState error={error} onRetry={handleRetry} />
       </div>
     );
   }
 
   return (
-    <div className={cn('rounded-xl border overflow-hidden', containerClassName)}>
+    <div className={cn('rounded-xl overflow-hidden', containerClassName)}>
       {showHeader && (
         <DataTableHeader
           columns={columns}

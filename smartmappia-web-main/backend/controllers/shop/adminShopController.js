@@ -440,8 +440,34 @@ async function getStoreCatalogue(req, res) {
   try {
     const store = await shopRepository.loadStore(req.params.id);
     if (!store) return res.status(404).json({ error: 'Store not found' });
-    const { categories, products } = await shopRepository.catalogue(store.id);
-    return res.json({ store, categories: categories || [], products: products || [] });
+    const page = Math.max(Number(req.query.page) || 1, 1);
+    const limit = Math.min(Math.max(Number(req.query.limit) || 50, 1), 200);
+    const sortBy = req.query.sortBy || 'name';
+    const sortOrder = (req.query.sortOrder || 'asc').toLowerCase() === 'asc' ? 'asc' : 'desc';
+    const search = (req.query.search || '').trim();
+
+    let filtersObj = {};
+    try {
+      filtersObj = req.query.filters ? JSON.parse(req.query.filters) : {};
+    } catch {
+      filtersObj = {};
+    }
+
+    const result = await shopRepository.catalogue(store.id, {
+      page,
+      limit,
+      sortBy,
+      sortOrder,
+      search,
+      filters: filtersObj,
+    });
+
+    return res.json({
+      store,
+      categories: result.data.categories || [],
+      products: result.data.products || [],
+      pagination: result.pagination,
+    });
   } catch (err) {
     console.error('admin getStoreCatalogue error:', err);
     return res.status(500).json({ error: 'Unexpected server error' });
@@ -579,10 +605,42 @@ async function deleteVariant(req, res) {
 
 async function getInventory(req, res) {
   try {
-    const storeId = (req.query.merchant_id || '').toString();
-    if (!storeId) return res.status(400).json({ error: 'merchant_id query parameter is required' });
-    const low = await lowStockProducts(storeId, { limit: 200 });
-    return res.json({ lowStock: low, threshold: config.shop.lowStockThreshold });
+    const page = Math.max(Number(req.query.page) || 1, 1);
+    const limit = Math.min(Math.max(Number(req.query.limit) || 50, 1), 200);
+    const sortBy = req.query.sortBy || 'stock_quantity';
+    const sortOrder = (req.query.sortOrder || 'asc').toLowerCase() === 'asc' ? 'asc' : 'desc';
+    const search = (req.query.search || '').trim();
+
+    let filtersObj = {};
+    try {
+      filtersObj = req.query.filters ? JSON.parse(req.query.filters) : {};
+    } catch {
+      filtersObj = {};
+    }
+
+    // Support merchantId filter
+    if (req.query.merchant_id) {
+      filtersObj.merchantId = req.query.merchant_id;
+    }
+
+    // Support lowStockOnly filter
+    if (req.query.low_stock_only === 'true') {
+      filtersObj.lowStockOnly = true;
+    }
+
+    const result = await shopRepository.getInventory({
+      page,
+      limit,
+      sortBy,
+      sortOrder,
+      search,
+      filters: filtersObj,
+    });
+
+    return res.json({
+      products: result.data,
+      pagination: result.pagination,
+    });
   } catch (err) {
     console.error('admin shop getInventory error:', err);
     return res.status(500).json({ error: 'Unexpected server error' });
@@ -611,9 +669,18 @@ async function listOrders(req, res) {
     const status = filtersObj.status || req.query.status;
     const merchantId = filtersObj.merchant_id || req.query.merchant_id;
 
-    const { rows, total } = await shopRepository.listOrders({
-      status, merchantId, limit, offset, search, sortBy, sortOrder, filters: filtersObj,
+    const result = await shopRepository.listOrders({
+      page,
+      limit,
+      sortBy,
+      sortOrder,
+      search,
+      status,
+      merchantId,
+      filters: filtersObj,
     });
+
+    const rows = result.data;
 
     // Transform to match the expected format
     const orders = (rows || []).map((o) => {
@@ -645,14 +712,7 @@ async function listOrders(req, res) {
 
     return res.json({
       data: orders,
-      pagination: {
-        total,
-        page,
-        limit,
-        totalPages: Math.ceil(total / limit),
-        hasNext: page < Math.ceil(total / limit),
-        hasPrev: page > 1,
-      },
+      pagination: result.pagination,
       sort: { sortBy, sortOrder },
       filters: filtersObj,
     });
@@ -674,12 +734,10 @@ async function listRefunds(req, res) {
   try {
     const page = Math.max(Number(req.query.page) || 1, 1);
     const limit = Math.min(Math.max(Number(req.query.limit) || 25, 1), 200);
-    const offset = (page - 1) * limit;
-    const search = (req.query.search || '').trim();
-    
     const sortBy = req.query.sortBy || 'cancelled_at';
     const sortOrder = (req.query.sortOrder || 'desc').toLowerCase() === 'asc' ? 'asc' : 'desc';
-    
+    const search = (req.query.search || '').trim();
+
     let filtersObj = {};
     try {
       filtersObj = req.query.filters ? JSON.parse(req.query.filters) : {};
@@ -687,11 +745,16 @@ async function listRefunds(req, res) {
       filtersObj = {};
     }
 
-    const { rows, total } = await shopRepository.listRefunds({
-      limit, offset, search, sortBy, sortOrder, filters: filtersObj,
+    const result = await shopRepository.listRefunds({
+      page,
+      limit,
+      sortBy,
+      sortOrder,
+      search,
+      filters: filtersObj,
     });
 
-    const refunds = (rows || []).map((o) => ({
+    const refunds = (result.data || []).map((o) => ({
       orderCode: o.order_code,
       status: o.status,
       paymentMethod: o.payment_method,
@@ -704,14 +767,7 @@ async function listRefunds(req, res) {
 
     return res.json({
       data: refunds,
-      pagination: {
-        total,
-        page,
-        limit,
-        totalPages: Math.ceil(total / limit),
-        hasNext: page < Math.ceil(total / limit),
-        hasPrev: page > 1,
-      },
+      pagination: result.pagination,
       sort: { sortBy, sortOrder },
       filters: filtersObj,
     });

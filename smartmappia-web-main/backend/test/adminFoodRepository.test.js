@@ -47,26 +47,37 @@ test('insertItem JSON-encodes size_options for the jsonb column', async (t) => {
 });
 
 test('listOrders nests merchant, customer, delivery-with-driver and items', async (t) => {
-  const query = t.mock.method(database, 'query', async () => ({
-    rows: [{
-      id: 'o-1', order_code: 'FD-1', status: 'accepted',
-      merchant_id: 'm-1', merchant_name: 'Bistro',
-      customer_full_name: 'Ali', customer_mobile_number: '055',
-      delivery_row_id: 'd-1', delivery_driver_id: 'drv-1', delivery_status: 'picked_up',
-      pickup_photo_path: 'a.jpg', delivery_photo_path: 'b.jpg', driver_full_name: 'Rider Ray',
-      order_items: [{ name_snapshot: 'Meal', size_snapshot: 'L', quantity: 1, line_total: 30 }],
-    }],
-  }));
-  const rows = await repository.listOrders({ status: 'accepted', paymentStatus: null });
-  const [sql, values] = query.mock.calls[0].arguments;
-  assert.match(sql, /o\.status=\$1/);
-  assert.match(sql, /LIMIT \$2/);
-  assert.deepEqual(values, ['accepted', 100]);
-  const order = rows[0];
+  const query = t.mock.method(database, 'query', async (sql, values) => {
+    // Count query
+    if (sql.includes('SELECT count(*)')) {
+      return { rows: [{ total: 1 }] };
+    }
+    // Data query
+    return {
+      rows: [{
+        id: 'o-1', order_code: 'FD-1', status: 'accepted',
+        merchant_id: 'm-1', merchant_name: 'Bistro',
+        customer_full_name: 'Ali', customer_mobile_number: '055',
+        delivery_row_id: 'd-1', delivery_driver_id: 'drv-1', delivery_status: 'picked_up',
+        pickup_photo_path: 'a.jpg', delivery_photo_path: 'b.jpg', driver_full_name: 'Rider Ray',
+        order_items: [{ name_snapshot: 'Meal', size_snapshot: 'L', quantity: 1, line_total: 30 }],
+      }],
+    };
+  });
+  const result = await repository.listOrders({ status: 'accepted', paymentStatus: null, page: 1, limit: 25 });
+  // First call is count query, second is data query
+  assert.equal(query.mock.calls.length, 2);
+  const [dataSql, dataValues] = query.mock.calls[1].arguments;
+  assert.match(dataSql, /o\.status=\$1/);
+  assert.match(dataSql, /LIMIT \$2 OFFSET \$3/);
+  assert.deepEqual(dataValues, ['accepted', 25, 0]);
+  const order = result.rows[0];
   assert.deepEqual(order.merchants, { id: 'm-1', name: 'Bistro' });
   assert.deepEqual(order.deliveries.profiles, { full_name: 'Rider Ray' });
   assert.equal(order.order_items.length, 1);
   assert.equal(order.merchant_name, undefined, 'flat join aliases must not leak');
+  assert.equal(result.total, 1);
+  // Repository returns { rows, total }, pagination is added by controller
 });
 
 test('promoteAwaitingPayments reports how many proof rows were promoted', async (t) => {

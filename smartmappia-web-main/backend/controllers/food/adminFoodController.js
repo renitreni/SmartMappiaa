@@ -106,9 +106,30 @@ async function getOverview(req, res) {
 // collects at the door, which a cancelled order never reaches.
 async function listRefunds(req, res) {
   try {
-    const data = await foodRepository.listRefunds();
+    const page = Math.max(Number(req.query.page) || 1, 1);
+    const limit = Math.min(Math.max(Number(req.query.limit) || 25, 1), 200);
+    const sortBy = req.query.sortBy || 'cancelled_at';
+    const sortOrder = (req.query.sortOrder || 'desc').toLowerCase() === 'asc' ? 'asc' : 'desc';
+    const search = (req.query.search || '').trim();
+
+    let filtersObj = {};
+    try {
+      filtersObj = req.query.filters ? JSON.parse(req.query.filters) : {};
+    } catch {
+      filtersObj = {};
+    }
+
+    const result = await foodRepository.listRefunds({
+      page,
+      limit,
+      sortBy,
+      sortOrder,
+      search,
+      filters: filtersObj,
+    });
+
     return res.json({
-      refunds: (data || []).map((o) => ({
+      data: (result.data || []).map((o) => ({
         orderCode: o.order_code,
         status: o.status,
         paymentMethod: o.payment_method,
@@ -118,6 +139,7 @@ async function listRefunds(req, res) {
         cancelledAt: o.cancelled_at || o.created_at,
         merchant: o.merchants ? o.merchants.name : null,
       })),
+      pagination: result.pagination,
     });
   } catch (err) {
     console.error('admin food listRefunds error:', err);
@@ -561,7 +583,6 @@ async function listOrders(req, res) {
   try {
     const page = Math.max(Number(req.query.page) || 1, 1);
     const limit = Math.min(Math.max(Number(req.query.limit) || 25, 1), 200);
-    const offset = (page - 1) * limit;
     const search = (req.query.search || '').trim();
 
     const sortBy = req.query.sortBy || 'created_at';
@@ -578,9 +599,18 @@ async function listOrders(req, res) {
     const status = filtersObj.status || req.query.status;
     const paymentStatus = filtersObj.payment_status || req.query.payment_status;
 
-    const { rows, total } = await foodRepository.listOrders({
-      status, paymentStatus, limit, offset, search, sortBy, sortOrder, filters: filtersObj,
+    const result = await foodRepository.listOrders({
+      page,
+      limit,
+      sortBy,
+      sortOrder,
+      search,
+      status,
+      paymentStatus,
+      filters: filtersObj,
     });
+
+    const rows = result.data;
 
     // Fetch the proof references for awaiting STC payments in one shot.
     const awaitingIds = (rows || [])

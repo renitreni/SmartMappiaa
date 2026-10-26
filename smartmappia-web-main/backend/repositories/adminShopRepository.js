@@ -155,17 +155,67 @@ async function linkStoreOwner(storeId, ownerId) {
   await database.query(`UPDATE public.merchants SET owner_id=$2 WHERE id=$1`, [storeId, ownerId]);
 }
 
-async function catalogue(storeId) {
-  const [categories, products] = await Promise.all([
-    database.query(`SELECT ${ADMIN_CATEGORY_SELECT} FROM public.product_categories
-      WHERE merchant_id=$1 ORDER BY sort_order`, [storeId]),
-    database.query(`SELECT ${ADMIN_PRODUCT_SELECT},COALESCE((SELECT jsonb_agg(jsonb_build_object(
+async function catalogue(storeId, { page = 1, limit = 50, sortBy = 'name', sortOrder = 'asc', search = '', filters = {} } = {}) {
+  const offset = (page - 1) * limit;
+  const values = [storeId];
+  let where = `WHERE p.merchant_id=$1`;
+
+  // Handle filters object
+  if (filters) {
+    Object.entries(filters).forEach(([key, value]) => {
+      if (value === '' || value === null || value === undefined) return;
+      values.push(value);
+      where += ` AND p.${key} = $${values.length}`;
+    });
+  }
+
+  // Handle search
+  if (search) {
+    values.push(`%${search}%`);
+    where += ` AND (p.name ILIKE $${values.length} OR p.description ILIKE $${values.length} OR p.brand ILIKE $${values.length})`;
+  }
+
+  // Validate sort column
+  const allowedSortColumns = ['name', 'price', 'net_price', 'stock_quantity', 'created_at', 'brand'];
+  const safeSortBy = allowedSortColumns.includes(sortBy) ? sortBy : 'name';
+  const safeSortOrder = sortOrder === 'asc' ? 'ASC' : 'DESC';
+
+  // Count total
+  const countResult = await database.query(
+    `SELECT count(*)::int AS total FROM public.products p ${where}`,
+    values,
+  );
+  const total = countResult.rows[0].total;
+
+  // Fetch categories (all, not paginated - small dataset)
+  const categoriesResult = await database.query(
+    `SELECT ${ADMIN_CATEGORY_SELECT} FROM public.product_categories WHERE merchant_id=$1 ORDER BY sort_order`,
+    [storeId],
+  );
+
+  // Fetch products page with variants
+  values.push(limit, offset);
+  const productsResult = await database.query(
+    `SELECT ${ADMIN_PRODUCT_SELECT},COALESCE((SELECT jsonb_agg(jsonb_build_object(
         'id',v.id,'product_id',v.product_id,'sku',v.sku,'label',v.label,'price',v.price,'net_price',v.net_price,
         'stock_quantity',v.stock_quantity,'sort_order',v.sort_order,'is_available',v.is_available)
         ORDER BY v.sort_order) FROM public.product_variants v WHERE v.product_id=p.id),'[]'::jsonb) AS product_variants
-      FROM public.products p WHERE merchant_id=$1 ORDER BY name`, [storeId]),
-  ]);
-  return { categories: categories.rows, products: products.rows };
+      FROM public.products p ${where} ORDER BY p.${safeSortBy} ${safeSortOrder} LIMIT $${values.length-1} OFFSET $${values.length}`,
+    values,
+  );
+
+  return {
+    data: {
+      categories: categoriesResult.rows,
+      products: productsResult.rows,
+    },
+    pagination: {
+      total,
+      totalPages: Math.max(1, Math.ceil(total / limit)),
+      page,
+      limit,
+    },
+  };
 }
 
 async function insertCategory(storeId, body) {
@@ -341,10 +391,11 @@ async function listOrders({ status, merchantId, limit = 100, offset = 0, search,
 }
 
 
-async function listRefunds({ limit = 100, offset = 0, search, sortBy, sortOrder, filters }) {
+async function listRefunds({ page = 1, limit = 25, sortBy = 'cancelled_at', sortOrder = 'desc', search = '', filters = {} } = {}) {
+  const offset = (page - 1) * limit;
   const values = [];
   let where = `WHERE o.status IN ('cancelled','rejected') AND o.payment_status='paid'`;
-  
+
   // Handle filters object
   if (filters) {
     Object.entries(filters).forEach(([key, value]) => {
@@ -353,43 +404,51 @@ async function listRefunds({ limit = 100, offset = 0, search, sortBy, sortOrder,
       where += ` AND o.${key} = $${values.length}`;
     });
   }
-  
+
   // Handle search
   if (search) {
     values.push(`%${search}%`);
     where += ` AND (o.order_code ILIKE $${values.length} OR m.name ILIKE $${values.length})`;
   }
-  
+
   // Validate sort column
   const allowedSortColumns = ['order_code', 'status', 'payment_status', 'payment_method', 'total', 'cancelled_at', 'created_at'];
   const safeSortBy = allowedSortColumns.includes(sortBy) ? sortBy : 'cancelled_at';
   const safeSortOrder = sortOrder === 'asc' ? 'ASC' : 'DESC';
-  
+
   // Count query
   const countQuery = `SELECT count(*)::int AS total FROM public.shop_orders o LEFT JOIN public.merchants m ON m.id=o.merchant_id ${where}`;
   const countResult = await database.query(countQuery, values.slice());
   const total = countResult.rows[0].total;
-  
+
   values.push(limit, offset);
   const result = await database.query(
     `SELECT o.order_code,o.status,o.payment_status,o.payment_method,o.total,o.reject_reason,
             o.cancelled_by,o.cancelled_at,o.created_at,m.name AS merchant_name
        FROM public.shop_orders o LEFT JOIN public.merchants m ON m.id=o.merchant_id
-     ${where} ORDER BY o.${safeSortBy} ${safeSortOrder} LIMIT $${values.length-1} OFFSET $${values.length}`,
+      ${where} ORDER BY o.${safeSortBy} ${safeSortOrder} LIMIT $${values.length-1} OFFSET $${values.length}`,
     values,
   );
-  return { rows: result.rows.map((o) => ({
-    order_code: o.order_code,
-    status: o.status,
-    payment_status: o.payment_status,
-    payment_method: o.payment_method,
-    total: o.total,
-    reject_reason: o.reject_reason,
-    cancelled_by: o.cancelled_by,
-    cancelled_at: o.cancelled_at,
-    created_at: o.created_at,
-    merchants: o.merchant_name ? { name: o.merchant_name } : null,
-  })), total };
+  return {
+    data: result.rows.map((o) => ({
+      order_code: o.order_code,
+      status: o.status,
+      payment_status: o.payment_status,
+      payment_method: o.payment_method,
+      total: o.total,
+      reject_reason: o.reject_reason,
+      cancelled_by: o.cancelled_by,
+      cancelled_at: o.cancelled_at,
+      created_at: o.created_at,
+      merchants: o.merchant_name ? { name: o.merchant_name } : null,
+    })),
+    pagination: {
+      total,
+      totalPages: Math.max(1, Math.ceil(total / limit)),
+      page,
+      limit,
+    },
+  };
 }
 async function loadOrderRow(code) {
   const result = await database.query(
@@ -460,6 +519,84 @@ async function settlementPage({ from, to, limit, offset }) {
   return result.rows.map((o) => ({ ...o, merchants: o.merchant_name ? { name: o.merchant_name } : null }));
 }
 
+async function getInventory({ page = 1, limit = 50, sortBy = 'stock_quantity', sortOrder = 'asc', search = '', filters = {} } = {}) {
+  const offset = (page - 1) * limit;
+  const values = [];
+  let where = `WHERE p.track_stock=true`;
+
+  // Handle filters object
+  if (filters) {
+    Object.entries(filters).forEach(([key, value]) => {
+      if (value === '' || value === null || value === undefined) return;
+      if (key === 'merchantId') {
+        values.push(value);
+        where += ` AND p.merchant_id = $${values.length}`;
+        return;
+      }
+      if (key === 'lowStockOnly') {
+        if (value === true || value === 'true') {
+          where += ` AND p.stock_quantity <= p.low_stock_threshold`;
+        }
+        return;
+      }
+      values.push(value);
+      where += ` AND p.${key} = $${values.length}`;
+    });
+  }
+
+  // Handle search
+  if (search) {
+    values.push(`%${search}%`);
+    where += ` AND (p.name ILIKE $${values.length} OR p.brand ILIKE $${values.length} OR p.barcode ILIKE $${values.length})`;
+  }
+
+  // Validate sort column
+  const allowedSortColumns = ['name', 'brand', 'stock_quantity', 'low_stock_threshold', 'created_at', 'price', 'net_price'];
+  const safeSortBy = allowedSortColumns.includes(sortBy) ? sortBy : 'stock_quantity';
+  const safeSortOrder = sortOrder === 'asc' ? 'ASC' : 'DESC';
+
+  // Count total
+  const countResult = await database.query(
+    `SELECT count(*)::int AS total FROM public.products p ${where}`,
+    values,
+  );
+  const total = countResult.rows[0].total;
+
+  // Fetch page
+  values.push(limit, offset);
+  const result = await database.query(
+    `SELECT p.id,p.merchant_id,p.name,p.brand,p.unit,p.stock_quantity,p.low_stock_threshold,p.track_stock,p.is_available,p.price,p.net_price,
+            m.name AS merchant_name
+       FROM public.products p LEFT JOIN public.merchants m ON m.id=p.merchant_id
+      ${where} ORDER BY p.${safeSortBy} ${safeSortOrder} LIMIT $${values.length-1} OFFSET $${values.length}`,
+    values,
+  );
+
+  return {
+    data: result.rows.map((p) => ({
+      id: p.id,
+      merchantId: p.merchant_id,
+      name: p.name,
+      brand: p.brand,
+      unit: p.unit,
+      stockQuantity: p.stock_quantity,
+      lowStockThreshold: p.low_stock_threshold,
+      trackStock: p.track_stock,
+      isAvailable: p.is_available,
+      price: p.price,
+      netPrice: p.net_price,
+      merchantName: p.merchant_name,
+      isLowStock: p.stock_quantity <= p.low_stock_threshold,
+    })),
+    pagination: {
+      total,
+      totalPages: Math.max(1, Math.ceil(total / limit)),
+      page,
+      limit,
+    },
+  };
+}
+
 module.exports = {
   loadStore, overview, listStores, emailsByIds,
   insertStore, updateStore, deleteStore, setStoreStatus,
@@ -471,4 +608,5 @@ module.exports = {
   latestAwaitingPaymentId, markPaymentPaid,
   setOrderPaymentStatus, failAwaitingPayments, refundPaidPayments,
   driverById, upsertDelivery, deliveryPhotos, settlementPage,
+  getInventory,
 };

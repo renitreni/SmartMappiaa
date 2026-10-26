@@ -44,28 +44,39 @@ test('replenishStoreCredit is a compare-and-swap against the stored balance', as
 });
 
 test('listOrders nests merchant, customer, delivery and item embeds', async (t) => {
-  const query = t.mock.method(database, 'query', async () => ({
-    rows: [{
-      id: 'o-1', order_code: 'SH-1', status: 'pending',
-      merchant_id: 'm-1', merchant_name: 'Corner Shop',
-      customer_full_name: 'Sara', customer_mobile_number: '050',
-      delivery_row_id: 'd-1', delivery_status: 'assigned', delivery_driver_id: 'drv-1',
-      pickup_photo_path: 'p.jpg', delivery_photo_path: null,
-      order_items: [{ name_snapshot: 'Rice', quantity: 2, line_total: 20, margin_total: 2 }],
-    }],
-  }));
-  const rows = await repository.listOrders({ status: 'pending', merchantId: 'm-1' });
-  const [sql, values] = query.mock.calls[0].arguments;
-  assert.match(sql, /o\.status=\$1/);
-  assert.match(sql, /o\.merchant_id=\$2/);
-  assert.match(sql, /LIMIT \$3/);
-  assert.deepEqual(values, ['pending', 'm-1', 200]);
-  const order = rows[0];
+  const query = t.mock.method(database, 'query', async (sql, values) => {
+    // Count query
+    if (sql.includes('SELECT count(*)')) {
+      return { rows: [{ total: 1 }] };
+    }
+    // Data query
+    return {
+      rows: [{
+        id: 'o-1', order_code: 'SH-1', status: 'pending',
+        merchant_id: 'm-1', merchant_name: 'Corner Shop',
+        customer_full_name: 'Sara', customer_mobile_number: '050',
+        delivery_row_id: 'd-1', delivery_status: 'assigned', delivery_driver_id: 'drv-1',
+        pickup_photo_path: 'p.jpg', delivery_photo_path: null,
+        order_items: [{ name_snapshot: 'Rice', quantity: 2, line_total: 20, margin_total: 2 }],
+      }],
+    };
+  });
+  const result = await repository.listOrders({ status: 'pending', merchantId: 'm-1', page: 1, limit: 25 });
+  // First call is count query, second is data query
+  assert.equal(query.mock.calls.length, 2);
+  const [dataSql, dataValues] = query.mock.calls[1].arguments;
+  assert.match(dataSql, /o\.status=\$1/);
+  assert.match(dataSql, /o\.merchant_id=\$2/);
+  assert.match(dataSql, /LIMIT \$3 OFFSET \$4/);
+  assert.deepEqual(dataValues, ['pending', 'm-1', 25, 0]);
+  const order = result.rows[0];
   assert.deepEqual(order.merchants, { id: 'm-1', name: 'Corner Shop' });
   assert.deepEqual(order.profiles, { full_name: 'Sara', mobile_number: '050' });
   assert.equal(order.shop_deliveries.status, 'assigned');
   assert.equal(order.shop_order_items.length, 1);
   assert.equal(order.merchant_name, undefined, 'flat join aliases must not leak');
+  assert.equal(result.total, 1);
+  // Repository returns { rows, total }, pagination is added by controller
 });
 
 test('upsertDelivery inserts or updates on the unique order_id', async (t) => {

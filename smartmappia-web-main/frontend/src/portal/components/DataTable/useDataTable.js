@@ -36,6 +36,7 @@ export function useDataTable({
   const fetchFnRef = useRef(fetchFn);
   const mountedRef = useRef(true);
   const abortControllerRef = useRef(null);
+  const executeFetchRef = useRef(null);
 
   useEffect(() => {
     fetchFnRef.current = fetchFn;
@@ -107,14 +108,19 @@ export function useDataTable({
   }, [buildParams, limit, onError]);
 
   useEffect(() => {
+    executeFetchRef.current = executeFetch;
+  }, [executeFetch]);
+
+
+  useEffect(() => {
     if (!serverSide || !fetchFnRef.current) return undefined;
 
     const timer = window.setTimeout(() => {
-      executeFetch();
+      executeFetchRef.current?.();
     }, Math.max(0, debounceMs));
 
     return () => window.clearTimeout(timer);
-  }, [debounceMs, executeFetch, serverSide]);
+  }, [debounceMs, serverSide]);
 
   const processedData = useMemo(() => {
     if (serverSide) return data;

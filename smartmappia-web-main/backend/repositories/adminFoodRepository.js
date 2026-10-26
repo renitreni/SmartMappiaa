@@ -57,26 +57,69 @@ async function overview({ todayStart }) {
   };
 }
 
-async function listRefunds() {
+async function listRefunds({ page = 1, limit = 25, sortBy = 'cancelled_at', sortOrder = 'desc', search = '', filters = {} } = {}) {
+  const offset = (page - 1) * limit;
+  const values = [];
+  let where = `WHERE o.status IN ('cancelled','rejected') AND o.payment_status='paid'`;
+
+  // Handle filters object
+  if (filters) {
+    Object.entries(filters).forEach(([key, value]) => {
+      if (value === '' || value === null || value === undefined) return;
+      values.push(value);
+      where += ` AND o.${key} = $${values.length}`;
+    });
+  }
+
+  // Handle search
+  if (search) {
+    values.push(`%${search}%`);
+    where += ` AND (o.order_code ILIKE $${values.length} OR m.name ILIKE $${values.length})`;
+  }
+
+  // Validate sort column
+  const allowedSortColumns = ['order_code', 'status', 'payment_status', 'payment_method', 'total', 'cancelled_at', 'created_at'];
+  const safeSortBy = allowedSortColumns.includes(sortBy) ? sortBy : 'cancelled_at';
+  const safeSortOrder = sortOrder === 'asc' ? 'asc' : 'desc';
+
+  // Count total
+  const countResult = await database.query(
+    `SELECT count(*)::int AS total FROM public.orders o LEFT JOIN public.merchants m ON m.id=o.merchant_id ${where}`,
+    values,
+  );
+  const total = countResult.rows[0].total;
+
+  // Fetch page
+  values.push(limit, offset);
   const result = await database.query(
     `SELECT o.order_code,o.status,o.payment_status,o.payment_method,o.total,o.reject_reason,
             o.cancelled_by,o.cancelled_at,o.created_at,m.name AS merchant_name
        FROM public.orders o LEFT JOIN public.merchants m ON m.id=o.merchant_id
-      WHERE o.status IN ('cancelled','rejected') AND o.payment_status='paid'
-      ORDER BY o.cancelled_at DESC NULLS LAST LIMIT 200`,
+      ${where}
+      ORDER BY o.${safeSortBy} ${safeSortOrder} LIMIT $${values.length - 1} OFFSET $${values.length}`,
+    values,
   );
-  return result.rows.map((o) => ({
-    order_code: o.order_code,
-    status: o.status,
-    payment_status: o.payment_status,
-    payment_method: o.payment_method,
-    total: o.total,
-    reject_reason: o.reject_reason,
-    cancelled_by: o.cancelled_by,
-    cancelled_at: o.cancelled_at,
-    created_at: o.created_at,
-    merchants: o.merchant_name ? { name: o.merchant_name } : null,
-  }));
+
+  return {
+    data: result.rows.map((o) => ({
+      order_code: o.order_code,
+      status: o.status,
+      payment_status: o.payment_status,
+      payment_method: o.payment_method,
+      total: o.total,
+      reject_reason: o.reject_reason,
+      cancelled_by: o.cancelled_by,
+      cancelled_at: o.cancelled_at,
+      created_at: o.created_at,
+      merchants: o.merchant_name ? { name: o.merchant_name } : null,
+    })),
+    pagination: {
+      total,
+      totalPages: Math.max(1, Math.ceil(total / limit)),
+      page,
+      limit,
+    },
+  };
 }
 
 async function listMerchants({ limit = 100, offset = 0, search, sortBy, sortOrder, filters }) {
