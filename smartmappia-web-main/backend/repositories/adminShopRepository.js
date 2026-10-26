@@ -49,11 +49,41 @@ async function overview() {
   };
 }
 
-async function listStores() {
+async function listStores({ limit = 100, offset = 0, search, sortBy, sortOrder, filters }) {
+  const values = [];
+  let where = `WHERE m.vertical = 'shop'`;
+  
+  // Handle filters object
+  if (filters) {
+    Object.entries(filters).forEach(([key, value]) => {
+      if (value === '' || value === null || value === undefined) return;
+      values.push(value);
+      where += ` AND m.${key} = $${values.length}`;
+    });
+  }
+  
+  // Handle search
+  if (search) {
+    values.push(`%${search}%`);
+    where += ` AND (m.name ILIKE $${values.length} OR m.address ILIKE $${values.length})`;
+  }
+  
+  // Validate sort column
+  const allowedSortColumns = ['id', 'name', 'status', 'is_active', 'accepting_orders', 'credit_limit', 'credit_used', 'created_at'];
+  const safeSortBy = allowedSortColumns.includes(sortBy) ? sortBy : 'created_at';
+  const safeSortOrder = sortOrder === 'asc' ? 'ASC' : 'DESC';
+  
+  // Count query
+  const countQuery = `SELECT count(*)::int AS total FROM public.merchants m ${where}`;
+  const countResult = await database.query(countQuery, values.slice());
+  const total = countResult.rows[0].total;
+  
+  values.push(limit, offset);
   const result = await database.query(
-    `SELECT ${STORE_SELECT} FROM public.merchants WHERE vertical='shop' ORDER BY created_at DESC`,
+    `SELECT ${STORE_SELECT} FROM public.merchants m ${where} ORDER BY m.${safeSortBy} ${safeSortOrder} LIMIT $${values.length-1} OFFSET $${values.length}`,
+    values,
   );
-  return result.rows;
+  return { rows: result.rows, total };
 }
 
 async function emailsByIds(ids) {
@@ -263,32 +293,92 @@ function nestOrder(row) {
   };
 }
 
-async function listOrders({ status, merchantId, limit = 200 }) {
+async function listOrders({ status, merchantId, limit = 100, offset = 0, search, sortBy, sortOrder, filters }) {
   const values = [];
   let where = '';
   if (status) { values.push(status); where += ` AND o.status=$${values.length}`; }
   if (merchantId) { values.push(merchantId); where += ` AND o.merchant_id=$${values.length}`; }
-  values.push(limit);
+  
+  // Handle filters object
+  if (filters) {
+    Object.entries(filters).forEach(([key, value]) => {
+      if (value === '' || value === null || value === undefined) return;
+      if (['status', 'merchantId'].includes(key)) return; // Already handled
+      values.push(value);
+      where += ` AND o.${key}=$${values.length}`;
+    });
+  }
+  
+  // Handle search
+  if (search) {
+    values.push(`%${search}%`);
+    where += ` AND (o.order_code ILIKE $${values.length} OR o.delivery_address ILIKE $${values.length} OR (o.profiles && o.profiles->>'full_name' ILIKE $${values.length}))`;
+  }
+  
+  // Validate sort column
+  const allowedSortColumns = ['order_code', 'status', 'payment_status', 'payment_method', 'subtotal', 'delivery_fee', 'platform_margin_total', 'vat_amount', 'total', 'created_at'];
+  const safeSortBy = allowedSortColumns.includes(sortBy) ? sortBy : 'created_at';
+  const safeSortOrder = sortOrder === 'asc' ? 'ASC' : 'DESC';
+  
+  // Count query
+  const countQuery = `SELECT count(*)::int AS total FROM public.shop_orders o
+    LEFT JOIN public.merchants m ON m.id=o.merchant_id
+    LEFT JOIN public.profiles c ON c.id=o.customer_id
+    WHERE true${where}`;
+  const countResult = await database.query(countQuery, values.slice());
+  const total = countResult.rows[0].total;
+  
+  values.push(limit, offset);
   const result = await database.query(
     `SELECT ${ORDER_SELECT} FROM public.shop_orders o
        LEFT JOIN public.merchants m ON m.id=o.merchant_id
        LEFT JOIN public.profiles c ON c.id=o.customer_id
        LEFT JOIN public.shop_deliveries d ON d.order_id=o.id
-     WHERE true${where} ORDER BY o.created_at DESC LIMIT $${values.length}`,
+     WHERE true${where} ORDER BY o.${safeSortBy} ${safeSortOrder} LIMIT $${values.length-1} OFFSET $${values.length}`,
     values,
   );
-  return result.rows.map(nestOrder);
+  return { rows: result.rows.map(nestOrder), total };
 }
 
-async function listRefunds() {
+
+async function listRefunds({ limit = 100, offset = 0, search, sortBy, sortOrder, filters }) {
+  const values = [];
+  let where = `WHERE o.status IN ('cancelled','rejected') AND o.payment_status='paid'`;
+  
+  // Handle filters object
+  if (filters) {
+    Object.entries(filters).forEach(([key, value]) => {
+      if (value === '' || value === null || value === undefined) return;
+      values.push(value);
+      where += ` AND o.${key} = $${values.length}`;
+    });
+  }
+  
+  // Handle search
+  if (search) {
+    values.push(`%${search}%`);
+    where += ` AND (o.order_code ILIKE $${values.length} OR m.name ILIKE $${values.length})`;
+  }
+  
+  // Validate sort column
+  const allowedSortColumns = ['order_code', 'status', 'payment_status', 'payment_method', 'total', 'cancelled_at', 'created_at'];
+  const safeSortBy = allowedSortColumns.includes(sortBy) ? sortBy : 'cancelled_at';
+  const safeSortOrder = sortOrder === 'asc' ? 'ASC' : 'DESC';
+  
+  // Count query
+  const countQuery = `SELECT count(*)::int AS total FROM public.shop_orders o LEFT JOIN public.merchants m ON m.id=o.merchant_id ${where}`;
+  const countResult = await database.query(countQuery, values.slice());
+  const total = countResult.rows[0].total;
+  
+  values.push(limit, offset);
   const result = await database.query(
     `SELECT o.order_code,o.status,o.payment_status,o.payment_method,o.total,o.reject_reason,
             o.cancelled_by,o.cancelled_at,o.created_at,m.name AS merchant_name
        FROM public.shop_orders o LEFT JOIN public.merchants m ON m.id=o.merchant_id
-      WHERE o.status IN ('cancelled','rejected') AND o.payment_status='paid'
-      ORDER BY o.cancelled_at DESC NULLS LAST LIMIT 200`,
+     ${where} ORDER BY o.${safeSortBy} ${safeSortOrder} LIMIT $${values.length-1} OFFSET $${values.length}`,
+    values,
   );
-  return result.rows.map((o) => ({
+  return { rows: result.rows.map((o) => ({
     order_code: o.order_code,
     status: o.status,
     payment_status: o.payment_status,
@@ -299,9 +389,8 @@ async function listRefunds() {
     cancelled_at: o.cancelled_at,
     created_at: o.created_at,
     merchants: o.merchant_name ? { name: o.merchant_name } : null,
-  }));
+  })), total };
 }
-
 async function loadOrderRow(code) {
   const result = await database.query(
     `SELECT id,order_code,customer_id,merchant_id,status,total,payment_status,payment_method

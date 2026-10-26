@@ -23,6 +23,16 @@ async function run() {
     console.log('No demo driver to remove.');
   }
 
+  // 3. Demo customer accounts (cascades to their profiles).
+  const { rows: removedCustomers } = await database.query(
+    `DELETE FROM public.app_users WHERE lower(email) LIKE 'demo.customer%@smartmappia.com' RETURNING email`,
+  );
+  if (removedCustomers && removedCustomers.length) {
+    console.log(`Removed ${removedCustomers.length} demo customer(s): ${removedCustomers.map((r) => r.email).join(', ')}`);
+  } else {
+    console.log('No demo customers to remove.');
+  }
+
   console.log('\n✅ Demo data cleaned. Real data was left untouched.\n');
 }
 

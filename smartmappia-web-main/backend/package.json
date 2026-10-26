@@ -32,6 +32,8 @@
     "seed:pay": "node scripts/demo/seed-pay.js",
     "seed:request": "node scripts/demo/seed-request.js",
     "sim:driver": "node scripts/demo/simulate-driver.js",
+    "seed:customers": "node scripts/demo/seed-customers.js",
+    "seed:customers:bookings": "node scripts/demo/seed-customer-bookings.js",
     "seed:clean": "node scripts/demo/seed-clean.js"
   },
   "engines": {

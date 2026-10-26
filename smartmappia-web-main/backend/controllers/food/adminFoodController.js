@@ -128,42 +128,68 @@ async function listRefunds(req, res) {
 // --- Merchant management ------------------------------------------------
 async function listMerchants(req, res) {
   try {
-    // Restaurants are admin-run; owner_id is linked at contract signing and is
-    // used to show the "owner account" status in the admin UI (and to target
-    // owner notifications).
-    const data = await foodRepository.listMerchants();
+    const page = Math.max(Number(req.query.page) || 1, 1);
+    const limit = Math.min(Math.max(Number(req.query.limit) || 25, 1), 200);
+    const offset = (page - 1) * limit;
+    const search = (req.query.search || '').trim();
 
-    // Resolve owner emails in one query so the UI can show who is linked.
-    const ownerIds = [...new Set((data || []).map((m) => m.owner_id).filter(Boolean))];
+    const sortBy = req.query.sortBy || 'created_at';
+    const sortOrder = (req.query.sortOrder || 'desc').toLowerCase() === 'asc' ? 'asc' : 'desc';
+
+    let filtersObj = {};
+    try {
+      filtersObj = req.query.filters ? JSON.parse(req.query.filters) : {};
+    } catch {
+      filtersObj = {};
+    }
+
+    const { rows, total } = await foodRepository.listMerchants({
+      limit, offset, search, sortBy, sortOrder, filters: filtersObj,
+    });
+
+    // Resolve owner emails
+    const ownerIds = [...new Set((rows || []).map((m) => m.owner_id).filter(Boolean))];
     const ownerEmailById = new Map();
     if (ownerIds.length) {
       const owners = await foodRepository.emailsByIds(ownerIds);
       for (const o of owners || []) ownerEmailById.set(o.id, o.email);
     }
 
+    const merchants = (rows || []).map((m) => ({
+      id: m.id,
+      name: m.name,
+      cuisineType: m.cuisine_type,
+      description: m.description,
+      logoUrl: m.logo_url,
+      address: m.address,
+      street: m.street,
+      buildingNumber: m.building_number,
+      lat: m.lat,
+      lng: m.lng,
+      isActive: m.is_active,
+      status: m.status,
+      acceptingOrders: m.accepting_orders !== false,
+      creditLimit: Number(m.credit_limit),
+      creditUsed: round2(Number(m.credit_used)),
+      isFeatured: m.is_featured,
+      badge: m.badge,
+      ownerId: m.owner_id,
+      ownerEmail: m.owner_id ? ownerEmailById.get(m.owner_id) || null : null,
+      createdAt: m.created_at,
+    }));
+
     return res.json({
-      merchants: (data || []).map((m) => ({
-        id: m.id,
-        name: m.name,
-        cuisineType: m.cuisine_type,
-        description: m.description,
-        logoUrl: m.logo_url,
-        address: m.address,
-        street: m.street,
-        buildingNumber: m.building_number,
-        lat: m.lat,
-        lng: m.lng,
-        isActive: m.is_active,
-        status: m.status,
-        acceptingOrders: m.accepting_orders !== false,
-        creditLimit: Number(m.credit_limit),
-        creditUsed: round2(Number(m.credit_used)),
-        isFeatured: m.is_featured,
-        badge: m.badge,
-        ownerId: m.owner_id,
-        ownerEmail: m.owner_id ? ownerEmailById.get(m.owner_id) || null : null,
-        createdAt: m.created_at,
-      })),
+      data: merchants,
+      pagination: {
+        total,
+        page,
+        limit,
+        totalPages: Math.ceil(total / limit),
+        hasNext: page < Math.ceil(total / limit),
+        hasPrev: page > 1,
+      },
+      sort: { sortBy, sortOrder },
+      filters: filtersObj,
     });
   } catch (err) {
     console.error('food listMerchants error:', err);
@@ -533,13 +559,31 @@ async function removeItem(req, res) {
 // --- Orders + payment reconciliation ---------------------------------------
 async function listOrders(req, res) {
   try {
-    const data = await foodRepository.listOrders({
-      status: (req.query.status || '').toString() || null,
-      paymentStatus: (req.query.payment_status || '').toString() || null,
+    const page = Math.max(Number(req.query.page) || 1, 1);
+    const limit = Math.min(Math.max(Number(req.query.limit) || 25, 1), 200);
+    const offset = (page - 1) * limit;
+    const search = (req.query.search || '').trim();
+
+    const sortBy = req.query.sortBy || 'created_at';
+    const sortOrder = (req.query.sortOrder || 'desc').toLowerCase() === 'asc' ? 'asc' : 'desc';
+
+    let filtersObj = {};
+    try {
+      filtersObj = req.query.filters ? JSON.parse(req.query.filters) : {};
+    } catch {
+      filtersObj = {};
+    }
+
+    // Backward compatibility: status, payment_status
+    const status = filtersObj.status || req.query.status;
+    const paymentStatus = filtersObj.payment_status || req.query.payment_status;
+
+    const { rows, total } = await foodRepository.listOrders({
+      status, paymentStatus, limit, offset, search, sortBy, sortOrder, filters: filtersObj,
     });
 
     // Fetch the proof references for awaiting STC payments in one shot.
-    const awaitingIds = (data || [])
+    const awaitingIds = (rows || [])
       .filter((o) => o.payment_status === 'awaiting')
       .map((o) => o.id);
     const payments = await foodRepository.awaitingPaymentsForOrders(awaitingIds);
@@ -565,45 +609,52 @@ async function listOrders(req, res) {
     );
 
     logAudit({ actorId: req.adminId, action: 'admin_food_orders_read', resourceType: 'orders' });
+    const orders = (rows || []).map((o) => {
+      const payment = latestPayment.get(o.id);
+      const delivery = Array.isArray(o.deliveries) ? o.deliveries[0] : o.deliveries;
+      return {
+        orderCode: o.order_code,
+        status: o.status,
+        paymentStatus: o.payment_status,
+        paymentMethod: o.payment_method,
+        subtotal: o.subtotal,
+        deliveryFee: o.delivery_fee,
+        marginTotal: o.platform_margin_total,
+        vatAmount: o.vat_amount,
+        total: o.total,
+        deliveryAddress: o.delivery_address,
+        deliveryStreet: o.delivery_street,
+        deliveryBuilding: o.delivery_building,
+        merchantId: o.merchants ? o.merchants.id : null,
+        merchantName: o.merchants ? o.merchants.name : null,
+        customerName: o.profiles ? o.profiles.full_name : null,
+        // Prefer the order's own (editable) contact number over the profile.
+        customerMobile: o.contact_phone || (o.profiles ? o.profiles.mobile_number : null),
+        items: o.order_items || [],
+        riderName: delivery && delivery.profiles ? delivery.profiles.full_name : null,
+        deliveryStatus: delivery ? delivery.status : null,
+        hasPickupPhoto: !!(delivery && delivery.pickup_photo_path),
+        hasDeliveryPhoto: !!(delivery && delivery.delivery_photo_path),
+        paymentReference: payment ? payment.gateway_transaction_id : null,
+        proofUrl: proofUrlByOrder.get(o.id) || null,
+        createdAt: o.created_at,
+        acceptedAt: o.accepted_at,
+      };
+    });
+
     return res.json({
-      // The window lib/foodPreparingReminder.js actually chases on, so the
-      // admin UI flags "waiting to start preparing" on the same threshold the
-      // server reminds on instead of a hardcoded copy that drifts when
-      // FOOD_PREPARING_REMINDER_MINUTES is overridden.
+      data: orders,
+      pagination: {
+        total,
+        page,
+        limit,
+        totalPages: Math.ceil(total / limit),
+        hasNext: page < Math.ceil(total / limit),
+        hasPrev: page > 1,
+      },
+      sort: { sortBy, sortOrder },
+      filters: filtersObj,
       preparingReminderMinutes: config.food.preparingReminderMinutes,
-      orders: (data || []).map((o) => {
-        const payment = latestPayment.get(o.id);
-        const delivery = Array.isArray(o.deliveries) ? o.deliveries[0] : o.deliveries;
-        return {
-          orderCode: o.order_code,
-          status: o.status,
-          paymentStatus: o.payment_status,
-          paymentMethod: o.payment_method,
-          subtotal: o.subtotal,
-          deliveryFee: o.delivery_fee,
-          marginTotal: o.platform_margin_total,
-          vatAmount: o.vat_amount,
-          total: o.total,
-          deliveryAddress: o.delivery_address,
-          deliveryStreet: o.delivery_street,
-          deliveryBuilding: o.delivery_building,
-          merchantId: o.merchants ? o.merchants.id : null,
-          merchantName: o.merchants ? o.merchants.name : null,
-          customerName: o.profiles ? o.profiles.full_name : null,
-          // Prefer the order's own (editable) contact number over the profile.
-          customerMobile: o.contact_phone || (o.profiles ? o.profiles.mobile_number : null),
-          items: o.order_items || [],
-          riderName: delivery && delivery.profiles ? delivery.profiles.full_name : null,
-          deliveryStatus: delivery ? delivery.status : null,
-          hasPickupPhoto: !!(delivery && delivery.pickup_photo_path),
-          hasDeliveryPhoto: !!(delivery && delivery.delivery_photo_path),
-          paymentReference: payment ? payment.gateway_transaction_id : null,
-          proofPath: payment && payment.gateway_raw ? payment.gateway_raw.proof_path : null,
-          proofUrl: proofUrlByOrder.get(o.id) || null,
-          createdAt: o.created_at,
-          acceptedAt: o.accepted_at,
-        };
-      }),
     });
   } catch (err) {
     console.error('admin food listOrders error:', err);

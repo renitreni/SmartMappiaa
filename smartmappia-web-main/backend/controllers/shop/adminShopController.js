@@ -77,22 +77,51 @@ async function getOverview(req, res) {
 // --- Stores -----------------------------------------------------------
 async function listStores(req, res) {
   try {
-    const data = await shopRepository.listStores();
+    const page = Math.max(Number(req.query.page) || 1, 1);
+    const limit = Math.min(Math.max(Number(req.query.limit) || 25, 1), 200);
+    const offset = (page - 1) * limit;
+    const search = (req.query.search || '').trim();
+    
+    const sortBy = req.query.sortBy || 'created_at';
+    const sortOrder = (req.query.sortOrder || 'desc').toLowerCase() === 'asc' ? 'asc' : 'desc';
+    
+    let filtersObj = {};
+    try {
+      filtersObj = req.query.filters ? JSON.parse(req.query.filters) : {};
+    } catch {
+      filtersObj = {};
+    }
+
+    const { rows, total } = await shopRepository.listStores({
+      limit, offset, search, sortBy, sortOrder, filters: filtersObj,
+    });
 
     // Owner emails, so the admin can see which stores still need an account.
-    const ownerIds = [...new Set((data || []).map((m) => m.owner_id).filter(Boolean))];
+    const ownerIds = [...new Set((rows || []).map((m) => m.owner_id).filter(Boolean))];
     const emails = new Map();
     if (ownerIds.length) {
       const owners = await shopRepository.emailsByIds(ownerIds);
       for (const o of owners || []) emails.set(o.id, o.email);
     }
 
+    const stores = (rows || []).map((m) => ({
+      ...m,
+      ownerEmail: m.owner_id ? emails.get(m.owner_id) || null : null,
+      credit: creditView(m),
+    }));
+
     return res.json({
-      stores: (data || []).map((m) => ({
-        ...m,
-        ownerEmail: m.owner_id ? emails.get(m.owner_id) || null : null,
-        credit: creditView(m),
-      })),
+      data: stores,
+      pagination: {
+        total,
+        page,
+        limit,
+        totalPages: Math.ceil(total / limit),
+        hasNext: page < Math.ceil(total / limit),
+        hasPrev: page > 1,
+      },
+      sort: { sortBy, sortOrder },
+      filters: filtersObj,
     });
   } catch (err) {
     console.error('admin listStores error:', err);
@@ -563,11 +592,70 @@ async function getInventory(req, res) {
 // --- Orders -----------------------------------------------------------
 async function listOrders(req, res) {
   try {
-    const data = await shopRepository.listOrders({
-      status: req.query.status || null,
-      merchantId: req.query.merchant_id || null,
+    const page = Math.max(Number(req.query.page) || 1, 1);
+    const limit = Math.min(Math.max(Number(req.query.limit) || 25, 1), 200);
+    const offset = (page - 1) * limit;
+    const search = (req.query.search || '').trim();
+    
+    const sortBy = req.query.sortBy || 'created_at';
+    const sortOrder = (req.query.sortOrder || 'desc').toLowerCase() === 'asc' ? 'asc' : 'desc';
+    
+    let filtersObj = {};
+    try {
+      filtersObj = req.query.filters ? JSON.parse(req.query.filters) : {};
+    } catch {
+      filtersObj = {};
+    }
+
+    // Backward compatibility: status, merchant_id
+    const status = filtersObj.status || req.query.status;
+    const merchantId = filtersObj.merchant_id || req.query.merchant_id;
+
+    const { rows, total } = await shopRepository.listOrders({
+      status, merchantId, limit, offset, search, sortBy, sortOrder, filters: filtersObj,
     });
-    return res.json({ orders: data || [] });
+
+    // Transform to match the expected format
+    const orders = (rows || []).map((o) => {
+      const delivery = Array.isArray(o.deliveries) ? o.deliveries[0] : o.deliveries;
+      const subtotal = round2(Number(o.subtotal));
+      const markup = round2(Number(o.platform_margin_total));
+      return {
+        orderCode: o.order_code,
+        date: o.created_at,
+        store: o.merchants ? o.merchants.name : null,
+        subtotal,
+        storePayout: round2(subtotal - markup),
+        platformMarkup: markup,
+        deliveryCharge: round2(Number(o.delivery_fee)),
+        driverFee: round2(Number(o.driver_fee || 0)),
+        platformDeliveryShare: round2(Number(o.delivery_fee) - Number(o.driver_fee || 0)),
+        vat: round2(Number(o.vat_amount || 0)),
+        total: round2(Number(o.total)),
+        paymentMethod: o.payment_method,
+        paymentStatus: o.payment_status,
+        collectedBy: o.payment_method === 'cash' ? 'cash_rider' : 'platform_online',
+        status: o.status,
+        merchantId: o.merchant_id,
+        customerName: o.profiles ? o.profiles.full_name : null,
+        items: o.order_items || [],
+        createdAt: o.created_at,
+      };
+    });
+
+    return res.json({
+      data: orders,
+      pagination: {
+        total,
+        page,
+        limit,
+        totalPages: Math.ceil(total / limit),
+        hasNext: page < Math.ceil(total / limit),
+        hasPrev: page > 1,
+      },
+      sort: { sortBy, sortOrder },
+      filters: filtersObj,
+    });
   } catch (err) {
     console.error('admin shop listOrders error:', err);
     return res.status(500).json({ error: 'Could not load orders' });
@@ -584,18 +672,48 @@ async function listOrders(req, res) {
 // collects at the door, which a cancelled order never reaches.
 async function listRefunds(req, res) {
   try {
-    const data = await shopRepository.listRefunds();
+    const page = Math.max(Number(req.query.page) || 1, 1);
+    const limit = Math.min(Math.max(Number(req.query.limit) || 25, 1), 200);
+    const offset = (page - 1) * limit;
+    const search = (req.query.search || '').trim();
+    
+    const sortBy = req.query.sortBy || 'cancelled_at';
+    const sortOrder = (req.query.sortOrder || 'desc').toLowerCase() === 'asc' ? 'asc' : 'desc';
+    
+    let filtersObj = {};
+    try {
+      filtersObj = req.query.filters ? JSON.parse(req.query.filters) : {};
+    } catch {
+      filtersObj = {};
+    }
+
+    const { rows, total } = await shopRepository.listRefunds({
+      limit, offset, search, sortBy, sortOrder, filters: filtersObj,
+    });
+
+    const refunds = (rows || []).map((o) => ({
+      orderCode: o.order_code,
+      status: o.status,
+      paymentMethod: o.payment_method,
+      total: Number(o.total),
+      reason: o.reject_reason,
+      cancelledBy: o.cancelled_by,
+      cancelledAt: o.cancelled_at || o.created_at,
+      store: o.merchants ? o.merchants.name : null,
+    }));
+
     return res.json({
-      refunds: (data || []).map((o) => ({
-        orderCode: o.order_code,
-        status: o.status,
-        paymentMethod: o.payment_method,
-        total: Number(o.total),
-        reason: o.reject_reason,
-        cancelledBy: o.cancelled_by,
-        cancelledAt: o.cancelled_at || o.created_at,
-        store: o.merchants ? o.merchants.name : null,
-      })),
+      data: refunds,
+      pagination: {
+        total,
+        page,
+        limit,
+        totalPages: Math.ceil(total / limit),
+        hasNext: page < Math.ceil(total / limit),
+        hasPrev: page > 1,
+      },
+      sort: { sortBy, sortOrder },
+      filters: filtersObj,
     });
   } catch (err) {
     console.error('admin shop listRefunds error:', err);

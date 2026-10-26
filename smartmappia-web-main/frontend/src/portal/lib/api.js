@@ -166,12 +166,34 @@ export const api = {
   // --- admin (role enforced by backend) ---
   adminStats: () => request('/api/admin/stats'),
   adminReports: (range) => request(`/api/admin/reports?range=${encodeURIComponent(range)}`),
-  adminList: (query = '') => request(`/api/admin/bookings${query}`),
+  adminList: (params = {}) => {
+    const query = new URLSearchParams();
+    if (params.page) query.set('page', params.page);
+    if (params.limit) query.set('limit', params.limit);
+    if (params.sortBy) query.set('sortBy', params.sortBy);
+    if (params.sortOrder) query.set('sortOrder', params.sortOrder);
+    if (params.search) query.set('search', params.search);
+    if (params.booking_status) query.set('booking_status', params.booking_status);
+    if (params.payment_status) query.set('payment_status', params.payment_status);
+    if (params.filters) query.set('filters', JSON.stringify(params.filters));
+    const qs = query.toString();
+    return request(`/api/admin/bookings${qs ? `?${qs}` : ''}`);
+  },
   adminDetail: (code) => request(`/api/admin/bookings/${code}`),
   adminVerify: (code, body = {}) => request(`/api/admin/bookings/${code}/verify-payment`, { method: 'POST', body }),
   adminReject: (code, reason) => request(`/api/admin/bookings/${code}/reject-payment`, { method: 'POST', body: { reason } }),
   adminAssign: (code, driver_id) => request(`/api/admin/bookings/${code}/assign-driver`, { method: 'POST', body: { driver_id } }),
-  adminDrivers: () => request('/api/admin/drivers'),
+  adminDrivers: (params = {}) => {
+    const query = new URLSearchParams();
+    if (params.page) query.set('page', params.page);
+    if (params.limit) query.set('limit', params.limit);
+    if (params.sortBy) query.set('sortBy', params.sortBy);
+    if (params.sortOrder) query.set('sortOrder', params.sortOrder);
+    if (params.search) query.set('search', params.search);
+    if (params.filters) query.set('filters', JSON.stringify(params.filters));
+    const qs = query.toString();
+    return request(`/api/admin/drivers${qs ? `?${qs}` : ''}`);
+  },
   adminApproveDriver: (driverId, approved = true) =>
     request(`/api/admin/drivers/${driverId}/approval`, { method: 'POST', body: { approved } }),
   adminDriverDocuments: (driverId) => request(`/api/admin/drivers/${driverId}/documents`),
@@ -190,7 +212,17 @@ export const api = {
   // --- super admin (0043): admins, settings, login activity ---------
   // Every one of these 403s for a plain admin server-side; hiding the tab
   // is presentation, not the control.
-  adminAdmins: () => request('/api/admin/admins'),
+  adminAdmins: (params = {}) => {
+    const query = new URLSearchParams();
+    if (params.page) query.set('page', params.page);
+    if (params.limit) query.set('limit', params.limit);
+    if (params.sortBy) query.set('sortBy', params.sortBy);
+    if (params.sortOrder) query.set('sortOrder', params.sortOrder);
+    if (params.search) query.set('search', params.search);
+    if (params.filters) query.set('filters', JSON.stringify(params.filters));
+    const qs = query.toString();
+    return request(`/api/admin/admins${qs ? `?${qs}` : ''}`);
+  },
   adminCreateAdmin: (body) => request('/api/admin/admins', { method: 'POST', body }),
   adminUpdateAdmin: (id, body) => request(`/api/admin/admins/${id}`, { method: 'PATCH', body }),
   adminResetAdminPassword: (id) =>
@@ -199,7 +231,20 @@ export const api = {
   adminReactivateAdmin: (id) => request(`/api/admin/admins/${id}/reactivate`, { method: 'POST' }),
   adminSettings: () => request('/api/admin/settings'),
   adminUpdateSettings: (body) => request('/api/admin/settings', { method: 'PATCH', body }),
-  adminLoginEvents: (query = '') => request(`/api/admin/login-events${query}`),
+  adminLoginEvents: (params = {}) => {
+    const query = new URLSearchParams();
+    if (params.page) query.set('page', params.page);
+    if (params.limit) query.set('limit', params.limit);
+    if (params.sortBy) query.set('sortBy', params.sortBy);
+    if (params.sortOrder) query.set('sortOrder', params.sortOrder);
+    if (params.search) query.set('search', params.search);
+    if (params.filters) query.set('filters', JSON.stringify(params.filters));
+    // Backward compatibility
+    if (params.profile_id) query.set('profile_id', params.profile_id);
+    if (params.since) query.set('since', params.since);
+    const qs = query.toString();
+    return request(`/api/admin/login-events${qs ? `?${qs}` : ''}`);
+  },
   adminLoginSummary: (days = 30) => request(`/api/admin/login-events/summary?days=${days}`),
 
   adminDriverCash: () => request('/api/admin/drivers/cash'),
@@ -498,7 +543,17 @@ export const api = {
   // Settlement report: what we owe each restaurant vs. our markup, by date range.
   adminFoodSettlement: (from, to) =>
     request(`/api/admin/food/settlement?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`),
-  adminFoodMerchants: () => request('/api/admin/food/merchants'),
+  adminFoodMerchants: (params = {}) => {
+    const query = new URLSearchParams();
+    if (params.page) query.set('page', params.page);
+    if (params.limit) query.set('limit', params.limit);
+    if (params.sortBy) query.set('sortBy', params.sortBy);
+    if (params.sortOrder) query.set('sortOrder', params.sortOrder);
+    if (params.search) query.set('search', params.search);
+    if (params.filters) query.set('filters', JSON.stringify(params.filters));
+    const qs = query.toString();
+    return request(`/api/admin/food/merchants${qs ? `?${qs}` : ''}`);
+  },
   adminFoodCreateMerchant: (body) => request('/api/admin/food/merchants', { method: 'POST', body }),
   adminFoodUpdateMerchant: (id, body) => request(`/api/admin/food/merchants/${id}`, { method: 'PATCH', body }),
   adminFoodDeleteMerchant: (id) => request(`/api/admin/food/merchants/${id}`, { method: 'DELETE' }),
@@ -512,7 +567,19 @@ export const api = {
   adminFoodAddItem: (id, body) => request(`/api/admin/food/merchants/${id}/menu/items`, { method: 'POST', body }),
   adminFoodModerateItem: (id, body) => request(`/api/admin/food/items/${id}`, { method: 'PATCH', body }),
   adminFoodDeleteItem: (id) => request(`/api/admin/food/items/${id}`, { method: 'DELETE' }),
-  adminFoodOrders: (query = '') => request(`/api/admin/food/orders${query}`),
+  adminFoodOrders: (params = {}) => {
+    const query = new URLSearchParams();
+    if (params.page) query.set('page', params.page);
+    if (params.limit) query.set('limit', params.limit);
+    if (params.sortBy) query.set('sortBy', params.sortBy);
+    if (params.sortOrder) query.set('sortOrder', params.sortOrder);
+    if (params.search) query.set('search', params.search);
+    if (params.status) query.set('status', params.status);
+    if (params.payment_status) query.set('payment_status', params.payment_status);
+    if (params.filters) query.set('filters', JSON.stringify(params.filters));
+    const qs = query.toString();
+    return request(`/api/admin/food/orders${qs ? `?${qs}` : ''}`);
+  },
   adminFoodAcceptOrder: (code) => request(`/api/admin/food/orders/${code}/accept`, { method: 'POST', silent: true }),
   adminFoodRejectOrder: (code, reason) => request(`/api/admin/food/orders/${code}/reject`, { method: 'POST', body: { reason } }),
   adminFoodOrderStatus: (code, status) => request(`/api/admin/food/orders/${code}/status`, { method: 'PATCH', body: { status } }),
@@ -534,15 +601,28 @@ export const api = {
     request(`/api/admin/food/merchants/${id}/owner/password`, { method: 'POST', body }),
 
   // --- User Accounts (all roles) ---
-  adminListUsers: (params = {}) => {
+  adminListUsers: async (params = {}) => {
     const query = new URLSearchParams();
     if (params.page) query.set('page', params.page);
     if (params.limit) query.set('limit', params.limit);
+    if (params.sortBy) query.set('sortBy', params.sortBy);
+    if (params.sortOrder) query.set('sortOrder', params.sortOrder);
     if (params.search) query.set('search', params.search);
     if (params.role) query.set('role', params.role);
     if (params.status) query.set('status', params.status);
+    if (params.filters) query.set('filters', JSON.stringify(params.filters));
     const qs = query.toString();
-    return request(`/api/admin/users${qs ? `?${qs}` : ''}`);
+    const res = await request(`/api/admin/users${qs ? `?${qs}` : ''}`);
+    const users = Array.isArray(res?.users) ? res.users : Array.isArray(res?.data) ? res.data : [];
+    const pagination = res?.pagination || {};
+    return {
+      ...res,
+      users,
+      total: res?.total ?? pagination.total ?? users.length,
+      page: res?.page ?? pagination.page ?? params.page ?? 1,
+      limit: res?.limit ?? pagination.limit ?? params.limit ?? users.length,
+      totalPages: res?.totalPages ?? pagination.totalPages ?? 1,
+    };
   },
   adminUpdateUserRole: (id, role) =>
     request(`/api/admin/users/${id}/role`, { method: 'PATCH', body: { role } }),

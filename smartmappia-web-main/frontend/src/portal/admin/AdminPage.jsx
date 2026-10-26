@@ -6,15 +6,15 @@ import { useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import AdminLayout, { adminNavFor } from './AdminLayout';
 import Dashboard from './Dashboard';
-import BookingsView from './BookingsView';
-import DriversView from './DriversView';
+import BookingsView from './BookingsViewV2';
+import DriversView from './DriversViewV2';
 import RestaurantOrders from './RestaurantOrders';
 import FoodAdmin from './FoodAdmin';
 import ShopAdmin from './ShopAdmin';
 import ReportsView from './ReportsView';
 import ErrorsView from './ErrorsView';
 import AdminsView from './AdminsView';
-import AccountsView from './AccountsView';
+import AccountsView from './AccountsViewV2';
 import SettingsView from './SettingsView';
 
 export default function AdminPage() {

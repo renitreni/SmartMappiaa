@@ -79,11 +79,41 @@ async function listRefunds() {
   }));
 }
 
-async function listMerchants() {
+async function listMerchants({ limit = 100, offset = 0, search, sortBy, sortOrder, filters }) {
+  const values = [];
+  let where = `WHERE m.vertical = 'food'`;
+  
+  // Handle filters object
+  if (filters) {
+    Object.entries(filters).forEach(([key, value]) => {
+      if (value === '' || value === null || value === undefined) return;
+      values.push(value);
+      where += ` AND m.${key} = $${values.length}`;
+    });
+  }
+  
+  // Handle search
+  if (search) {
+    values.push(`%${search}%`);
+    where += ` AND (m.name ILIKE $${values.length} OR m.address ILIKE $${values.length} OR m.cuisine_type ILIKE $${values.length})`;
+  }
+  
+  // Validate sort column
+  const allowedSortColumns = ['id', 'name', 'cuisine_type', 'status', 'is_active', 'accepting_orders', 'credit_limit', 'credit_used', 'created_at'];
+  const safeSortBy = allowedSortColumns.includes(sortBy) ? sortBy : 'created_at';
+  const safeSortOrder = sortOrder === 'asc' ? 'ASC' : 'DESC';
+  
+  // Count query
+  const countQuery = `SELECT count(*)::int AS total FROM public.merchants m ${where}`;
+  const countResult = await database.query(countQuery, values.slice());
+  const total = countResult.rows[0].total;
+  
+  values.push(limit, offset);
   const result = await database.query(
-    `SELECT ${MERCHANT_SELECT} FROM public.merchants WHERE vertical='food' ORDER BY created_at DESC`,
+    `SELECT ${MERCHANT_SELECT} FROM public.merchants m ${where} ORDER BY m.${safeSortBy} ${safeSortOrder} LIMIT $${values.length-1} OFFSET $${values.length}`,
+    values,
   );
-  return result.rows;
+  return { rows: result.rows, total };
 }
 
 async function emailsByIds(ids) {
@@ -276,22 +306,52 @@ function nestOrder(row) {
   };
 }
 
-async function listOrders({ status, paymentStatus, limit = 100 }) {
+async function listOrders({ status, paymentStatus, limit = 100, offset = 0, search, sortBy, sortOrder, filters }) {
   const values = [];
   let where = '';
   if (status) { values.push(status); where += ` AND o.status=$${values.length}`; }
   if (paymentStatus) { values.push(paymentStatus); where += ` AND o.payment_status=$${values.length}`; }
-  values.push(limit);
+  
+  // Handle filters object
+  if (filters) {
+    Object.entries(filters).forEach(([key, value]) => {
+      if (value === '' || value === null || value === undefined) return;
+      if (['status', 'paymentStatus'].includes(key)) return; // Already handled
+      values.push(value);
+      where += ` AND o.${key}=$${values.length}`;
+    });
+  }
+  
+  // Handle search
+  if (search) {
+    values.push(`%${search}%`);
+    where += ` AND (o.order_code ILIKE $${values.length} OR o.delivery_address ILIKE $${values.length} OR (o.profiles && o.profiles->>'full_name' ILIKE $${values.length}))`;
+  }
+  
+  // Validate sort column
+  const allowedSortColumns = ['order_code', 'status', 'payment_status', 'payment_method', 'subtotal', 'delivery_fee', 'platform_margin_total', 'vat_amount', 'total', 'created_at'];
+  const safeSortBy = allowedSortColumns.includes(sortBy) ? sortBy : 'created_at';
+  const safeSortOrder = sortOrder === 'asc' ? 'ASC' : 'DESC';
+  
+  // Count query
+  const countQuery = `SELECT count(*)::int AS total FROM public.orders o
+    LEFT JOIN public.merchants m ON m.id=o.merchant_id
+    LEFT JOIN public.profiles c ON c.id=o.customer_id
+    WHERE true${where}`;
+  const countResult = await database.query(countQuery, values.slice());
+  const total = countResult.rows[0].total;
+  
+  values.push(limit, offset);
   const result = await database.query(
     `SELECT ${ORDER_SELECT} FROM public.orders o
        LEFT JOIN public.merchants m ON m.id=o.merchant_id
        LEFT JOIN public.profiles c ON c.id=o.customer_id
        LEFT JOIN public.deliveries d ON d.order_id=o.id
        LEFT JOIN public.profiles dp ON dp.id=d.driver_id
-     WHERE true${where} ORDER BY o.created_at DESC LIMIT $${values.length}`,
+     WHERE true${where} ORDER BY o.${safeSortBy} ${safeSortOrder} LIMIT $${values.length-1} OFFSET $${values.length}`,
     values,
   );
-  return result.rows.map(nestOrder);
+  return { rows: result.rows.map(nestOrder), total };
 }
 
 async function awaitingPaymentsForOrders(orderIds) {

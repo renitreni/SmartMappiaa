@@ -14,11 +14,38 @@ async function reportBookings(from) {
       currency,trip_type,passenger_name FROM public.bookings WHERE created_at >= $1 ORDER BY created_at ASC`,[from]);
   return result.rows;
 }
-async function listDrivers() {
-  const result=await database.query(`SELECT id,full_name,email,whatsapp_number,mobile_number,national_id,
-      vehicle_type,vehicle_plate,driver_approved,created_at FROM public.profiles
-    WHERE role='driver' ORDER BY created_at DESC`);
-  return result.rows;
+async function listDrivers({limit, offset, search, sortBy, sortOrder, filters}) {
+  const values = []; const clauses = [`role = 'driver'`];
+  
+  // Handle filters object
+  if (filters) {
+    Object.entries(filters).forEach(([key, value]) => {
+      if (value === '' || value === null || value === undefined) return;
+      values.push(value);
+      clauses.push(`${key} = $${values.length}`);
+    });
+  }
+  
+  // Handle search
+  if (search) {
+    values.push(`%${search}%`);
+    clauses.push(`(full_name ILIKE $${values.length} OR email ILIKE $${values.length} OR whatsapp_number ILIKE $${values.length} OR mobile_number ILIKE $${values.length})`);
+  }
+  
+  const where = clauses.length ? `WHERE ${clauses.join(' AND ')}` : '';
+  const count = await database.query(`SELECT count(*)::int AS total FROM public.profiles ${where}`, values.slice());
+  
+  // Validate sort column
+  const allowedSortColumns = ['id', 'full_name', 'email', 'whatsapp_number', 'mobile_number', 'national_id', 'vehicle_type', 'vehicle_plate', 'driver_approved', 'created_at'];
+  const safeSortBy = allowedSortColumns.includes(sortBy) ? sortBy : 'created_at';
+  const safeSortOrder = sortOrder === 'asc' ? 'ASC' : 'DESC';
+  
+  values.push(limit, offset);
+  const result = await database.query(`SELECT id,full_name,email,whatsapp_number,mobile_number,national_id,
+      vehicle_type,vehicle_plate,driver_approved,driver_verification_status,created_at FROM public.profiles
+    ${where} ORDER BY ${safeSortBy} ${safeSortOrder} LIMIT $${values.length-1} OFFSET $${values.length}`, values);
+  
+  return { rows: result.rows, total: count.rows[0].total };
 }
 async function driverStats() {
   const result=await database.query(`SELECT count(*)::int AS total,
@@ -54,16 +81,39 @@ async function latestProofId(bookingId) {
       ORDER BY created_at DESC LIMIT 1`,[bookingId]);
   return result.rows[0]?.id || null;
 }
-async function listBookings({limit,offset,bookingStatus,paymentStatus}) {
+async function listBookings({limit,offset,bookingStatus,paymentStatus,search,sortBy,sortOrder,filters}) {
   const values=[]; const clauses=[];
   if (bookingStatus) { values.push(bookingStatus); clauses.push(`booking_status=$${values.length}`); }
   if (paymentStatus) { values.push(paymentStatus); clauses.push(`payment_status=$${values.length}`); }
+  
+  // Handle filters object
+  if (filters) {
+    Object.entries(filters).forEach(([key, value]) => {
+      if (value === '' || value === null || value === undefined) return;
+      if (['bookingStatus', 'paymentStatus'].includes(key)) return; // Already handled
+      values.push(value);
+      clauses.push(`${key} = $${values.length}`);
+    });
+  }
+  
+  // Handle search
+  if (search) {
+    values.push(`%${search}%`);
+    clauses.push(`(booking_code ILIKE $${values.length} OR passenger_name ILIKE $${values.length} OR passenger_whatsapp ILIKE $${values.length})`);
+  }
+  
   const where=clauses.length?`WHERE ${clauses.join(' AND ')}`:'';
   const count=await database.query(`SELECT count(*)::int AS total FROM public.bookings ${where}`,values.slice());
   values.push(limit,offset);
+  
+  // Validate sort column
+  const allowedSortColumns = ['booking_code', 'passenger_name', 'trip_type', 'pickup_datetime', 'fare_amount', 'currency', 'payment_method', 'payment_status', 'booking_status', 'driver_ride_status', 'created_at'];
+  const safeSortBy = allowedSortColumns.includes(sortBy) ? sortBy : 'created_at';
+  const safeSortOrder = sortOrder === 'asc' ? 'ASC' : 'DESC';
+  
   const result=await database.query(`SELECT booking_code,passenger_name,passenger_whatsapp,trip_type,pickup_datetime,
       fare_amount,currency,payment_method,payment_status,booking_status,driver_ride_status,assigned_driver_id,created_at
-    FROM public.bookings ${where} ORDER BY created_at DESC LIMIT $${values.length-1} OFFSET $${values.length}`,values);
+    FROM public.bookings ${where} ORDER BY ${safeSortBy} ${safeSortOrder} LIMIT $${values.length-1} OFFSET $${values.length}`,values);
   return {rows:result.rows,total:count.rows[0].total};
 }
 async function bookingDetail(code) {

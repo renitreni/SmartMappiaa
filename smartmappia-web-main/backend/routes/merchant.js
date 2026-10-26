@@ -1,10 +1,11 @@
 const express = require('express');
 const router = express.Router();
-const { requireMerchantVertical } = require('../middleware/auth');
+const { requireMerchantVertical, requireMerchant } = require('../middleware/auth');
 const { validateBody } = require('../lib/validate');
 const merchant = require('../controllers/merchantController');
 const merchantOrders = require('../controllers/merchantOrdersController');
 const hours = require('../controllers/merchantHoursController');
+const merchantRepository = require('../repositories/merchantRepository');
 
 const BUSINESS_FIELDS = {
   name: { type: 'string', required: true, maxLength: 120 },
@@ -37,6 +38,29 @@ const ITEM_FIELDS = {
   // Drink sizes: validated field-by-field in lib/foodSizes.
   size_options: { type: 'array', itemType: 'object', maxItems: 6, nullable: true },
 };
+
+// Vertical-agnostic endpoint for admin vertical selection and portal auto-detection.
+// Returns the merchant's vertical without enforcing it — admins can access any vertical.
+router.get('/me', requireMerchant, async (req, res) => {
+  try {
+    const data = await merchantRepository.getByOwner(req.merchantOwnerId);
+    if (!data) {
+      return res.status(404).json({ error: 'No business profile is linked to this account' });
+    }
+    return res.json({
+      merchant: {
+        id: data.id,
+        name: data.name,
+        vertical: data.vertical || 'food',
+        isActive: data.is_active,
+        status: data.status,
+      },
+    });
+  } catch (err) {
+    console.error('merchant /me error:', err);
+    return res.status(500).json({ error: 'Unexpected server error' });
+  }
+});
 
 // Vertical-scoped, mirroring routes/merchantShop.js. Without this a STORE
 // owner could drive the restaurant portal against their own merchant row and

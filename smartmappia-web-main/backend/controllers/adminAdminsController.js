@@ -73,14 +73,73 @@ async function loadAdmin(id) {
 // --- Read -------------------------------------------------------------
 async function listAdmins(req, res) {
   try {
-    const { rows: data } = await database.query(
-      `SELECT ${ADMIN_SELECT} FROM public.profiles WHERE role='admin' ORDER BY created_at ASC`,
-    );
+    const page = Math.max(Number(req.query.page) || 1, 1);
+    const limit = Math.min(Math.max(Number(req.query.limit) || 25, 1), 200);
+    const offset = (page - 1) * limit;
+    const search = (req.query.search || '').trim();
+    
+    const sortBy = req.query.sortBy || 'created_at';
+    const sortOrder = (req.query.sortOrder || 'asc').toLowerCase() === 'asc' ? 'ASC' : 'DESC';
+    
+    let filtersObj = {};
+    try {
+      filtersObj = req.query.filters ? JSON.parse(req.query.filters) : {};
+    } catch {
+      filtersObj = {};
+    }
 
-    // envManaged tells the UI why deactivate is unavailable on a row,
-    // rather than leaving a disabled button with no explanation.
+    const values = [];
+    const whereClauses = [`p.role = 'admin'`];
+
+    if (search) {
+      values.push(`%${search}%`);
+      whereClauses.push(`(p.email ILIKE $${values.length} OR p.full_name ILIKE $${values.length})`);
+    }
+
+    // Additional filters from filters object
+    Object.entries(filtersObj).forEach(([key, value]) => {
+      if (value === '' || value === null || value === undefined) return;
+      values.push(value);
+      whereClauses.push(`p.${key} = $${values.length}`);
+    });
+
+    const where = `WHERE ${whereClauses.join(' AND ')}`;
+
+    const allowedSortColumns = ['id', 'email', 'full_name', 'mobile_number', 'whatsapp_number', 'role', 'is_super_admin', 'disabled_at', 'disabled_by', 'created_at'];
+    const safeSortBy = allowedSortColumns.includes(sortBy) ? sortBy : 'created_at';
+    const safeSortOrder = sortOrder === 'ASC' ? 'ASC' : 'DESC';
+
+    const countQuery = `SELECT count(*)::int AS total FROM public.profiles p ${where}`;
+    const { rows: countRows } = await database.query(countQuery, values);
+    const total = countRows[0]?.total || 0;
+
+    values.push(limit, offset);
+    const dataQuery = `
+      SELECT ${ADMIN_SELECT}
+      FROM public.profiles p
+      ${where}
+      ORDER BY p.${safeSortBy} ${safeSortOrder}
+      LIMIT $${values.length - 1} OFFSET $${values.length}
+    `;
+    const { rows: data } = await database.query(dataQuery, values);
+
+    const admins = (data || []).map((a) => ({ ...a, env_managed: isEnvAdmin(a.email) }));
+
     return res.json({
-      admins: (data || []).map((a) => ({ ...a, env_managed: isEnvAdmin(a.email) })),
+      data: admins,
+      pagination: {
+        total,
+        page,
+        limit,
+        totalPages: Math.ceil(total / limit),
+        hasNext: page < Math.ceil(total / limit),
+        hasPrev: page > 1,
+      },
+      sort: {
+        sortBy: safeSortBy,
+        sortOrder: safeSortOrder.toLowerCase(),
+      },
+      filters: filtersObj,
     });
   } catch (err) {
     console.error('listAdmins error:', err);
@@ -92,30 +151,58 @@ async function listAdmins(req, res) {
 async function listAllUsers(req, res) {
   try {
     const page = Math.max(Number(req.query.page) || 1, 1);
-    const limit = Math.min(Math.max(Number(req.query.limit) || 50, 1), 200);
+    const limit = Math.min(Math.max(Number(req.query.limit) || 25, 1), 200);
     const offset = (page - 1) * limit;
     const search = (req.query.search || '').trim();
-    const role = req.query.role;
-    const status = req.query.status;
+    
+    // New: sorting parameters
+    const sortBy = req.query.sortBy || 'created_at';
+    const sortOrder = (req.query.sortOrder || 'desc').toLowerCase() === 'asc' ? 'ASC' : 'DESC';
+    
+    // New: filters object (for column-specific filters)
+    let filtersObj = {};
+    try {
+      filtersObj = req.query.filters ? JSON.parse(req.query.filters) : {};
+    } catch {
+      filtersObj = {};
+    }
+    
+    // Backward compatibility: also read role/status from query string
+    const role = filtersObj.role || req.query.role;
+    const status = filtersObj.status || req.query.status;
 
     const values = [];
-    const filters = [];
+    const whereClauses = [];
 
     if (search) {
       values.push(`%${search}%`);
-      filters.push(`(p.email ILIKE $${values.length} OR p.full_name ILIKE $${values.length})`);
+      whereClauses.push(`(p.email ILIKE $${values.length} OR p.full_name ILIKE $${values.length})`);
     }
     if (role) {
       values.push(role);
-      filters.push(`p.role = $${values.length}`);
+      whereClauses.push(`p.role = $${values.length}`);
     }
     if (status === 'active') {
-      filters.push(`p.disabled_at IS NULL`);
+      whereClauses.push(`p.disabled_at IS NULL`);
     } else if (status === 'disabled') {
-      filters.push(`p.disabled_at IS NOT NULL`);
+      whereClauses.push(`p.disabled_at IS NOT NULL`);
     }
 
-    const where = filters.length ? `WHERE ${filters.join(' AND ')}` : '';
+    // Additional filters from filters object
+    Object.entries(filtersObj).forEach(([key, value]) => {
+      if (value === '' || value === null || value === undefined) return;
+      if (['role', 'status'].includes(key)) return; // Already handled
+      
+      values.push(value);
+      whereClauses.push(`p.${key} = $${values.length}`);
+    });
+
+    const where = whereClauses.length ? `WHERE ${whereClauses.join(' AND ')}` : '';
+
+    // Validate sortBy to prevent SQL injection
+    const allowedSortColumns = ['id', 'email', 'full_name', 'role', 'created_at', 'last_login_at', 'disabled_at'];
+    const safeSortBy = allowedSortColumns.includes(sortBy) ? sortBy : 'created_at';
+    const safeSortOrder = sortOrder === 'ASC' ? 'ASC' : 'DESC';
 
     const countQuery = `SELECT count(*)::int AS total FROM public.profiles p ${where}`;
     const { rows: countRows } = await database.query(countQuery, values);
@@ -126,21 +213,33 @@ async function listAllUsers(req, res) {
       SELECT ${USER_SELECT}
       FROM public.profiles p
       ${where}
-      ORDER BY p.created_at DESC
+      ORDER BY p.${safeSortBy} ${safeSortOrder}
       LIMIT $${values.length - 1} OFFSET $${values.length}
     `;
     const { rows: data } = await database.query(dataQuery, values);
 
+    const users = (data || []).map((u) => ({
+      ...u,
+      env_managed: isEnvAdmin(u.email),
+      status: u.disabled_at ? 'disabled' : 'active',
+    }));
+
+    // Standardized response format
     return res.json({
-      users: (data || []).map((u) => ({
-        ...u,
-        env_managed: isEnvAdmin(u.email),
-        status: u.disabled_at ? 'disabled' : 'active',
-      })),
-      total,
-      page,
-      limit,
-      totalPages: Math.ceil(total / limit),
+      data: users,
+      pagination: {
+        total,
+        page,
+        limit,
+        totalPages: Math.ceil(total / limit),
+        hasNext: page < Math.ceil(total / limit),
+        hasPrev: page > 1,
+      },
+      sort: {
+        sortBy: safeSortBy,
+        sortOrder: safeSortOrder.toLowerCase(),
+      },
+      filters: filtersObj,
     });
   } catch (err) {
     console.error('listAllUsers error:', err);
@@ -436,30 +535,89 @@ async function updateSettings(req, res) {
   }
 }
 
+
 // --- Login activity ---------------------------------------------------
 async function listLoginEvents(req, res) {
   try {
-    const limit = Math.min(Number(req.query.limit) || 50, 200);
-    const offset = Math.max(Number(req.query.offset) || 0, 0);
+    const page = Math.max(Number(req.query.page) || 1, 1);
+    const limit = Math.min(Math.max(Number(req.query.limit) || 25, 1), 200);
+    const offset = (page - 1) * limit;
+    const search = (req.query.search || '').trim();
+    
+    const sortBy = req.query.sortBy || 'occurred_at';
+    const sortOrder = (req.query.sortOrder || 'desc').toLowerCase() === 'asc' ? 'ASC' : 'DESC';
+    
+    let filtersObj = {};
+    try {
+      filtersObj = req.query.filters ? JSON.parse(req.query.filters) : {};
+    } catch {
+      filtersObj = {};
+    }
 
     const values = [];
-    const filters = [];
-    if (req.query.profile_id) { values.push(req.query.profile_id); filters.push(`profile_id=$${values.length}`); }
-    if (req.query.since) { values.push(req.query.since); filters.push(`occurred_at >= $${values.length}`); }
-    const where = filters.length ? `WHERE ${filters.join(' AND ')}` : '';
-    const { rows: counts } = await database.query(`SELECT count(*)::int AS total FROM public.admin_login_events ${where}`, values);
+    const whereClauses = [];
+
+    if (search) {
+      values.push(`%${search}%`);
+      whereClauses.push(`(email ILIKE $${values.length} OR ip ILIKE $${values.length} OR user_agent ILIKE $${values.length})`);
+    }
+    
+    // Backward compatibility: profile_id, since
+    if (filtersObj.profile_id || req.query.profile_id) {
+      values.push(filtersObj.profile_id || req.query.profile_id);
+      whereClauses.push(`profile_id = $${values.length}`);
+    }
+    if (filtersObj.since || req.query.since) {
+      values.push(filtersObj.since || req.query.since);
+      whereClauses.push(`occurred_at >= $${values.length}`);
+    }
+
+    // Additional filters from filters object
+    Object.entries(filtersObj).forEach(([key, value]) => {
+      if (value === '' || value === null || value === undefined) return;
+      if (['profile_id', 'since'].includes(key)) return; // Already handled
+      
+      values.push(value);
+      whereClauses.push(`${key} = $${values.length}`);
+    });
+
+    const where = whereClauses.length ? `WHERE ${whereClauses.join(' AND ')}` : '';
+
+    const allowedSortColumns = ['id', 'occurred_at', 'profile_id', 'email', 'role', 'ip', 'user_agent'];
+    const safeSortBy = allowedSortColumns.includes(sortBy) ? sortBy : 'occurred_at';
+    const safeSortOrder = sortOrder === 'ASC' ? 'ASC' : 'DESC';
+
+    const countQuery = `SELECT count(*)::int AS total FROM public.admin_login_events ${where}`;
+    const { rows: counts } = await database.query(countQuery, values);
+    const total = counts[0]?.total || 0;
+
     values.push(limit, offset);
     const { rows: events } = await database.query(
       `SELECT id,occurred_at,profile_id,email,role,ip,user_agent FROM public.admin_login_events ${where}
-       ORDER BY occurred_at DESC LIMIT $${values.length - 1} OFFSET $${values.length}`, values,
+         ORDER BY ${safeSortBy} ${safeSortOrder} LIMIT $${values.length - 1} OFFSET $${values.length}`, values,
     );
-    return res.json({ events, total: counts[0].total, limit, offset });
+
+    return res.json({
+      data: events,
+      pagination: {
+        total,
+        page,
+        limit,
+        totalPages: Math.ceil(total / limit),
+        hasNext: page < Math.ceil(total / limit),
+        hasPrev: page > 1,
+      },
+      sort: {
+        sortBy: safeSortBy,
+        sortOrder: safeSortOrder.toLowerCase(),
+      },
+      filters: filtersObj,
+    });
   } catch (err) {
     console.error('listLoginEvents error:', err);
     return res.status(500).json({ error: 'Unexpected server error' });
   }
 }
-
 // "How many admins are logging in, and when" — the counts behind the stat
 // cards. Aggregated here rather than in SQL because the volume is tiny
 // (admins only, pruned at 180 days) and a view would be one more thing to

@@ -134,8 +134,44 @@ async function getReports(req, res) {
 // --- GET /api/admin/drivers ------------------------------------------
 async function listDrivers(req, res) {
   try {
-    const data = await adminRepository.listDrivers();
-    return res.json({ drivers: data });
+    const page = Math.max(Number(req.query.page) || 1, 1);
+    const limit = Math.min(Math.max(Number(req.query.limit) || 25, 1), 200);
+    const offset = (page - 1) * limit;
+    const search = (req.query.search || '').trim();
+    
+    const sortBy = req.query.sortBy || 'created_at';
+    const sortOrder = (req.query.sortOrder || 'desc').toLowerCase() === 'asc' ? 'asc' : 'desc';
+    
+    let filtersObj = {};
+    try {
+      filtersObj = req.query.filters ? JSON.parse(req.query.filters) : {};
+    } catch {
+      filtersObj = {};
+    }
+
+    const { rows, total } = await adminRepository.listDrivers({
+      limit, offset, search, sortBy, sortOrder, filters: filtersObj,
+    });
+
+    const drivers = rows.map(r => ({
+      ...r,
+      status: r.driver_approved ? 'approved' : 'pending',
+      verification_status: r.driver_verification_status,
+    }));
+
+    return res.json({
+      data: drivers,
+      pagination: {
+        total,
+        page,
+        limit,
+        totalPages: Math.ceil(total / limit),
+        hasNext: page < Math.ceil(total / limit),
+        hasPrev: page > 1,
+      },
+      sort: { sortBy, sortOrder },
+      filters: filtersObj,
+    });
   } catch (err) {
     console.error('listDrivers error:', err);
     return res.status(500).json({ error: 'Unexpected server error' });
@@ -223,13 +259,49 @@ async function latestProofId(bookingId) {
 // --- GET /api/admin/bookings -----------------------------------------
 async function listBookings(req, res) {
   try {
-    const limit = Math.min(Number(req.query.limit) || 50, 200);
-    const offset = Math.max(Number(req.query.offset) || 0, 0);
+    const page = Math.max(Number(req.query.page) || 1, 1);
+    const limit = Math.min(Math.max(Number(req.query.limit) || 25, 1), 200);
+    const offset = (page - 1) * limit;
+    const search = (req.query.search || '').trim();
+    
+    const sortBy = req.query.sortBy || 'created_at';
+    const sortOrder = (req.query.sortOrder || 'desc').toLowerCase() === 'asc' ? 'asc' : 'desc';
+    
+    let filtersObj = {};
+    try {
+      filtersObj = req.query.filters ? JSON.parse(req.query.filters) : {};
+    } catch {
+      filtersObj = {};
+    }
+
+    // Backward compatibility: booking_status, payment_status
+    const bookingStatus = filtersObj.booking_status || req.query.booking_status;
+    const paymentStatus = filtersObj.payment_status || req.query.payment_status;
 
     const { rows, total } = await adminRepository.listBookings({
-      limit, offset, bookingStatus: req.query.booking_status, paymentStatus: req.query.payment_status,
+      limit, offset, bookingStatus, paymentStatus, search, sortBy, sortOrder, filters: filtersObj,
     });
-    return res.json({ total, limit, offset, bookings: rows });
+
+    const bookings = rows.map(r => ({
+      ...r,
+      // Map status labels for UI
+      booking_status_label: r.booking_status,
+      payment_status_label: r.payment_status,
+    }));
+
+    return res.json({
+      data: bookings,
+      pagination: {
+        total,
+        page,
+        limit,
+        totalPages: Math.ceil(total / limit),
+        hasNext: page < Math.ceil(total / limit),
+        hasPrev: page > 1,
+      },
+      sort: { sortBy, sortOrder },
+      filters: filtersObj,
+    });
   } catch (err) {
     console.error('listBookings error:', err);
     return res.status(500).json({ error: 'Unexpected server error' });
