@@ -23,6 +23,7 @@ import {
   User,
   Car,
   ArrowLeft,
+  IdCard,
 } from 'lucide-react';
 import { useState, useRef, useEffect } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
@@ -126,6 +127,7 @@ export const ADMIN_NAV = [
   { id: 'reports', label: 'Reports', icon: BarChart3 },
   { id: 'errors', label: 'Errors', icon: AlertTriangle },
   { id: 'admins', label: 'Admins', icon: ShieldCheck },
+  { id: 'accounts', label: 'Accounts', icon: IdCard },
   { id: 'settings', label: 'Settings', icon: SlidersHorizontal },
 ];
 
@@ -172,6 +174,10 @@ const PAGE_COPY = {
   admins: {
     title: 'Admins',
     subtitle: 'Who has the portal, and who has been signing in.',
+  },
+  accounts: {
+    title: 'Accounts',
+    subtitle: 'All user accounts — passengers, drivers, merchants, and admins.',
   },
   settings: {
     title: 'Settings',

@@ -41,6 +41,12 @@ const ADMIN_SELECT =
   'id, email, full_name, mobile_number, whatsapp_number, role, is_super_admin, ' +
   'disabled_at, disabled_by, created_at';
 
+// Select fields for all users (includes driver_approved for drivers)
+const USER_SELECT =
+  'id, email, full_name, mobile_number, whatsapp_number, role, is_super_admin, ' +
+  'driver_approved, driver_verification_status, disabled_at, disabled_by, created_at, ' +
+  '(SELECT MAX(occurred_at) FROM public.admin_login_events ale WHERE ale.profile_id = p.id) AS last_login_at';
+
 // ~20 chars, 120 bits, typeable over the phone without ambiguity about
 // padding characters.
 function strongPassword() {
@@ -78,6 +84,66 @@ async function listAdmins(req, res) {
     });
   } catch (err) {
     console.error('listAdmins error:', err);
+    return res.status(500).json({ error: 'Unexpected server error' });
+  }
+}
+
+// --- All Users (Accounts tab) -----------------------------------------
+async function listAllUsers(req, res) {
+  try {
+    const page = Math.max(Number(req.query.page) || 1, 1);
+    const limit = Math.min(Math.max(Number(req.query.limit) || 50, 1), 200);
+    const offset = (page - 1) * limit;
+    const search = (req.query.search || '').trim();
+    const role = req.query.role;
+    const status = req.query.status;
+
+    const values = [];
+    const filters = [];
+
+    if (search) {
+      values.push(`%${search}%`);
+      filters.push(`(p.email ILIKE $${values.length} OR p.full_name ILIKE $${values.length})`);
+    }
+    if (role) {
+      values.push(role);
+      filters.push(`p.role = $${values.length}`);
+    }
+    if (status === 'active') {
+      filters.push(`p.disabled_at IS NULL`);
+    } else if (status === 'disabled') {
+      filters.push(`p.disabled_at IS NOT NULL`);
+    }
+
+    const where = filters.length ? `WHERE ${filters.join(' AND ')}` : '';
+
+    const countQuery = `SELECT count(*)::int AS total FROM public.profiles p ${where}`;
+    const { rows: countRows } = await database.query(countQuery, values);
+    const total = countRows[0]?.total || 0;
+
+    values.push(limit, offset);
+    const dataQuery = `
+      SELECT ${USER_SELECT}
+      FROM public.profiles p
+      ${where}
+      ORDER BY p.created_at DESC
+      LIMIT $${values.length - 1} OFFSET $${values.length}
+    `;
+    const { rows: data } = await database.query(dataQuery, values);
+
+    return res.json({
+      users: (data || []).map((u) => ({
+        ...u,
+        env_managed: isEnvAdmin(u.email),
+        status: u.disabled_at ? 'disabled' : 'active',
+      })),
+      total,
+      page,
+      limit,
+      totalPages: Math.ceil(total / limit),
+    });
+  } catch (err) {
+    console.error('listAllUsers error:', err);
     return res.status(500).json({ error: 'Unexpected server error' });
   }
 }
@@ -441,6 +507,171 @@ async function loginEventSummary(req, res) {
   }
 }
 
+// --- Update User Role -------------------------------------------------
+async function updateUserRole(req, res) {
+  try {
+    const { id } = req.params;
+    const { role } = req.body;
+
+    const validRoles = ['passenger', 'driver', 'merchant', 'admin'];
+    if (!validRoles.includes(role)) {
+      return res.status(400).json({ error: 'Invalid role' });
+    }
+
+    const profile = await profileRepository.getProfileById(id);
+    if (!profile) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    // Prevent modifying env-managed admins
+    if (profile.role === 'admin' && isEnvAdmin(profile.email)) {
+      return res.status(403).json({ error: 'Cannot modify environment-managed admin accounts' });
+    }
+
+    // Prevent self-demotion from admin
+    const currentUserId = req.user?.id;
+    if (currentUserId === id && profile.role === 'admin' && role !== 'admin') {
+      return res.status(403).json({ error: 'Cannot change your own admin role' });
+    }
+
+    // Prevent demoting the last super admin
+    if (profile.is_super_admin && role !== 'admin') {
+      const { rows } = await database.query(
+        `SELECT count(*)::int AS cnt FROM public.profiles WHERE is_super_admin = true AND id != $1`,
+        [id],
+      );
+      if (Number(rows[0]?.cnt || 0) === 0) {
+        return res.status(403).json({ error: 'Cannot demote the last super admin' });
+      }
+    }
+
+    // Update role in profiles
+    const updated = await profileRepository.updateProfile(id, { role });
+
+    // If changing to admin, ensure driver_approved = true and is_super_admin = false (unless explicitly set)
+    if (role === 'admin') {
+      await profileRepository.updateProfile(id, {
+        driver_approved: true,
+        is_super_admin: false,
+      });
+    }
+
+    // If changing from admin to something else, remove super admin status
+    if (profile.role === 'admin' && role !== 'admin') {
+      await profileRepository.updateProfile(id, { is_super_admin: false });
+    }
+
+    // If changing to driver, ensure driver_verification_status is set appropriately
+    if (role === 'driver' && !profile.driver_verification_status) {
+      await profileRepository.updateProfile(id, { driver_verification_status: 'none' });
+    }
+
+    await logAudit(req.user?.id, 'UPDATE_USER_ROLE', { target_user_id: id, old_role: profile.role, new_role: role });
+
+    return res.json({ user: updated });
+  } catch (err) {
+    console.error('updateUserRole error:', err);
+    return res.status(500).json({ error: 'Could not update user role' });
+  }
+}
+
+// --- Deactivate User --------------------------------------------------
+async function deactivateUser(req, res) {
+  try {
+    const { id } = req.params;
+    const currentUserId = req.user?.id;
+
+    const profile = await profileRepository.getProfileById(id);
+    if (!profile) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    // Prevent self-deactivation
+    if (currentUserId === id) {
+      return res.status(403).json({ error: 'Cannot deactivate your own account' });
+    }
+
+    // Prevent deactivating env-managed admins
+    if (profile.role === 'admin' && isEnvAdmin(profile.email)) {
+      return res.status(403).json({ error: 'Cannot deactivate environment-managed admin accounts' });
+    }
+
+    // Prevent deactivating the last super admin
+    if (profile.is_super_admin) {
+      const { rows } = await database.query(
+        `SELECT count(*)::int AS cnt FROM public.profiles WHERE is_super_admin = true AND disabled_at IS NULL AND id != $1`,
+        [id],
+      );
+      if (Number(rows[0]?.cnt || 0) === 0) {
+        return res.status(403).json({ error: 'Cannot deactivate the last super admin' });
+      }
+    }
+
+    // Deactivate in both app_users and profiles
+    await authRepository.setDisabled(id, true);
+    await profileRepository.updateProfile(id, { disabled_at: new Date(), disabled_by: currentUserId });
+
+    await logAudit(currentUserId, 'DEACTIVATE_USER', { target_user_id: id, email: profile.email });
+
+    return res.json({ success: true });
+  } catch (err) {
+    console.error('deactivateUser error:', err);
+    return res.status(500).json({ error: 'Could not deactivate user' });
+  }
+}
+
+// --- Reactivate User --------------------------------------------------
+async function reactivateUser(req, res) {
+  try {
+    const { id } = req.params;
+
+    const profile = await profileRepository.getProfileById(id);
+    if (!profile) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    // Reactivate in both app_users and profiles
+    await authRepository.setDisabled(id, false);
+    await profileRepository.updateProfile(id, { disabled_at: null, disabled_by: null });
+
+    await logAudit(req.user?.id, 'REACTIVATE_USER', { target_user_id: id, email: profile.email });
+
+    return res.json({ success: true });
+  } catch (err) {
+    console.error('reactivateUser error:', err);
+    return res.status(500).json({ error: 'Could not reactivate user' });
+  }
+}
+
+// --- Reset User Password ----------------------------------------------
+async function resetUserPassword(req, res) {
+  try {
+    const { id } = req.params;
+
+    const profile = await profileRepository.getProfileById(id);
+    if (!profile) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    // Prevent resetting env-managed admin passwords
+    if (profile.role === 'admin' && isEnvAdmin(profile.email)) {
+      return res.status(403).json({ error: 'Cannot reset password for environment-managed admin accounts' });
+    }
+
+    const password = strongPassword();
+    const passwordHash = await hashPassword(password);
+
+    await authRepository.updatePassword(id, passwordHash);
+
+    await logAudit(req.user?.id, 'RESET_USER_PASSWORD', { target_user_id: id, email: profile.email });
+
+    return res.json({ password, email: profile.email });
+  } catch (err) {
+    console.error('resetUserPassword error:', err);
+    return res.status(500).json({ error: 'Could not reset password' });
+  }
+}
+
 module.exports = {
   listAdmins,
   createAdmin,
@@ -452,4 +683,9 @@ module.exports = {
   updateSettings,
   listLoginEvents,
   loginEventSummary,
+  listAllUsers,
+  updateUserRole,
+  deactivateUser,
+  reactivateUser,
+  resetUserPassword,
 };

@@ -115,6 +115,18 @@ router.patch(
 router.get('/login-events/summary', supers.loginEventSummary);
 router.get('/login-events', supers.listLoginEvents);
 
+// --- User Accounts (all roles) -----------------------------------------
+// Any admin may view and manage all user accounts (passenger, driver, merchant, admin).
+const USER_ROLE_BODY = {
+  role: { type: 'string', required: true, enum: ['passenger', 'driver', 'merchant', 'admin'] },
+};
+
+router.get('/users', supers.listAllUsers);
+router.patch('/users/:id/role', validateBody(USER_ROLE_BODY), supers.updateUserRole);
+router.post('/users/:id/deactivate', supers.deactivateUser);
+router.post('/users/:id/reactivate', supers.reactivateUser);
+router.post('/users/:id/password', supers.resetUserPassword);
+
 // --- Food Delivery oversight (PRD: merchant credit + reconciliation) ---
 // Restaurants are onboarded by ADMINS: they contact SmartMappia, an admin
 // creates the restaurant, imports the menu/prices/photos, links the owner's

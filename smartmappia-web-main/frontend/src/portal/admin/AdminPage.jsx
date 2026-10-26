@@ -14,6 +14,7 @@ import ShopAdmin from './ShopAdmin';
 import ReportsView from './ReportsView';
 import ErrorsView from './ErrorsView';
 import AdminsView from './AdminsView';
+import AccountsView from './AccountsView';
 import SettingsView from './SettingsView';
 
 export default function AdminPage() {
@@ -45,6 +46,7 @@ export default function AdminPage() {
       {tab === 'reports' && <ReportsView key={`r${tick}`} />}
       {tab === 'errors' && <ErrorsView key={`e${tick}`} />}
       {tab === 'admins' && <AdminsView key={`a${tick}`} />}
+      {tab === 'accounts' && <AccountsView key={`ac${tick}`} />}
       {tab === 'settings' && <SettingsView key={`st${tick}`} />}
     </AdminLayout>
   );

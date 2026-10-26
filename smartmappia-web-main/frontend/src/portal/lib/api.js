@@ -327,6 +327,9 @@ export const api = {
     }),
 
   // --- business owner / merchant ---
+  // Vertical-agnostic endpoint returning { merchant: { id, name, vertical, ... } }
+  // Used by MerchantPortal for auto-detection and admin vertical selection.
+  merchantMe: () => request('/api/merchant/me'),
   merchantProfile: () => request('/api/merchant/profile'),
   merchantUpdateProfile: (body) => request('/api/merchant/profile', { method: 'PATCH', body }),
   merchantHours: () => request('/api/merchant/hours'),
@@ -529,4 +532,24 @@ export const api = {
     request(`/api/admin/food/merchants/${id}/owner`, { method: 'POST', body }),
   adminFoodSetOwnerPassword: (id, body) =>
     request(`/api/admin/food/merchants/${id}/owner/password`, { method: 'POST', body }),
+
+  // --- User Accounts (all roles) ---
+  adminListUsers: (params = {}) => {
+    const query = new URLSearchParams();
+    if (params.page) query.set('page', params.page);
+    if (params.limit) query.set('limit', params.limit);
+    if (params.search) query.set('search', params.search);
+    if (params.role) query.set('role', params.role);
+    if (params.status) query.set('status', params.status);
+    const qs = query.toString();
+    return request(`/api/admin/users${qs ? `?${qs}` : ''}`);
+  },
+  adminUpdateUserRole: (id, role) =>
+    request(`/api/admin/users/${id}/role`, { method: 'PATCH', body: { role } }),
+  adminDeactivateUser: (id) =>
+    request(`/api/admin/users/${id}/deactivate`, { method: 'POST' }),
+  adminReactivateUser: (id) =>
+    request(`/api/admin/users/${id}/reactivate`, { method: 'POST' }),
+  adminResetUserPassword: (id) =>
+    request(`/api/admin/users/${id}/password`, { method: 'POST' }),
 };
