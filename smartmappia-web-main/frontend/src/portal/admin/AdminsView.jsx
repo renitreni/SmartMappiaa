@@ -542,7 +542,7 @@ export default function AdminsView() {
     setLoading(true);
     try {
       const res = await api.adminAdmins();
-      setAdmins(res.admins || []);
+      setAdmins(res.data || []);
     } catch {
       /* surfaced */
     } finally {
