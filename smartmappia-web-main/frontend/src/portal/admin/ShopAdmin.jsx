@@ -6,13 +6,13 @@ import {
   Store, Package, ClipboardList, Boxes, Receipt, Pencil, Trash2, Check, X,
   UserPlus, RefreshCw, ShieldX, ShieldCheck, Wallet, Banknote, Inbox,
   Sparkles, Undo2, AlertTriangle, CreditCard, User, DollarSign, FileText,
-  Lock, Package as PackageIcon, RotateCcw,
+  Lock, Package as PackageIcon, RotateCcw, Coins, Clock, Bike,
 } from 'lucide-react';
 import { api } from '../lib/api';
 import { formatAddressDetail } from '../lib/address';
 import { fmtSAR, shopStatusMeta, shopPaymentMeta, TONE_CLASSES } from '../lib/constants';
 import { notifySuccess, notifyError, confirmAction } from '../lib/notify';
-import { Card, Field, Spinner, inputClass, btnPrimary, btnGhost } from '../components/ui';
+import { Card, Badge, Field, Spinner, inputClass, btnPrimary, btnGhost } from '../components/ui';
 import PasswordInput from '../components/PasswordInput';
 import StoreHoursEditor from '../components/StoreHoursEditor';
 import CustomDropdown from '../../components/CustomDropdown';

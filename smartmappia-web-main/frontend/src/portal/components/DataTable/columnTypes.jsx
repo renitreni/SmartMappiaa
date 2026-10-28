@@ -247,13 +247,36 @@ export const DefaultColumnConfig = {
 };
 
 export function createColumn(key, overrides = {}) {
-  const type = overrides.type || 'text';
+  // Two call shapes exist in the admin views: createColumn('col_key', {...})
+  // and the object form createColumn({ key: 'col_key', ... }). Normalize the
+  // object form here so every view keeps working.
+  if (key !== null && typeof key === 'object') {
+    overrides = key;
+    key = key.key;
+  }
+  const type =
+    overrides.type ||
+    (typeof overrides.render === 'function' || typeof overrides.cell === 'function'
+      ? 'custom'
+      : 'text');
   const defaults = DefaultColumnConfig[type] || DefaultColumnConfig.text;
+  // Some views pass a row-only `cell` callback instead of the `render`
+  // (value, row, column) callback DataTableCell actually reads — bridge it.
+  const { cell, ...rest } = overrides;
+  const render =
+    typeof rest.render === 'function'
+      ? rest.render
+      : typeof cell === 'function'
+        ? (value, row, column) => cell(row, column)
+        : undefined;
   return {
     key,
-    header: overrides.header || key.replace(/_/g, ' ').replace(/\b\w/g, (letter) => letter.toUpperCase()),
+    header:
+      overrides.header ||
+      String(key).replace(/_/g, ' ').replace(/\b\w/g, (letter) => letter.toUpperCase()),
     ...defaults,
-    ...overrides,
+    ...rest,
+    ...(render ? { render } : {}),
   };
 }
 

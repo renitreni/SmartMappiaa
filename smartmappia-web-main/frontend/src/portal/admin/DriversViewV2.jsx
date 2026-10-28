@@ -1,7 +1,7 @@
 // ---------------------------------------------------------------------
 // Admin Drivers — approve signups, review documents, collect cash commission
 // ---------------------------------------------------------------------
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Check,
   X,
@@ -23,6 +23,7 @@ import {
   IdCard,
   BadgeCheck,
   AlertTriangle,
+  Bike,
 } from 'lucide-react';
 import { api } from '../lib/api';
 import { Card, Badge, Spinner, btnPrimary } from '../components/ui';
@@ -180,15 +181,15 @@ function DriverDocsPanel({ driverId, onReviewed }) {
             </div>
           </div>
           <div className="flex items-center gap-2">
-            <Pill tone={docStatus(d.status).tone}>{docStatus(d.status).label}</Pill>
-            {d.downloadUrl && (
-              <a href={d.downloadUrl} target="_blank" rel="noreferrer" className="text-xs text-brand-orange hover:underline">View</a>
+            <Pill tone={docStatus(doc.status).tone}>{docStatus(doc.status).label}</Pill>
+            {doc.downloadUrl && (
+              <a href={doc.downloadUrl} target="_blank" rel="noreferrer" className="text-xs text-brand-orange hover:underline">View</a>
             )}
-            {d.status !== 'verified' && (
-              <button onClick={() => handleReview(d.id, 'verified')} className="px-3 py-1 text-xs font-bold bg-emerald-100 text-emerald-700 rounded hover:bg-emerald-200">Verify</button>
+            {doc.status !== 'verified' && (
+              <button onClick={() => handleReview(doc.id, 'verified')} className="px-3 py-1 text-xs font-bold bg-emerald-100 text-emerald-700 rounded hover:bg-emerald-200">Verify</button>
             )}
-            {d.status !== 'rejected' && (
-              <button onClick={() => handleReview(d.id, 'rejected')} className="px-3 py-1 text-xs font-bold bg-red-100 text-red-700 rounded hover:bg-red-200">Reject</button>
+            {doc.status !== 'rejected' && (
+              <button onClick={() => handleReview(doc.id, 'rejected')} className="px-3 py-1 text-xs font-bold bg-red-100 text-red-700 rounded hover:bg-red-200">Reject</button>
             )}
           </div>
         </div>
