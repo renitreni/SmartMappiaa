@@ -54,22 +54,22 @@ function StatusBadge({ status }) {
 
 function PasswordModal({ password, email, onClose }) {
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
       <div className="w-full max-w-md bg-white rounded-2xl shadow-xl p-6 animate-in fade-in zoom-in-95">
         <div className="flex items-start gap-3 mb-4">
-          <div className="w-10 h-10 rounded-xl bg-amber-100 flex items-center justify-center shrink-0">
-            <Lock className="w-5 h-5 text-amber-600" />
+          <div className="w-10 h-10 rounded-xl bg-brand-orange/10 flex items-center justify-center shrink-0">
+            <Lock className="w-5 h-5 text-brand-orange" />
           </div>
           <div>
-            <h3 className="text-lg font-semibold text-gray-900">Password for {email}</h3>
-            <p className="text-sm text-gray-500 mt-1">
+            <h3 className="text-lg font-black text-brand-black">Password for {email}</h3>
+            <p className="text-sm text-brand-grey mt-1">
               This is shown once and is not stored anywhere. Copy it now and give it to them
               privately, then have them change it on first login.
             </p>
           </div>
         </div>
-        <div className="bg-gray-50 border border-gray-200 rounded-xl p-4 mb-4">
-          <code className="font-mono text-base break-all select-all" id="generated-password">
+        <div className="bg-brand-surface border border-brand-border rounded-xl p-4 mb-4">
+          <code className="font-mono text-base break-all select-all text-brand-dark" id="generated-password">
             {password}
           </code>
         </div>
@@ -101,7 +101,7 @@ function RoleSelect({ user, onChange, disabled }) {
       value={user.role}
       onChange={(e) => onChange(user.id, e.target.value)}
       disabled={disabled}
-      className={inputClass + ' py-1.5 text-sm'}
+      className={inputClass + ' py-1.5 text-sm w-full'}
     >
       {ROLE_OPTIONS.map((opt) => (
         <option key={opt.value} value={opt.value}>
@@ -249,7 +249,7 @@ export default function AccountsView() {
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div className="flex-1 max-w-md">
           <label className="relative">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-brand-grey" />
             <input
               type="text"
               placeholder="Search by email or name..."
@@ -291,19 +291,19 @@ export default function AccountsView() {
         {loading && users.length === 0 ? (
           <div className="p-8 text-center">
             <Spinner className="mx-auto mb-2" size="lg" />
-            <p className="text-gray-500">Loading accounts...</p>
+            <p className="text-brand-grey">Loading accounts...</p>
           </div>
         ) : users.length === 0 ? (
           <div className="p-8 text-center">
-            <User className="w-12 h-12 text-gray-300 mx-auto mb-3" />
-            <p className="text-gray-500">No accounts found matching your filters.</p>
+            <User className="w-12 h-12 text-brand-grey mx-auto mb-3" />
+            <p className="text-brand-grey">No accounts found matching your filters.</p>
           </div>
         ) : (
           <>
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>
-                  <tr className="text-left text-gray-500 border-b bg-gray-50">
+                  <tr className="text-left text-brand-grey border-b border-brand-border bg-brand-surface uppercase text-xs font-bold tracking-wider">
                     <th className="py-3 px-4">User</th>
                     <th className="py-3 px-4 hidden md:table-cell">Role</th>
                     <th className="py-3 px-4 hidden lg:table-cell">Status</th>
@@ -318,12 +318,12 @@ export default function AccountsView() {
                   {users.map((user) => (
                     <tr
                       key={user.id}
-                      className={`border-b last:border-0 hover:bg-gray-50 ${user.status === 'disabled' ? 'opacity-60' : ''}`}
+                      className={`border-b last:border-0 border-brand-border hover:bg-brand-orange/5 ${user.status === 'disabled' ? 'opacity-70' : ''} transition-colors`}
                     >
                       <td className="py-3 px-4">
                         <div>
-                          <p className="font-medium text-gray-900">{user.full_name || '—'}</p>
-                          <p className="text-gray-500 truncate max-w-xs">{user.email}</p>
+                          <p className="font-black text-brand-black">{user.full_name || '—'}</p>
+                          <p className="text-brand-grey truncate max-w-xs">{user.email}</p>
                         </div>
                       </td>
                       <td className="py-3 px-4 hidden md:table-cell">
@@ -332,7 +332,7 @@ export default function AccountsView() {
                           onChange={handleRoleChange}
                           disabled={savingRole === user.id || user.env_managed}
                         />
-                        {savingRole === user.id && <Loader2 className="w-4 h-4 animate-spin text-gray-400 inline-block ml-1" />}
+                        {savingRole === user.id && <Loader2 className="w-4 h-4 animate-spin text-brand-orange inline-block ml-1" />}
                       </td>
                       <td className="py-3 px-4 hidden lg:table-cell">
                         <StatusBadge status={user.status} />
@@ -366,21 +366,21 @@ export default function AccountsView() {
                         </div>
                       </td>
                       <td className="py-3 px-4 hidden xl:table-cell">
-                        <div className="text-gray-500 space-y-1">
+                        <div className="text-brand-grey space-y-1">
                           {user.mobile_number && (
                             <p className="truncate max-w-xs" title={user.mobile_number}>{user.mobile_number}</p>
                           )}
                           {user.whatsapp_number && (
-                            <p className="truncate max-w-xs text-green-600" title={user.whatsapp_number}>
+                            <p className="truncate max-w-xs text-brand-orange" title={user.whatsapp_number}>
                               {user.whatsapp_number}
                             </p>
                           )}
                         </div>
                       </td>
-                      <td className="py-3 px-4 hidden 2xl:table-cell text-gray-500 whitespace-nowrap">
+                      <td className="py-3 px-4 hidden 2xl:table-cell text-brand-grey whitespace-nowrap">
                         {user.created_at ? new Date(user.created_at).toLocaleDateString() : '—'}
                       </td>
-                      <td className="py-3 px-4 hidden 2xl:table-cell text-gray-500 whitespace-nowrap">
+                      <td className="py-3 px-4 hidden 2xl:table-cell text-brand-grey whitespace-nowrap">
                         {user.last_login_at ? new Date(user.last_login_at).toLocaleString() : 'Never'}
                       </td>
                       <td className="py-3 px-4 text-right">
@@ -389,7 +389,7 @@ export default function AccountsView() {
                             <button
                               type="button"
                               onClick={() => handleDeactivate(user)}
-                              className="p-2 rounded-lg text-gray-500 hover:text-red-600 hover:bg-red-50 transition-colors"
+                              className="p-2 rounded-xl text-brand-grey hover:text-brand-red hover:bg-brand-red/10 transition-colors"
                               title="Deactivate account"
                             >
                               <UserX className="w-4 h-4" />
@@ -399,7 +399,7 @@ export default function AccountsView() {
                             <button
                               type="button"
                               onClick={() => handleReactivate(user)}
-                              className="p-2 rounded-lg text-gray-500 hover:text-green-600 hover:bg-green-50 transition-colors"
+                              className="p-2 rounded-xl text-brand-grey hover:text-emerald-600 hover:bg-emerald-50 transition-colors"
                               title="Reactivate account"
                             >
                               <RotateCcw className="w-4 h-4" />
@@ -409,14 +409,14 @@ export default function AccountsView() {
                             <button
                               type="button"
                               onClick={() => handleResetPassword(user)}
-                              className="p-2 rounded-lg text-gray-500 hover:text-orange-600 hover:bg-orange-50 transition-colors"
+                              className="p-2 rounded-xl text-brand-grey hover:text-brand-orange hover:bg-brand-orange/10 transition-colors"
                               title="Reset password"
                             >
                               <Lock className="w-4 h-4" />
                             </button>
                           )}
                           {user.env_managed && (
-                            <span className="p-2 rounded-lg text-gray-400" title="Managed by environment variables">
+                            <span className="p-2 rounded-xl text-brand-grey" title="Managed by environment variables">
                               <AlertCircle className="w-4 h-4" />
                             </span>
                           )}
@@ -430,8 +430,8 @@ export default function AccountsView() {
 
             {/* Pagination */}
             {totalPages > 1 && (
-              <div className="flex items-center justify-between px-4 py-3 border-t">
-                <div className="text-sm text-gray-500">
+              <div className="flex items-center justify-between px-4 py-3 border-t border-brand-border">
+                <div className="text-sm text-brand-grey">
                   Showing {((page - 1) * limit) + 1} to {Math.min(page * limit, total)} of {total} accounts
                 </div>
                 <div className="flex items-center gap-2">
@@ -443,7 +443,7 @@ export default function AccountsView() {
                   >
                     <ChevronLeft className="w-4 h-4" />
                   </button>
-                  <span className="text-sm text-gray-600 px-2">
+                  <span className="text-sm text-brand-dark px-2">
                     Page {page} of {totalPages}
                   </span>
                   <button
