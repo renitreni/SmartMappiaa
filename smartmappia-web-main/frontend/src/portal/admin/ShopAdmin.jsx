@@ -155,7 +155,7 @@ function SettlementTab({ onRefresh }) {
       </Card>
 
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-        [
+        {[
           { label: 'Online Owed to Store', value: fmtSAR(report.totals.onlineOwedToStore) },
           { label: 'Online Markup Kept', value: fmtSAR(report.totals.onlineMarkupKept) },
           { label: 'Cash Collected by Rider', value: fmtSAR(report.totals.cashCollectedByRider) },
@@ -216,12 +216,12 @@ export default function ShopAdmin() {
     createColumn({ key: 'actions', header: 'Actions', cell: (s) => (
       <div className="flex gap-1">
         <button onClick={() => { setEditingStore(s); setStoreForm({ name: s.name, cuisine_type: s.cuisine_type || '', description: s.description || '', address: s.address || '', street: s.street || '', building_number: s.building_number || '', lat: s.lat, lng: s.lng, is_active: s.is_active, is_featured: s.is_featured, badge: s.badge || '', credit_limit: s.credit_limit }); }} className={btnGhost + ' !py-1.5 !px-2.5 !text-xs'} title="Edit"><Pencil className="w-3.5 h-3.5" /></button>
-        <button onClick={async () => { if (await confirmAction({ title: s.status === 'suspended' ? 'Reactivate Store' : 'Suspend Store', text: s.status === 'suspended' ? `Reactivate ${s.name}?` : `Suspend ${s.name}? They cannot accept new orders.`, confirmText: s.status === 'suspended' ? 'Reactivate' : 'Suspend', variant: s.status === 'suspended' ? 'default' : 'destructive' })) { setBusyId(s.id); try { await (s.status === 'suspended' ? api.adminShopReactivate(s.id) : api.adminShopSuspend(s.id, { reason: 'Suspended by admin' })); notifySuccess(s.status === 'suspended' ? 'Store reactivated' : 'Store suspended'); setTick(t => t + 1); } catch {} finally { setBusyId(null); } }} disabled={busyId === s.id} className={btnGhost + ' !py-1.5 !px-2.5 !text-xs'} title={s.status === 'suspended' ? 'Reactivate' : 'Suspend'}>
+        <button onClick={async () => { if (await confirmAction({ title: s.status === 'suspended' ? 'Reactivate Store' : 'Suspend Store', text: s.status === 'suspended' ? `Reactivate ${s.name}?` : `Suspend ${s.name}? They cannot accept new orders.`, confirmText: s.status === 'suspended' ? 'Reactivate' : 'Suspend', variant: s.status === 'suspended' ? 'default' : 'destructive' })) { setBusyId(s.id); try { await (s.status === 'suspended' ? api.adminShopReactivate(s.id) : api.adminShopSuspend(s.id, { reason: 'Suspended by admin' })); notifySuccess(s.status === 'suspended' ? 'Store reactivated' : 'Store suspended'); setTick(t => t + 1); } catch {} finally { setBusyId(null); } }}} disabled={busyId === s.id} className={btnGhost + ' !py-1.5 !px-2.5 !text-xs'} title={s.status === 'suspended' ? 'Reactivate' : 'Suspend'}>
           {s.status === 'suspended' ? <ShieldCheck className="w-3.5 h-3.5" /> : <ShieldX className="w-3.5 h-3.5" />}
         </button>
         <button onClick={() => { setCatalogueStore(s); setViewingCatalogue(s); }} className={btnGhost + ' !py-1.5 !px-2.5 !text-xs'} title="Catalogue"><PackageIcon className="w-3.5 h-3.5" /></button>
         <button onClick={() => { setOwnerFor(s); setOwnerForm({ email: s.owner?.email || '', full_name: s.owner?.full_name || '', phone: s.owner?.mobile_number || '' }); }} className={btnGhost + ' !py-1.5 !px-2.5 !text-xs'} title="Owner"><User className="w-3.5 h-3.5" /></button>
-        <button onClick={async () => { if (await confirmAction({ title: 'Replenish Credit', text: `Add credit to ${s.name}?`, confirmText: 'Replenish' })) { setBusyId(s.id); try { await api.adminShopCredit(s.id, { amount: 300 }); notifySuccess('Credit replenished'); setTick(t => t + 1); } catch {} finally { setBusyId(null); } }} className={btnGhost + ' !py-1.5 !px-2.5 !text-xs'} title="Credit"><Coins className="w-3.5 h-3.5" /></button>
+        <button onClick={async () => { if (await confirmAction({ title: 'Replenish Credit', text: `Add credit to ${s.name}?`, confirmText: 'Replenish' })) { setBusyId(s.id); try { await api.adminShopCredit(s.id, { amount: 300 }); notifySuccess('Credit replenished'); setTick(t => t + 1); } catch {} finally { setBusyId(null); } }}} className={btnGhost + ' !py-1.5 !px-2.5 !text-xs'} title="Credit"><Coins className="w-3.5 h-3.5" /></button>
         <button onClick={() => { }} className={btnGhost + ' !py-1.5 !px-2.5 !text-xs'} title="Hours"><Clock className="w-3.5 h-3.5" /></button>
       </div>
     )}),
@@ -403,7 +403,7 @@ export default function ShopAdmin() {
     createColumn({ key: 'cancelledBy', header: 'Cancelled By', cell: (r) => r.cancelledBy || '—' }),
     createColumn({ key: 'cancelledAt', header: 'Date', cell: (r) => r.cancelledAt ? new Date(r.cancelledAt).toLocaleString() : '—' }),
     createColumn({ key: 'actions', header: 'Action', cell: (r) => (
-      <button onClick={async () => { if (await confirmAction({ title: 'Process Refund', text: `Refund ${fmtSAR(r.total)} for order ${r.orderCode}?`, confirmText: 'Refund', variant: 'destructive' })) { setBusyId(r.orderCode); try { await api.adminShopRefund(r.orderCode); notifySuccess('Refund processed'); setTick(t => t + 1); } catch {} finally { setBusyId(null); } }} disabled={busyId === r.orderCode} className={btnGhost + ' !py-1.5 !px-2.5 !text-xs text-red-600 hover:bg-red-50'} title="Process Refund">
+      <button onClick={async () => { if (await confirmAction({ title: 'Process Refund', text: `Refund ${fmtSAR(r.total)} for order ${r.orderCode}?`, confirmText: 'Refund', variant: 'destructive' })) { setBusyId(r.orderCode); try { await api.adminShopRefund(r.orderCode); notifySuccess('Refund processed'); setTick(t => t + 1); } catch {} finally { setBusyId(null); } }}} disabled={busyId === r.orderCode} className={btnGhost + ' !py-1.5 !px-2.5 !text-xs text-red-600 hover:bg-red-50'} title="Process Refund">
         <Undo2 className="w-3.5 h-3.5" />
       </button>
     )}),
@@ -468,16 +468,16 @@ export default function ShopAdmin() {
           <button onClick={() => setStcPayLightbox(row)} className={btnGhost + ' !text-xs'}><FileText className="w-3.5 h-3.5 mr-1" /> View STC Pay Screenshot</button>
         )}
         {row.status === 'pending' && row.merchant?.credit_remaining >= 300 && (
-          <button onClick={async () => { if (await confirmAction({ title: 'Accept Order', text: 'Accept this order on behalf of the store?', confirmText: 'Accept' })) { setBusyId(row.order_code); try { await api.adminShopAcceptOrder(row.order_code); notifySuccess('Order accepted'); setTick(t => t + 1); } catch {} finally { setBusyId(null); } }} disabled={busyId === row.order_code} className={btnPrimary + ' !text-xs'}><Check className="w-3.5 h-3.5 mr-1" /> Accept</button>
+          <button onClick={async () => { if (await confirmAction({ title: 'Accept Order', text: 'Accept this order on behalf of the store?', confirmText: 'Accept' })) { setBusyId(row.order_code); try { await api.adminShopAcceptOrder(row.order_code); notifySuccess('Order accepted'); setTick(t => t + 1); } catch {} finally { setBusyId(null); } }}} disabled={busyId === row.order_code} className={btnPrimary + ' !text-xs'}><Check className="w-3.5 h-3.5 mr-1" /> Accept</button>
         )}
         {row.status === 'pending' && (
-          <button onClick={async () => { if (await confirmAction({ title: 'Reject Order', text: 'Reject this order? The customer will be notified.', confirmText: 'Reject', variant: 'destructive' })) { setBusyId(row.order_code); try { await api.adminShopRejectOrder(row.order_code, { reason: 'Rejected by admin' }); notifySuccess('Order rejected'); setTick(t => t + 1); } catch {} finally { setBusyId(null); } }} disabled={busyId === row.order_code} className={btnGhost + ' !text-xs text-red-600 hover:bg-red-50'}><X className="w-3.5 h-3.5 mr-1" /> Reject</button>
+          <button onClick={async () => { if (await confirmAction({ title: 'Reject Order', text: 'Reject this order? The customer will be notified.', confirmText: 'Reject', variant: 'destructive' })) { setBusyId(row.order_code); try { await api.adminShopRejectOrder(row.order_code, { reason: 'Rejected by admin' }); notifySuccess('Order rejected'); setTick(t => t + 1); } catch {} finally { setBusyId(null); } }}} disabled={busyId === row.order_code} className={btnGhost + ' !text-xs text-red-600 hover:bg-red-50'}><X className="w-3.5 h-3.5 mr-1" /> Reject</button>
         )}
         {row.payment_status === 'awaiting' && row.payment_method !== 'cash' && (
-          <button onClick={async () => { if (await confirmAction({ title: 'Verify Payment', text: 'Mark payment as verified?', confirmText: 'Verify' })) { setBusyId(row.order_code); try { await api.adminShopVerifyPayment(row.order_code); notifySuccess('Payment verified'); setTick(t => t + 1); } catch {} finally { setBusyId(null); } }} disabled={busyId === row.order_code} className={btnPrimary + ' !text-xs'}><ShieldCheck className="w-3.5 h-3.5 mr-1" /> Verify</button>
+          <button onClick={async () => { if (await confirmAction({ title: 'Verify Payment', text: 'Mark payment as verified?', confirmText: 'Verify' })) { setBusyId(row.order_code); try { await api.adminShopVerifyPayment(row.order_code); notifySuccess('Payment verified'); setTick(t => t + 1); } catch {} finally { setBusyId(null); } }}} disabled={busyId === row.order_code} className={btnPrimary + ' !text-xs'}><ShieldCheck className="w-3.5 h-3.5 mr-1" /> Verify</button>
         )}
         {row.payment_status === 'awaiting' && (
-          <button onClick={async () => { if (await confirmAction({ title: 'Reject Payment', text: 'Reject this payment proof?', confirmText: 'Reject', variant: 'destructive' })) { setBusyId(row.order_code); try { await api.adminShopRejectPayment(row.order_code, { reason: 'Rejected by admin' }); notifySuccess('Payment rejected'); setTick(t => t + 1); } catch {} finally { setBusyId(null); } }} disabled={busyId === row.order_code} className={btnGhost + ' !text-xs text-red-600 hover:bg-red-50'}><ShieldX className="w-3.5 h-3.5 mr-1" /> Reject Payment</button>
+          <button onClick={async () => { if (await confirmAction({ title: 'Reject Payment', text: 'Reject this payment proof?', confirmText: 'Reject', variant: 'destructive' })) { setBusyId(row.order_code); try { await api.adminShopRejectPayment(row.order_code, { reason: 'Rejected by admin' }); notifySuccess('Payment rejected'); setTick(t => t + 1); } catch {} finally { setBusyId(null); } }}} disabled={busyId === row.order_code} className={btnGhost + ' !text-xs text-red-600 hover:bg-red-50'}><ShieldX className="w-3.5 h-3.5 mr-1" /> Reject Payment</button>
         )}
         {['accepted', 'preparing', 'ready'].includes(row.status) && !row.driver && (
           <button onClick={() => setViewingOrder(row)} className={btnGhost + ' !text-xs'}><Bike className="w-3.5 h-3.5 mr-1" /> Assign Driver</button>
@@ -486,10 +486,10 @@ export default function ShopAdmin() {
           <button onClick={async () => { const next = { accepted: 'preparing', preparing: 'ready', ready: 'out_for_delivery', out_for_delivery: 'delivered' }[row.status]; if (next) { setBusyId(row.order_code); try { await api.adminShopOrderStatus(row.order_code, next); notifySuccess(`Order status updated to ${next}`); setTick(t => t + 1); } catch {} finally { setBusyId(null); } } }} disabled={busyId === row.order_code} className={btnPrimary + ' !text-xs'}><RotateCcw className="w-3.5 h-3.5 mr-1" /> Advance</button>
         )}
         {['pending', 'accepted', 'preparing', 'ready'].includes(row.status) && (
-          <button onClick={async () => { if (await confirmAction({ title: 'Cancel Order', text: 'Cancel this order? This will refund the customer if paid.', confirmText: 'Cancel', variant: 'destructive' })) { setBusyId(row.order_code); try { await api.adminShopCancelOrder(row.order_code, { reason: 'Cancelled by admin' }); notifySuccess('Order cancelled'); setTick(t => t + 1); } catch {} finally { setBusyId(null); } }} disabled={busyId === row.order_code} className={btnGhost + ' !text-xs text-red-600 hover:bg-red-50'}><Trash2 className="w-3.5 h-3.5 mr-1" /> Cancel</button>
+          <button onClick={async () => { if (await confirmAction({ title: 'Cancel Order', text: 'Cancel this order? This will refund the customer if paid.', confirmText: 'Cancel', variant: 'destructive' })) { setBusyId(row.order_code); try { await api.adminShopCancelOrder(row.order_code, { reason: 'Cancelled by admin' }); notifySuccess('Order cancelled'); setTick(t => t + 1); } catch {} finally { setBusyId(null); } }}} disabled={busyId === row.order_code} className={btnGhost + ' !text-xs text-red-600 hover:bg-red-50'}><Trash2 className="w-3.5 h-3.5 mr-1" /> Cancel</button>
         )}
         {row.status === 'delivered' && row.payment_status === 'paid' && (
-          <button onClick={async () => { if (await confirmAction({ title: 'Refund Order', text: `Refund ${fmtSAR(row.total)} to the customer?`, confirmText: 'Refund', variant: 'destructive' })) { setBusyId(row.order_code); try { await api.adminShopRefund(row.order_code); notifySuccess('Refund processed'); setTick(t => t + 1); } catch {} finally { setBusyId(null); } }} disabled={busyId === row.order_code} className={btnGhost + ' !text-xs text-red-600 hover:bg-red-50'}><Undo2 className="w-3.5 h-3.5 mr-1" /> Refund</button>
+          <button onClick={async () => { if (await confirmAction({ title: 'Refund Order', text: `Refund ${fmtSAR(row.total)} to the customer?`, confirmText: 'Refund', variant: 'destructive' })) { setBusyId(row.order_code); try { await api.adminShopRefund(row.order_code); notifySuccess('Refund processed'); setTick(t => t + 1); } catch {} finally { setBusyId(null); } }}} disabled={busyId === row.order_code} className={btnGhost + ' !text-xs text-red-600 hover:bg-red-50'}><Undo2 className="w-3.5 h-3.5 mr-1" /> Refund</button>
         )}
       </div>
     </div>
@@ -562,7 +562,7 @@ export default function ShopAdmin() {
               initialLimit={50}
               initialSortBy="name"
               initialSortOrder="asc"
-              initialFilters={}
+              initialFilters={{}}
               showExport={true}
               exportFilename="catalogue"
               filterFields={catalogueFilterFields}
@@ -612,7 +612,7 @@ export default function ShopAdmin() {
           initialLimit={50}
           initialSortBy="stock_quantity"
           initialSortOrder="asc"
-          initialFilters={}
+          initialFilters={{}}
           showExport={true}
           exportFilename="inventory"
           filterFields={inventoryFilterFields}
@@ -632,7 +632,7 @@ export default function ShopAdmin() {
           initialLimit={25}
           initialSortBy="cancelled_at"
           initialSortOrder="desc"
-          initialFilters={}
+          initialFilters={{}}
           showExport={true}
           exportFilename="shop-refunds"
           maxHeight="70vh"
@@ -652,7 +652,7 @@ export default function ShopAdmin() {
               <h2 className="text-lg font-semibold">Edit Store</h2>
               <button onClick={() => setEditingStore(null)} className="p-2 rounded-lg hover:bg-brand-surface"><X className="w-5 h-5" /></button>
             </div>
-            <form onSubmit={async (e) => { e.preventDefault(); setStoreFormBusy(true); try { await api.adminShopUpdateStore(editingStore.id, storeForm); notifySuccess('Store updated'); setEditingStore(null); setTick(t => t + 1); } catch { notifyError('Failed to update store'); } finally { setStoreFormBusy(false); }} className="p-4 space-y-4">
+            <form onSubmit={async (e) => { e.preventDefault(); setStoreFormBusy(true); try { await api.adminShopUpdateStore(editingStore.id, storeForm); notifySuccess('Store updated'); setEditingStore(null); setTick(t => t + 1); } catch { notifyError('Failed to update store'); } finally { setStoreFormBusy(false); }}} className="p-4 space-y-4">
               <div className="grid gap-4 sm:grid-cols-2">
                 <Field label="Name"><input value={storeForm.name} onChange={(e) => setStoreForm(f => ({ ...f, name: e.target.value }))} className={inputClass} required /></Field>
                 <Field label="Category"><input value={storeForm.cuisine_type} onChange={(e) => setStoreForm(f => ({ ...f, cuisine_type: e.target.value }))} className={inputClass} /></Field>
@@ -693,12 +693,12 @@ export default function ShopAdmin() {
               </div>
             </div>
             {!ownerFor.ownerId ? (
-              <form onSubmit={async (e) => { e.preventDefault(); if (ownerForm.password.length < MIN_OWNER_PASSWORD) return notifyError(`Password must be at least ${MIN_OWNER_PASSWORD} characters.`); setBusyId(ownerFor.id); try { await api.adminShopSetOwner(ownerFor.id, ownerForm); notifySuccess('Owner account created and linked'); setOwnerFor(null); setOwnerForm({ email: '', password: '', full_name: '', phone: '' }); setTick(t => t + 1); } catch {} finally { setBusyId(null); }} className="space-y-3">
+              <form onSubmit={async (e) => { e.preventDefault(); if (ownerForm.password.length < MIN_OWNER_PASSWORD) return notifyError(`Password must be at least ${MIN_OWNER_PASSWORD} characters.`); setBusyId(ownerFor.id); try { await api.adminShopSetOwner(ownerFor.id, ownerForm); notifySuccess('Owner account created and linked'); setOwnerFor(null); setOwnerForm({ email: '', password: '', full_name: '', phone: '' }); setTick(t => t + 1); } catch {} finally { setBusyId(null); }}} className="space-y-3">
                 <PasswordInput required value={ownerForm.password} onChange={(e) => setOwnerForm(f => ({ ...f, password: e.target.value }))} autoComplete="new-password" placeholder={`Password (min ${MIN_OWNER_PASSWORD} chars)`} />
                 <div className="flex gap-2"><button type="submit" disabled={busyId === ownerFor.id} className={btnPrimary + ' flex-1'}>Create & Link Account</button><button type="button" onClick={() => setOwnerFor(null)} className={btnGhost + ' flex-1'}>Cancel</button></div>
               </form>
             ) : (
-              <form onSubmit={async (e) => { e.preventDefault(); if (ownerPassword.length < MIN_OWNER_PASSWORD) return notifyError(`Password must be at least ${MIN_OWNER_PASSWORD} characters.`); setBusyId(ownerFor.id); try { await api.adminShopSetOwnerPassword(ownerFor.id, { password: ownerPassword }); notifySuccess('Owner password updated'); setOwnerFor(null); setOwnerPassword(''); setTick(t => t + 1); } catch {} finally { setBusyId(null); }} className="space-y-3">
+              <form onSubmit={async (e) => { e.preventDefault(); if (ownerPassword.length < MIN_OWNER_PASSWORD) return notifyError(`Password must be at least ${MIN_OWNER_PASSWORD} characters.`); setBusyId(ownerFor.id); try { await api.adminShopSetOwnerPassword(ownerFor.id, { password: ownerPassword }); notifySuccess('Owner password updated'); setOwnerFor(null); setOwnerPassword(''); setTick(t => t + 1); } catch {} finally { setBusyId(null); }}} className="space-y-3">
                 <PasswordInput required value={ownerPassword} onChange={(e) => setOwnerPassword(e.target.value)} autoComplete="new-password" placeholder={`New password (min ${MIN_OWNER_PASSWORD} chars)`} />
                 <div className="flex gap-2"><button type="submit" disabled={busyId === ownerFor.id} className={btnPrimary + ' flex-1'}>Set New Password</button><button type="button" onClick={() => setOwnerFor(null)} className={btnGhost + ' flex-1'}>Close</button></div>
               </form>
