@@ -17,19 +17,18 @@
 //   loginEventSummary : GET    /api/admin/login-events/summary
 //
 // Account creation uses the app-owned PostgreSQL credential store. Passwords
-// are generated server-side and returned ONCE
-// in the create/reset response — they are never stored by us and cannot
-// be read back afterwards.
+// are provided by the admin creating/resetting the account.
+// The plaintext password is never stored by us and cannot be read back afterwards.
 //
 // Deactivation updates app_users and profiles and revokes existing sessions.
 // ---------------------------------------------------------------------
-const crypto = require('crypto');
 const database = require('../lib/database/pool');
 const authRepository = require('../repositories/authRepository');
 const profileRepository = require('../repositories/profileRepository');
 const { hashPassword } = require('../lib/passwords');
 const { config } = require('../lib/config');
 const { logAudit } = require('../lib/audit');
+const { passwordError } = require('../lib/validate');
 const {
   getMaxDistanceKm,
   setMaxDistanceKm,
@@ -46,12 +45,6 @@ const USER_SELECT =
   'id, email, full_name, mobile_number, whatsapp_number, role, is_super_admin, ' +
   'driver_approved, driver_verification_status, disabled_at, disabled_by, created_at, ' +
   '(SELECT MAX(occurred_at) FROM public.admin_login_events ale WHERE ale.profile_id = p.id) AS last_login_at';
-
-// ~20 chars, 120 bits, typeable over the phone without ambiguity about
-// padding characters.
-function strongPassword() {
-  return crypto.randomBytes(15).toString('base64url');
-}
 
 // An admin listed in ADMIN_EMAILS cannot be demoted or deactivated here.
 //
@@ -252,8 +245,11 @@ async function createAdmin(req, res) {
   try {
     const b = req.body; // validated by the route schema
     const email = String(b.email).trim().toLowerCase();
+    const password = String(b.password);
 
-    const password = strongPassword();
+    const pwdErr = passwordError(password);
+    if (pwdErr) return res.status(400).json({ error: pwdErr });
+
     let userId;
     let reusedExistingAccount = false;
 
@@ -299,10 +295,8 @@ async function createAdmin(req, res) {
       meta: { email, is_super_admin: !!b.is_super_admin, reused_existing_account: reusedExistingAccount },
     });
 
-    // The only time this password is ever visible. Not stored anywhere.
     return res.status(201).json({
       admin: await loadAdmin(userId),
-      password,
       reused_existing_account: reusedExistingAccount,
     });
   } catch (err) {
@@ -374,7 +368,10 @@ async function resetAdminPassword(req, res) {
     const target = await loadAdmin(req.params.id);
     if (!target) return res.status(404).json({ error: 'Admin not found' });
 
-    const password = strongPassword();
+    const password = String(req.body.password);
+    const pwdErr = passwordError(password);
+    if (pwdErr) return res.status(400).json({ error: pwdErr });
+
     const updated = await authRepository.updatePassword(target.id, await hashPassword(password));
     if (!updated) {
       return res.status(500).json({ error: 'Could not reset the password' });
@@ -390,7 +387,7 @@ async function resetAdminPassword(req, res) {
       resourceId: target.id,
       meta: { email: target.email },
     });
-    return res.json({ password });
+    return res.json({ success: true });
   } catch (err) {
     console.error('resetAdminPassword error:', err);
     return res.status(500).json({ error: 'Unexpected server error' });

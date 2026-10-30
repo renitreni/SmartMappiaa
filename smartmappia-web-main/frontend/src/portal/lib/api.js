@@ -225,8 +225,8 @@ export const api = {
   },
   adminCreateAdmin: (body) => request('/api/admin/admins', { method: 'POST', body }),
   adminUpdateAdmin: (id, body) => request(`/api/admin/admins/${id}`, { method: 'PATCH', body }),
-  adminResetAdminPassword: (id) =>
-    request(`/api/admin/admins/${id}/password`, { method: 'POST' }),
+  adminResetAdminPassword: (id, password) =>
+    request(`/api/admin/admins/${id}/password`, { method: 'POST', body: { password } }),
   adminDeactivateAdmin: (id) => request(`/api/admin/admins/${id}/deactivate`, { method: 'POST' }),
   adminReactivateAdmin: (id) => request(`/api/admin/admins/${id}/reactivate`, { method: 'POST' }),
   adminSettings: () => request('/api/admin/settings'),

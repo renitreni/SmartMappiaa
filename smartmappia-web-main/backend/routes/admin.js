@@ -86,7 +86,7 @@ const ADMIN_BODY = {
 router.get('/admins', supers.listAdmins);
 router.post(
   '/admins',
-  validateBody({ email: { type: 'string', required: true, maxLength: 254 }, ...ADMIN_BODY }),
+  validateBody({ email: { type: 'string', required: true, maxLength: 254 }, password: { type: 'string', required: true, maxLength: 128 }, ...ADMIN_BODY }),
   supers.createAdmin
 );
 // full_name is required on create but optional on edit, so the schema is
@@ -96,7 +96,11 @@ router.patch(
   validateBody({ ...ADMIN_BODY, full_name: { type: 'string', maxLength: 120 } }),
   supers.updateAdmin
 );
-router.post('/admins/:id/password', supers.resetAdminPassword);
+router.post(
+  '/admins/:id/password',
+  validateBody({ password: { type: 'string', required: true, maxLength: 128 } }),
+  supers.resetAdminPassword
+);
 router.post('/admins/:id/deactivate', supers.deactivateAdmin);
 router.post('/admins/:id/reactivate', supers.reactivateAdmin);
 

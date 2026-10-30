@@ -27,6 +27,7 @@ import { MAX_NAME_LENGTH } from '../lib/fieldValidation';
 import { notifySuccess, notifyError } from '../lib/notify';
 import { toCsv, downloadCsv } from '../lib/csv';
 import { Card, Field, Badge, Spinner, inputClass, btnPrimary, btnGhost } from '../components/ui';
+import PasswordInput from '../components/PasswordInput';
 
 const EMPTY_ADMIN = {
   email: '',
@@ -44,40 +45,87 @@ function fmtWhen(ts) {
 // A generated password is shown once and never again — we do not store it.
 // It gets its own panel rather than a toast so it cannot be dismissed by
 // the next notification before it has been written down.
-function PasswordPanel({ email, password, onDone }) {
+function ResetPasswordModal({ email, onClose, onSave }) {
+  const [password, setPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [error, setError] = useState('');
+  const [saving, setSaving] = useState(false);
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    if (!password) return setError('Password is required.');
+    if (password.length < 8) return setError('Password must be at least 8 characters.');
+    if (password.length > 128) return setError('Password must be at most 128 characters.');
+    if (password !== confirmPassword) return setError('Passwords do not match.');
+
+    setError('');
+    setSaving(true);
+    try {
+      await onSave(password);
+      onClose();
+    } catch {
+      /* error surfaced by api client */
+    } finally {
+      setSaving(false);
+    }
+  };
+
   return (
-    <Card className="p-4 border-amber-300 bg-amber-50">
-      <div className="flex items-start gap-3">
-        <Lock className="w-5 h-5 text-amber-600 mt-0.5 shrink-0" />
-        <div className="flex-1 min-w-0">
-          <p className="font-semibold text-amber-900">Password for {email}</p>
-          <p className="text-sm text-amber-800 mt-1">
-            This is shown once and is not stored anywhere. Copy it now and give it to them
-            privately, then have them change it on first login.
-          </p>
-          <code className="block mt-2 px-3 py-2 rounded-xl bg-white border border-amber-300 font-mono text-sm break-all">
-            {password}
-          </code>
-          <div className="mt-3 flex gap-2">
-            <button
-              type="button"
-              className={btnGhost}
-              onClick={() => {
-                navigator.clipboard?.writeText(password).then(
-                  () => notifySuccess('Password copied'),
-                  () => notifyError('Could not copy. Select the text and copy it by hand.')
-                );
-              }}
-            >
-              Copy
-            </button>
-            <button type="button" className={btnGhost} onClick={onDone}>
-              Done
-            </button>
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+      <div className="w-full max-w-md bg-white rounded-2xl shadow-xl p-6 animate-in fade-in zoom-in-95">
+        <div className="flex items-start gap-3 mb-4">
+          <div className="w-10 h-10 rounded-xl bg-brand-orange/10 flex items-center justify-center shrink-0">
+            <Lock className="w-5 h-5 text-brand-orange" />
+          </div>
+          <div>
+            <h3 className="text-lg font-black text-brand-black">Reset password for {email}</h3>
+            <p className="text-sm text-brand-grey mt-1">
+              Enter a new password for this admin account.
+            </p>
           </div>
         </div>
+        <form onSubmit={handleSubmit} className="space-y-4">
+          {error && (
+            <p className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg p-3" role="alert">
+              {error}
+            </p>
+          )}
+          <Field label="New password">
+            <PasswordInput
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              autoComplete="new-password"
+              placeholder="Enter new password"
+              required
+              hasError={!!error}
+            />
+          </Field>
+          <Field label="Confirm password">
+            <PasswordInput
+              value={confirmPassword}
+              onChange={(e) => setConfirmPassword(e.target.value)}
+              autoComplete="new-password"
+              placeholder="Confirm new password"
+              required
+              hasError={!!error}
+            />
+          </Field>
+          <div className="flex gap-2">
+            <button
+              type="button"
+              onClick={onClose}
+              disabled={saving}
+              className={btnGhost + ' flex-1'}
+            >
+              Cancel
+            </button>
+            <button type="submit" disabled={saving} className={btnPrimary + ' flex-1'}>
+              {saving ? 'Saving...' : 'Reset password'}
+            </button>
+          </div>
+        </form>
       </div>
-    </Card>
+    </div>
   );
 }
 
@@ -90,13 +138,19 @@ function AdminForm({ initial, isNew, busy, onSave, onCancel }) {
     e.preventDefault();
     if (!form.full_name.trim()) return notifyError('Name is required.');
     if (isNew && !form.email.trim()) return notifyError('Email is required.');
+    if (isNew && !form.password) return notifyError('Password is required.');
+    if (isNew && form.password.length < 8) return notifyError('Password must be at least 8 characters.');
+    if (isNew && form.password.length > 128) return notifyError('Password must be at most 128 characters.');
     const payload = {
       full_name: form.full_name.trim(),
       mobile_number: form.mobile_number.trim() || null,
       whatsapp_number: form.whatsapp_number.trim() || null,
       is_super_admin: !!form.is_super_admin,
     };
-    if (isNew) payload.email = form.email.trim().toLowerCase();
+    if (isNew) {
+      payload.email = form.email.trim().toLowerCase();
+      payload.password = form.password;
+    }
     return onSave(payload);
   }
 
@@ -128,6 +182,18 @@ function AdminForm({ initial, isNew, busy, onSave, onCancel }) {
           </Field>
         </div>
 
+        {isNew && (
+          <Field label="Password">
+            <PasswordInput
+              value={form.password}
+              onChange={set('password')}
+              autoComplete="new-password"
+              placeholder="Enter password (min 8 chars)"
+              required
+            />
+          </Field>
+        )}
+
         <label className="flex items-start gap-3 cursor-pointer">
           <input
             type="checkbox"
@@ -146,9 +212,8 @@ function AdminForm({ initial, isNew, busy, onSave, onCancel }) {
 
         {isNew && (
           <p className="text-sm text-gray-500">
-            A password is generated when the account is created and shown to you once. If the email
-            already belongs to an account, that account is promoted to admin and its password is
-            reset.
+            Enter a password for the new admin account. If the email already belongs to an account,
+            that account is promoted to admin and its password is reset to the value you provide.
           </p>
         )}
 
@@ -171,7 +236,7 @@ function AdminsSection({ admins, loading, onChanged }) {
   const [editing, setEditing] = useState(null);
   const [busy, setBusy] = useState(false);
   const [search, setSearch] = useState('');
-  const [issued, setIssued] = useState(null); // { email, password }
+  const [resetPasswordModal, setResetPasswordModal] = useState(null); // { admin, onSave }
 
   const visible = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -185,13 +250,8 @@ function AdminsSection({ admins, loading, onChanged }) {
     setBusy(true);
     try {
       if (editing === 'new') {
-        const res = await api.adminCreateAdmin(payload);
-        setIssued({ email: payload.email, password: res.password });
-        notifySuccess(
-          res.reused_existing_account
-            ? 'Existing account promoted to admin.'
-            : 'Admin created.'
-        );
+        await api.adminCreateAdmin(payload);
+        notifySuccess('Admin created.');
       } else {
         await api.adminUpdateAdmin(editing.id, payload);
         notifySuccess('Admin updated.');
@@ -205,16 +265,15 @@ function AdminsSection({ admins, loading, onChanged }) {
     }
   }
 
-  async function resetPassword(a) {
-    setBusy(true);
-    try {
-      const res = await api.adminResetAdminPassword(a.id);
-      setIssued({ email: a.email, password: res.password });
-    } catch {
-      /* surfaced */
-    } finally {
-      setBusy(false);
-    }
+  function handleResetPassword(a) {
+    setResetPasswordModal({
+      admin: a,
+      onSave: async (password) => {
+        await api.adminResetAdminPassword(a.id, password);
+        notifySuccess('Password reset.');
+        onChanged();
+      },
+    });
   }
 
   async function setActive(a, active) {
@@ -233,8 +292,12 @@ function AdminsSection({ admins, loading, onChanged }) {
 
   return (
     <div className="space-y-4">
-      {issued && (
-        <PasswordPanel email={issued.email} password={issued.password} onDone={() => setIssued(null)} />
+      {resetPasswordModal && (
+        <ResetPasswordModal
+          email={resetPasswordModal.admin.email}
+          onClose={() => setResetPasswordModal(null)}
+          onSave={resetPasswordModal.onSave}
+        />
       )}
 
       <div className="flex flex-wrap items-center gap-2">
@@ -317,7 +380,7 @@ function AdminsSection({ admins, loading, onChanged }) {
                         type="button"
                         className={btnGhost}
                         title="Reset password"
-                        onClick={() => resetPassword(a)}
+                        onClick={() => handleResetPassword(a)}
                         disabled={busy}
                       >
                         <KeyRound className="w-4 h-4" />
