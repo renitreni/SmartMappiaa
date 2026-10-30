@@ -332,7 +332,7 @@ function AdminsSection({ admins, loading, onChanged }) {
         </Card>
       ) : visible.length === 0 ? (
         <Card className="p-4">
-          <p className="text-gray-500">No admins match that search.</p>
+          <p className="text-gray-500">Hey! No admins match that search.</p>
         </Card>
       ) : (
         <Card className="p-4 overflow-x-auto">
@@ -600,14 +600,17 @@ export default function AdminsView() {
   const [section, setSection] = useState('admins');
   const [admins, setAdmins] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(null);
 
   const load = useCallback(async () => {
     setLoading(true);
+    setLoadError(null);
     try {
       const res = await api.adminAdmins();
-      setAdmins(res.admins || []);
-    } catch {
-      /* surfaced */
+      setAdmins(res.data || []);
+    } catch (err) {
+      setLoadError(err.message || 'Failed to load admins');
+      setAdmins([]);
     } finally {
       setLoading(false);
     }
@@ -635,6 +638,24 @@ export default function AdminsView() {
           Login activity
         </button>
       </div>
+
+      {loadError && (
+        <Card className="p-4 border-red-300 bg-red-50">
+          <div className="flex items-start gap-3">
+            <span className="w-5 h-5 text-red-600 mt-0.5 shrink-0">!</span>
+            <div className="text-sm text-red-800">
+              <strong>Error loading admins:</strong> {loadError}
+              <button
+                type="button"
+                className="ml-2 text-red-700 underline hover:text-red-900"
+                onClick={load}
+              >
+                Retry
+              </button>
+            </div>
+          </div>
+        </Card>
+      )}
 
       {section === 'admins' ? (
         <AdminsSection admins={admins} loading={loading} onChanged={load} />
