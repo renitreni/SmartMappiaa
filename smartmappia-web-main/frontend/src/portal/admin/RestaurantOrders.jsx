@@ -13,8 +13,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   AlarmClock,
+  AlertTriangle,
   ClipboardList,
   ChevronRight,
+  RotateCcw,
   Store,
   UtensilsCrossed,
   Clock,
@@ -27,6 +29,7 @@ import {
   Wallet,
 } from 'lucide-react';
 import { api } from '../lib/api';
+import { extractOrders } from '../lib/ordersResponse';
 import { useBroadcast } from '../lib/useBroadcast';
 import { realtimeEnabled } from '../lib/gatewayClient';
 import { fmtSAR, foodStatusMeta, foodPaymentMeta } from '../lib/constants';
@@ -118,7 +121,8 @@ export default function RestaurantOrders() {
   const load = useCallback(async () => {
     try {
       const res = await api.adminFoodOrders();
-      setOrders((res.orders || []).filter((o) => ON_THE_PASS.includes(o.status)));
+      const ordersArray = extractOrders(res);
+      setOrders(ordersArray.filter((o) => ON_THE_PASS.includes(o.status)));
       if (Number.isFinite(res.preparingReminderMinutes)) {
         setReminderMinutes(res.preparingReminderMinutes);
       }
@@ -292,14 +296,36 @@ export default function RestaurantOrders() {
         </Card>
       )}
 
-      {orders === null && (
+      {orders === null && !error && (
         <div className="flex flex-col items-center justify-center py-16 gap-2">
           <Spinner className="!w-8 !h-8" />
           <p className="text-sm text-brand-grey">Loading kitchen orders…</p>
         </div>
       )}
 
-      {orders !== null && groups.length === 0 && (
+      {error && (
+        <Card className="p-4 border-red-200 bg-red-50 min-w-0">
+          <div className="flex items-start gap-3">
+            <span className="w-10 h-10 rounded-xl bg-red-100 text-red-700 flex items-center justify-center shrink-0">
+              <AlertTriangle className="w-5 h-5" />
+            </span>
+            <div className="min-w-0 flex-1">
+              <p className="font-bold text-brand-black text-sm">Failed to load orders</p>
+              <p className="text-xs text-brand-grey mt-0.5 leading-relaxed">{error}</p>
+              <button
+                type="button"
+                onClick={load}
+                disabled={orders === null} // allow retry even while loading
+                className="mt-3 inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-sm font-bold border cursor-pointer bg-brand-black text-white border-brand-black"
+              >
+                <RotateCcw className="w-4 h-4" /> Retry
+              </button>
+            </div>
+          </div>
+        </Card>
+      )}
+
+      {orders !== null && groups.length === 0 && !error && (
         <EmptyState
           icon={onlyWaiting ? Sparkles : ChefHat}
           title={onlyWaiting ? 'Every kitchen is on time' : 'No live restaurant orders'}

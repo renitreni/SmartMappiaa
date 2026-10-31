@@ -599,8 +599,9 @@ async function listOrders(req, res) {
     const status = filtersObj.status || req.query.status;
     const paymentStatus = filtersObj.payment_status || req.query.payment_status;
 
+    const offset = (page - 1) * limit;
     const result = await foodRepository.listOrders({
-      page,
+      offset,
       limit,
       sortBy,
       sortOrder,
@@ -610,13 +611,15 @@ async function listOrders(req, res) {
       filters: filtersObj,
     });
 
-    const rows = result.data;
+    const rows = result.rows;
 
     // Fetch the proof references for awaiting STC payments in one shot.
     const awaitingIds = (rows || [])
       .filter((o) => o.payment_status === 'awaiting')
       .map((o) => o.id);
-    const payments = await foodRepository.awaitingPaymentsForOrders(awaitingIds);
+    const payments = awaitingIds.length
+      ? await foodRepository.awaitingPaymentsForOrders(awaitingIds)
+      : [];
     const latestPayment = new Map();
     for (const p of payments || []) {
       if (!latestPayment.has(p.order_id)) latestPayment.set(p.order_id, p);
@@ -675,11 +678,11 @@ async function listOrders(req, res) {
     return res.json({
       data: orders,
       pagination: {
-        total,
+        total: result.total,
         page,
         limit,
-        totalPages: Math.ceil(total / limit),
-        hasNext: page < Math.ceil(total / limit),
+        totalPages: Math.ceil(result.total / limit),
+        hasNext: page < Math.ceil(result.total / limit),
         hasPrev: page > 1,
       },
       sort: { sortBy, sortOrder },
