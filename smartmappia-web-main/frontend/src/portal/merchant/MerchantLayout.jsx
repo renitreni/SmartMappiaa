@@ -169,8 +169,8 @@ export default function MerchantLayout({ activeTab, onTabChange, children, verti
           </nav>
         </div>
 
-        <div className="mt-auto p-4">
-          <div className="rounded-2xl bg-white/[0.04] border border-white/8 p-3">
+        <div className="mt-auto p-4 flex-shrink-0">
+          <div className="rounded-2xl bg-white/[0.08] border border-white/10 p-3 min-h-[80px]">
             <div className="flex items-center gap-3">
               <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-brand-orange to-brand-red text-white flex items-center justify-center font-black text-sm shrink-0">
                 {initial}

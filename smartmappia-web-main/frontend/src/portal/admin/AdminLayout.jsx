@@ -273,8 +273,8 @@ export default function AdminLayout({ activeTab, onTabChange, onRefresh, childre
           <nav className="space-y-1">{nav}</nav>
         </div>
 
-        <div className="p-2 lg:p-4">
-          <div className="rounded-2xl bg-white/[0.04] border border-white/8 p-2 lg:p-3">
+        <div className="p-2 lg:p-4 flex-shrink-0">
+          <div className="rounded-2xl bg-white/[0.08] border border-white/10 p-2 lg:p-3 min-h-[80px] lg:min-h-[100px]">
             <div className="flex items-center justify-center lg:justify-start gap-3">
               <div className="w-10 h-10 rounded-xl bg-linear-to-br from-brand-orange to-brand-red text-white flex items-center justify-center font-black text-sm shrink-0">
                 {initial}
